@@ -30,6 +30,7 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  Trash2,
   Users,
   X,
 } from "lucide-react";
@@ -191,9 +192,89 @@ function KnowledgeSection() {
   const { workspace, updateProfile, syncStatus } = useEverOnnWorkspace();
   const profile = workspace.profile;
   function field<K extends keyof BusinessProfile>(key: K, value: BusinessProfile[K]) { updateProfile({ [key]: value } as Pick<BusinessProfile, K>); }
+  function updateService(id: string, patch: Partial<BusinessProfile["services"][number]>) {
+    field("services", profile.services.map((service) => service.id === id ? { ...service, ...patch } : service));
+  }
+  function addService() {
+    field("services", [...profile.services, { id: `service_${crypto.randomUUID()}`, name: "", description: "", active: true }]);
+  }
+  function removeService(id: string) {
+    if (profile.services.length <= 1) return;
+    field("services", profile.services.filter((service) => service.id !== id));
+  }
+  function updateKnowledge(id: string, patch: Partial<BusinessProfile["knowledge"][number]>) {
+    field("knowledge", profile.knowledge.map((item) => item.id === id ? { ...item, ...patch, updatedAt: new Date().toISOString() } : item));
+  }
+  function addKnowledge() {
+    field("knowledge", [...profile.knowledge, { id: `knowledge_${crypto.randomUUID()}`, category: "faq", question: "", answer: "", approved: false, updatedAt: new Date().toISOString() }]);
+  }
+  function removeKnowledge(id: string) {
+    field("knowledge", profile.knowledge.filter((item) => item.id !== id));
+  }
   const saveLabel = syncStatus === "loading" ? "Loading JSON" : syncStatus === "saving" ? "Saving JSON" : syncStatus === "error" ? "JSON save failed" : "Saved to JSON";
   const saveIcon = syncStatus === "loading" || syncStatus === "saving" ? <RefreshCw className="spin" /> : syncStatus === "error" ? <CircleAlert /> : <CheckCircle2 />;
-  return <><PageHeading eyebrow="Approved business knowledge" title="Enter business facts once. Use them everywhere." copy="Website, chat, and phone answer from the same controlled profile. Only approved information reaches customers." action={<span className={`eo-save-state ${syncStatus === "error" ? "is-error" : ""}`}>{saveIcon} {saveLabel}</span>} /><div className="eo-knowledge-layout"><section className="eo-panel eo-profile-form"><div className="eo-panel-heading"><div><span>Business profile</span><h2>Core information</h2></div><StatusPill tone={profile.verified ? "good" : "warning"}>{profile.verified ? "Owner verified" : "Needs verification"}</StatusPill></div><div className="eo-form-grid"><label>Business name<input value={profile.businessName} onChange={(event) => field("businessName", event.target.value)} /></label><label>Business type<input value={profile.businessType} onChange={(event) => field("businessType", event.target.value)} /></label><label className="wide">Description<textarea rows={4} value={profile.description} onChange={(event) => field("description", event.target.value)} /></label><label>Business phone<input value={profile.phone} onChange={(event) => field("phone", event.target.value)} /></label><label>Follow-up email<input type="email" value={profile.email} onChange={(event) => field("email", event.target.value)} /></label><label>Location<input value={profile.location} onChange={(event) => field("location", event.target.value)} /></label><label>Service area<input value={profile.serviceArea} onChange={(event) => field("serviceArea", event.target.value)} /></label><label className="wide">Business hours<textarea rows={2} value={profile.hours} onChange={(event) => field("hours", event.target.value)} /></label></div></section><aside className="eo-panel eo-knowledge-score"><span>Knowledge readiness</span><div className="eo-score-ring"><strong>{profile.verified ? "92" : "68"}</strong><small>%</small></div><ul><li><Check /> Core business facts</li><li><Check /> Services and coverage</li><li><Check /> Customer handoff rules</li><li className={profile.knowledge.length >= 5 ? "" : "muted"}><Check /> Five or more FAQs</li></ul></aside></div><section className="eo-panel eo-kb-list"><div className="eo-panel-heading"><div><span>Shared knowledge base</span><h2>Approved answers</h2></div><button className="eo-secondary-button"><Plus /> Add answer</button></div>{profile.knowledge.map((item) => <article key={item.id}><div><span>{item.category}</span><h3>{item.question}</h3><p>{item.answer}</p></div><StatusPill tone={item.approved ? "good" : "warning"}>{item.approved ? "Approved" : "Draft"}</StatusPill></article>)}</section></>;
+  return <>
+    <PageHeading eyebrow="Approved business knowledge" title="Enter business facts once. Use them everywhere." copy="Voice and chat use saved changes immediately. Regenerate the website after changing services or knowledge so its pages, copy, and images are rebuilt." action={<span className={`eo-save-state ${syncStatus === "error" ? "is-error" : ""}`}>{saveIcon} {saveLabel}</span>} />
+    <div className="eo-notice"><Sparkles /><div><strong>One source of truth</strong><p>Everything below is saved to your JSON workspace. Voice, Gemini chat, and the next website generation use this profile—not the previous default business information.</p></div></div>
+    <div className="eo-knowledge-layout">
+      <section className="eo-panel eo-profile-form">
+        <div className="eo-panel-heading"><div><span>Business profile</span><h2>Core information</h2></div><StatusPill tone={profile.verified ? "good" : "warning"}>{profile.verified ? "Owner verified" : "Needs verification"}</StatusPill></div>
+        <div className="eo-form-grid">
+          <label>Business name<input value={profile.businessName} onChange={(event) => field("businessName", event.target.value)} /></label>
+          <label>Business type<input value={profile.businessType} onChange={(event) => field("businessType", event.target.value)} /></label>
+          <label className="wide">Description<textarea rows={4} value={profile.description} onChange={(event) => field("description", event.target.value)} /></label>
+          <label>Business phone<input value={profile.phone} onChange={(event) => field("phone", event.target.value)} /></label>
+          <label>Follow-up email<input type="email" value={profile.email} onChange={(event) => field("email", event.target.value)} /></label>
+          <label>Location<input value={profile.location} onChange={(event) => field("location", event.target.value)} /></label>
+          <label>Service area<input value={profile.serviceArea} onChange={(event) => field("serviceArea", event.target.value)} /></label>
+          <label className="wide">Business hours<textarea rows={2} value={profile.hours} onChange={(event) => field("hours", event.target.value)} /></label>
+        </div>
+      </section>
+      <aside className="eo-panel eo-knowledge-score">
+        <span>Knowledge readiness</span><div className="eo-score-ring"><strong>{profile.verified ? "92" : "68"}</strong><small>%</small></div>
+        <ul><li><Check /> Core business facts</li><li><Check /> {profile.services.filter((item) => item.active).length} active services</li><li><Check /> Customer handoff rules</li><li className={profile.knowledge.filter((item) => item.approved).length >= 5 ? "" : "muted"}><Check /> Five or more approved answers</li></ul>
+      </aside>
+    </div>
+    <section className="eo-panel eo-editor-list">
+      <div className="eo-panel-heading"><div><span>Service catalogue</span><h2>Services offered</h2></div><button className="eo-secondary-button" onClick={addService}><Plus /> Add service</button></div>
+      <p className="eo-editor-help">Active services become website pages and are available to voice and chat.</p>
+      {profile.services.map((service, index) => <article className="eo-service-editor" key={service.id}>
+        <span className="eo-editor-number">{String(index + 1).padStart(2, "0")}</span>
+        <div className="eo-editor-fields">
+          <label>Service name<input value={service.name} onChange={(event) => updateService(service.id, { name: event.target.value })} placeholder="Example: Emergency plumbing" /></label>
+          <label className="wide">What this service includes<textarea rows={2} value={service.description} onChange={(event) => updateService(service.id, { description: event.target.value })} placeholder="Describe the approved scope and ideal customer request." /></label>
+        </div>
+        <label className="eo-check-field"><input type="checkbox" checked={service.active} onChange={(event) => updateService(service.id, { active: event.target.checked })} /> Active</label>
+        <button className="eo-icon-danger" onClick={() => removeService(service.id)} disabled={profile.services.length <= 1} aria-label={`Remove ${service.name || "service"}`}><Trash2 /></button>
+      </article>)}
+    </section>
+    <section className="eo-panel eo-editor-list">
+      <div className="eo-panel-heading"><div><span>Shared knowledge base</span><h2>Approved answers</h2></div><button className="eo-secondary-button" onClick={addKnowledge}><Plus /> Add answer</button></div>
+      <p className="eo-editor-help">Only answers marked approved are supplied to the customer-facing AI.</p>
+      {profile.knowledge.map((item) => <article className="eo-knowledge-editor" key={item.id}>
+        <div className="eo-editor-fields">
+          <label>Category<select value={item.category} onChange={(event) => updateKnowledge(item.id, { category: event.target.value as typeof item.category })}><option value="faq">FAQ</option><option value="service">Service</option><option value="policy">Policy</option><option value="pricing">Pricing</option><option value="handoff">Handoff</option></select></label>
+          <label className="eo-check-field inline"><input type="checkbox" checked={item.approved} onChange={(event) => updateKnowledge(item.id, { approved: event.target.checked })} /> Approved for AI</label>
+          <label className="wide">Customer question<input value={item.question} onChange={(event) => updateKnowledge(item.id, { question: event.target.value })} placeholder="What might a customer ask?" /></label>
+          <label className="wide">Approved answer<textarea rows={3} value={item.answer} onChange={(event) => updateKnowledge(item.id, { answer: event.target.value })} placeholder="Give the exact grounded answer the AI may use." /></label>
+        </div>
+        <button className="eo-icon-danger" onClick={() => removeKnowledge(item.id)} aria-label={`Remove ${item.question || "knowledge answer"}`}><Trash2 /></button>
+      </article>)}
+    </section>
+    <section className="eo-panel eo-profile-form">
+      <div className="eo-panel-heading"><div><span>AI behavior</span><h2>Voice, chat, pricing, and handoff rules</h2></div></div>
+      <div className="eo-form-grid">
+        <label>Assistant name<input value={profile.assistantName} onChange={(event) => field("assistantName", event.target.value)} /></label>
+        <label>Tone<select value={profile.tone} onChange={(event) => field("tone", event.target.value as BusinessProfile["tone"])}><option value="warm">Warm</option><option value="professional">Professional</option><option value="direct">Direct</option></select></label>
+        <label className="wide">Greeting<textarea rows={2} value={profile.greeting} onChange={(event) => field("greeting", event.target.value)} /></label>
+        <label className="wide">Pricing rules<textarea rows={3} value={profile.pricingRules} onChange={(event) => field("pricingRules", event.target.value)} /></label>
+        <label className="wide">Policies<textarea rows={3} value={profile.policies} onChange={(event) => field("policies", event.target.value)} /></label>
+        <label className="wide">Emergency rules<textarea rows={3} value={profile.emergencyRules} onChange={(event) => field("emergencyRules", event.target.value)} /></label>
+        <label>Human transfer number<input value={profile.transferNumber} onChange={(event) => field("transferNumber", event.target.value)} /></label>
+        <label>Time zone<input value={profile.timeZone} onChange={(event) => field("timeZone", event.target.value)} /></label>
+      </div>
+    </section>
+  </>;
 }
 
 function AiAgentSection() {

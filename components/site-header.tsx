@@ -38,6 +38,9 @@ export function SiteHeader() {
           ))}
         </nav>
         <div className="nav-actions">
+          <Link href="/dashboard" className="button button-ghost desktop-only">
+            Dashboard
+          </Link>
           <Link href="/demo" className="button button-ghost desktop-only">
             Book a demo
           </Link>
@@ -61,6 +64,7 @@ export function SiteHeader() {
               {label}
             </Link>
           ))}
+          <Link href="/dashboard" onClick={() => setOpen(false)}>Dashboard</Link>
           <Link href="/demo" onClick={() => setOpen(false)}>Book a demo</Link>
         </nav>
       )}

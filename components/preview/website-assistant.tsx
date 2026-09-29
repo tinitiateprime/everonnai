@@ -3,7 +3,8 @@
 import { Conversation } from "@elevenlabs/client";
 import { Bot, CheckCircle2, LoaderCircle, MessageCircle, Mic, Phone, PhoneCall, Send, Sparkles, Volume2, X } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { BusinessProfile } from "@/features/everonn/types";
+import type { BusinessProfile, TranscriptMessage } from "@/features/everonn/types";
+import { extractCallerDetails } from "@/features/voice-agent/engine";
 
 type Panel = "chat" | "voice" | null;
 type Status = "idle" | "connecting" | "live" | "gemini" | "ended" | "error";
@@ -24,32 +25,63 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
   const [captured, setCaptured] = useState(false);
   const sessionRef = useRef<AssistantSession | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const messagesRef = useRef<AssistantMessage[]>([]);
+  const capturedRef = useRef(false);
 
   const pushMessage = useCallback((role: AssistantMessage["role"], value: unknown) => {
     const text = clean(value, 1200);
-    if (!text) return;
-    setMessages((current) => {
-      if (current.at(-1)?.role === role && current.at(-1)?.text === text) return current;
-      return [...current, { id: crypto.randomUUID(), role, text }].slice(-60);
-    });
+    if (!text) return messagesRef.current;
+    const current = messagesRef.current;
+    if (current.at(-1)?.role === role && current.at(-1)?.text === text) return current;
+    const next = [...current, { id: crypto.randomUUID(), role, text }].slice(-60);
+    messagesRef.current = next;
+    setMessages(next);
+    return next;
   }, []);
 
   const captureLead = useCallback((details: Record<string, unknown> = {}) => {
     const callerName = clean(details.caller_name || details.name, 120) || "Website visitor";
     const callerPhone = clean(details.caller_phone || details.phone, 40);
     const reason = clean(details.reason || details.message, 300) || "AI website assistant conversation";
-    if (callerPhone && !captured) {
+    if (callerPhone && !capturedRef.current) {
+      capturedRef.current = true;
       setCaptured(true);
       void fetch("/api/site-assistant/lead", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...(previewToken ? { previewToken } : { publicSlug }), callerName, callerPhone, reason }),
+        body: JSON.stringify({
+          ...(previewToken ? { previewToken } : { publicSlug }),
+          callerName,
+          callerPhone,
+          reason,
+          urgency: details.urgency,
+          source: details.source,
+        }),
       }).then((response) => {
-        if (!response.ok) setCaptured(false);
-      }).catch(() => setCaptured(false));
+        if (!response.ok) {
+          capturedRef.current = false;
+          setCaptured(false);
+        }
+      }).catch(() => {
+        capturedRef.current = false;
+        setCaptured(false);
+      });
     }
     return "The visitor details are captured for a human follow-up. Do not claim a live transfer or confirmed booking.";
-  }, [captured, previewToken, publicSlug]);
+  }, [previewToken, publicSlug]);
+
+  const captureTranscript = useCallback((conversation: AssistantMessage[], source: "phone" | "chat") => {
+    const transcript: TranscriptMessage[] = conversation.map((message) => ({
+      id: message.id,
+      role: message.role === "visitor" ? "caller" : "assistant",
+      text: message.text,
+      at: new Date().toISOString(),
+    }));
+    const details = extractCallerDetails(transcript);
+    if (!details.callerPhone) return;
+    const reason = transcript.filter((message) => message.role === "caller").map((message) => message.text).join(" ").slice(0, 300);
+    captureLead({ caller_name: details.callerName, caller_phone: details.callerPhone, reason, urgency: details.urgency, source });
+  }, [captureLead]);
 
   const clientTools = useMemo(() => ({
     capture_lead: captureLead,
@@ -77,6 +109,8 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
     await endSession();
     setPanel(mode);
     setMessages([]);
+    messagesRef.current = [];
+    capturedRef.current = false;
     setCaptured(false);
     setError("");
     setStatus("connecting");
@@ -98,7 +132,11 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
       const callbacks = {
         dynamicVariables: data.dynamicVariables,
         clientTools,
-        onMessage: ({ message, role, source }: { message: string; role: string; source?: string }) => pushMessage(role === "agent" || source === "ai" ? "assistant" : "visitor", message),
+        onMessage: ({ message, role, source }: { message: string; role: string; source?: string }) => {
+          const assistant = role === "agent" || source === "ai";
+          const conversation = pushMessage(assistant ? "assistant" : "visitor", message);
+          if (!assistant) captureTranscript(conversation, mode === "voice" ? "phone" : "chat");
+        },
         onModeChange: ({ mode: current }: { mode: string }) => setActivity(current === "listening" ? "Listening…" : current === "speaking" ? "Speaking…" : ""),
         onError: (message: string) => { setError(clean(message) || "The AI conversation was interrupted."); setStatus("error"); },
         onDisconnect: () => { setActivity(""); setStatus("ended"); sessionRef.current = null; },
@@ -121,14 +159,15 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
         setActivity("");
       }
     }
-  }, [clientTools, endSession, previewToken, profile.greeting, publicSlug, pushMessage]);
+  }, [captureTranscript, clientTools, endSession, previewToken, profile.greeting, publicSlug, pushMessage]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     const value = draft.trim();
     if (!value || (status !== "live" && status !== "gemini")) return;
     setDraft("");
-    pushMessage("visitor", value);
+    const conversation = pushMessage("visitor", value);
+    captureTranscript(conversation, panel === "voice" ? "phone" : "chat");
     if (status === "live" && sessionRef.current) {
       sessionRef.current.sendUserMessage(value);
       return;

@@ -6,6 +6,11 @@ export const dynamic = "force-dynamic";
 
 const websiteStatusRank = { draft: 0, generated: 1, claimed: 2, verified: 3, approved: 4, published: 5 } as const;
 
+function preserveRows<T extends { id: string }>(current: T[], incoming: T[]) {
+  const incomingIds = new Set(incoming.map((item) => item.id));
+  return [...incoming, ...current.filter((item) => !incomingIds.has(item.id))];
+}
+
 function noStore<T>(payload: T, init?: ResponseInit) {
   const headers = new Headers(init?.headers);
   headers.set("Cache-Control", "no-store");
@@ -48,6 +53,10 @@ export async function PUT(request: Request) {
         && websiteStatusRank[currentProject.status] > websiteStatusRank[incomingProject.status];
       return {
         ...body.workspace,
+        contacts: preserveRows(current.contacts, body.workspace.contacts),
+        leads: preserveRows(current.leads, body.workspace.leads),
+        conversations: preserveRows(current.conversations, body.workspace.conversations),
+        appointments: preserveRows(current.appointments, body.workspace.appointments),
         websiteProject: currentProjectTime > incomingProjectTime || regressesPublishing
           ? currentProject
           : incomingProject,

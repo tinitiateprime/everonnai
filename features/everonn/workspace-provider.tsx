@@ -5,6 +5,7 @@ import { createDemoWorkspace } from "./demo-data";
 import type {
   Appointment,
   BusinessProfile,
+  Contact,
   Conversation,
   EverOnnWorkspace,
   IntegrationState,
@@ -24,6 +25,8 @@ type WorkspaceContextValue = {
   advanceWebsiteProject: (status: WebsiteProject["status"], selectedConcept?: WebsiteProject["selectedConcept"]) => Promise<void>;
   addConversation: (conversation: Conversation) => void;
   addLead: (lead: Lead) => void;
+  upsertLead: (lead: Lead) => void;
+  upsertContact: (contact: Contact) => void;
   addAppointment: (appointment: Appointment) => void;
   setIntegration: (key: keyof IntegrationState, value: IntegrationState[keyof IntegrationState]) => void;
   updateTeamMember: (member: TeamMember) => void;
@@ -85,6 +88,31 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     };
   }, [hydrated, persistenceReady, workspace]);
 
+  useEffect(() => {
+    if (!hydrated || !persistenceReady) return;
+    const controller = new AbortController();
+    async function refresh() {
+      if (document.visibilityState === "hidden" || syncStatus === "saving") return;
+      try {
+        const response = await fetch("/api/workspace", { cache: "no-store", signal: controller.signal });
+        const data = await response.json() as { workspace?: EverOnnWorkspace };
+        if (response.ok && data.workspace) setWorkspace(data.workspace);
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") setSyncStatus("error");
+      }
+    }
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisible);
+    const interval = window.setInterval(refresh, 15_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [hydrated, persistenceReady, syncStatus]);
+
   const value = useMemo<WorkspaceContextValue>(() => ({
     workspace,
     hydrated,
@@ -121,6 +149,22 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     },
     addLead(lead) {
       setWorkspace((current) => ({ ...current, leads: [lead, ...current.leads] }));
+    },
+    upsertLead(lead) {
+      setWorkspace((current) => ({
+        ...current,
+        leads: current.leads.some((item) => item.id === lead.id)
+          ? current.leads.map((item) => item.id === lead.id ? lead : item)
+          : [lead, ...current.leads],
+      }));
+    },
+    upsertContact(contact) {
+      setWorkspace((current) => ({
+        ...current,
+        contacts: current.contacts.some((item) => item.id === contact.id)
+          ? current.contacts.map((item) => item.id === contact.id ? contact : item)
+          : [contact, ...current.contacts],
+      }));
     },
     addAppointment(appointment) {
       setWorkspace((current) => ({ ...current, appointments: [appointment, ...current.appointments] }));

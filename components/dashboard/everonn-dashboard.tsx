@@ -34,10 +34,10 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useConversation } from "@elevenlabs/react";
 import { useEverOnnWorkspace } from "@/features/everonn/workspace-provider";
-import type { BusinessProfile, TeamMember, TranscriptMessage, WebsiteProject } from "@/features/everonn/types";
+import type { BusinessProfile, Contact, Lead, TeamMember, TranscriptMessage, WebsiteProject } from "@/features/everonn/types";
 import { extractCallerDetails } from "@/features/voice-agent/engine";
 
 const sections = [
@@ -278,7 +278,7 @@ function KnowledgeSection() {
 }
 
 function AiAgentSection() {
-  const { workspace, addConversation, addLead, setIntegration } = useEverOnnWorkspace();
+  const { workspace, addConversation, upsertContact, upsertLead, setIntegration } = useEverOnnWorkspace();
   const profile = workspace.profile;
   const [messages, setMessages] = useState<TranscriptMessage[]>([{ id: "welcome", role: "assistant", text: profile.greeting, at: new Date().toISOString() }]);
   const [input, setInput] = useState("");
@@ -286,6 +286,7 @@ function AiAgentSection() {
   const [startingVoice, setStartingVoice] = useState(false);
   const [replying, setReplying] = useState(false);
   const [voiceError, setVoiceError] = useState("");
+  const lastCaptureSignature = useRef("");
   const liveVoice = useConversation({
     onConnect() {
       setIntegration("elevenLabs", "ready");
@@ -309,6 +310,29 @@ function AiAgentSection() {
     },
   });
   const live = liveVoice.status === "connected" || liveVoice.status === "connecting";
+
+  useEffect(() => {
+    const details = extractCallerDetails(messages);
+    if (!details.callerPhone) return;
+    const phoneKey = details.callerPhone.replace(/\D/g, "").slice(-15);
+    const reason = messages.filter((item) => item.role === "caller").map((item) => item.text).join(" ").slice(0, 300);
+    const signature = `${phoneKey}|${details.callerName}|${details.urgency}|${reason}`;
+    if (!phoneKey || signature === lastCaptureSignature.current) return;
+    lastCaptureSignature.current = signature;
+    void fetch("/api/site-assistant/lead", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-everonn-workspace": workspace.workspaceId },
+      body: JSON.stringify({ callerName: details.callerName || "AI caller", callerPhone: details.callerPhone, reason, urgency: details.urgency, source: "phone" }),
+    }).then(async (response) => {
+      const data = await response.json() as { lead?: Lead; contact?: Contact };
+      if (!response.ok || !data.lead || !data.contact) throw new Error("Lead capture failed.");
+      upsertContact(data.contact);
+      upsertLead(data.lead);
+    }).catch(() => {
+      lastCaptureSignature.current = "";
+      setVoiceError("The conversation is active, but the callback details could not be saved. Please try the number again.");
+    });
+  }, [messages, upsertContact, upsertLead, workspace.workspaceId]);
 
   function speak(value: string) {
     window.speechSynthesis.cancel();
@@ -372,6 +396,7 @@ function AiAgentSection() {
 
   function resetConversation() {
     if (live) liveVoice.endSession();
+    lastCaptureSignature.current = "";
     setMessages([{ id: crypto.randomUUID(), role: "assistant", text: profile.greeting, at: new Date().toISOString() }]);
     setSaved(false);
     setVoiceError("");
@@ -383,7 +408,6 @@ function AiAgentSection() {
     const now = new Date().toISOString();
     const conversationId = `conv_${crypto.randomUUID()}`;
     addConversation({ id: conversationId, workspaceId: workspace.workspaceId, channel: "phone", status: details.urgency === "high" ? "handoff" : "completed", contactName: details.callerName, contactPhone: details.callerPhone, summary: callerText.slice(0, 300) || "Test call completed", urgency: details.urgency, messages, createdAt: now });
-    addLead({ id: `lead_${crypto.randomUUID()}`, workspaceId: workspace.workspaceId, callerName: details.callerName || "Test caller", callerPhone: details.callerPhone, reason: callerText.slice(0, 180) || "Test call", source: "phone", urgency: details.urgency, status: "new", createdAt: now });
     setSaved(true);
   }
 

@@ -13,7 +13,7 @@ export async function GET() {
   return NextResponse.json({
     available: true,
     concepts: ["editorial", "momentum", "aura"],
-    generationMode: providers.gemini ? "ai-with-qa" : "deterministic-with-qa",
+    generationMode: providers.gemini ? "gemini-required-with-qa" : "configuration-required",
     providers,
     gates: ["private-preview", "owner-claim", "owner-verification", "approval", "publish"],
   });
@@ -30,6 +30,7 @@ export async function POST(request: Request) {
     normalizeWebsiteBusinessProfile(body.profile);
     const generation = await generateWebsiteSpec(body.profile);
     const project = createWebsiteProject(body.profile, generation.spec);
+    project.generation = { provider: "gemini", model: generation.model, generatedAt: new Date().toISOString() };
     const media = await resolveWebsiteMedia(project.spec, body.profile);
     project.spec.media = { hero: media.hero, story: media.story, gallery: media.gallery, services: media.services };
     await updateWorkspaceJson((workspace) => {
@@ -42,7 +43,6 @@ export async function POST(request: Request) {
       project,
       generatedBy: generation.provider,
       model: generation.model,
-      fallbackReason: generation.fallbackReason,
       mediaProvider: media.provider,
       mediaCount: Number(Boolean(media.hero)) + Number(Boolean(media.story && media.story.id !== media.hero?.id)) + media.gallery.length + Object.keys(media.services).length,
       mediaWarning: media.warning,

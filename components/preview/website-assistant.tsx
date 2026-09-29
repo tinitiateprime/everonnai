@@ -3,11 +3,10 @@
 import { Conversation } from "@elevenlabs/client";
 import { Bot, CheckCircle2, LoaderCircle, MessageCircle, Mic, Phone, PhoneCall, Send, Sparkles, Volume2, X } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { BusinessProfile, TranscriptMessage } from "@/features/everonn/types";
-import { extractCallerDetails, respondToTypedCall } from "@/features/voice-agent/engine";
+import type { BusinessProfile } from "@/features/everonn/types";
 
 type Panel = "chat" | "voice" | null;
-type Status = "idle" | "connecting" | "live" | "fallback" | "ended" | "error";
+type Status = "idle" | "connecting" | "live" | "gemini" | "ended" | "error";
 type AssistantMessage = { id: string; role: "assistant" | "visitor"; text: string };
 type AssistantSession = { endSession: () => Promise<void>; sendUserMessage: (text: string) => void };
 
@@ -113,33 +112,46 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
     } catch (startError) {
       const message = startError instanceof Error ? startError.message : "The AI assistant could not connect.";
       if (mode === "chat") {
-        setStatus("fallback");
-        setActivity("Approved knowledge mode");
-        pushMessage("assistant", `Hi—I'm ${profile.assistantName}, the website assistant for ${profile.businessName}. What can I help you with?`);
+        setStatus("gemini");
+        setActivity("Gemini AI chat");
+        pushMessage("assistant", profile.greeting);
       } else {
         setError(message);
         setStatus("error");
         setActivity("");
       }
     }
-  }, [clientTools, endSession, previewToken, profile.assistantName, profile.businessName, publicSlug, pushMessage]);
+  }, [clientTools, endSession, previewToken, profile.greeting, publicSlug, pushMessage]);
 
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
     const value = draft.trim();
-    if (!value || (status !== "live" && status !== "fallback")) return;
+    if (!value || (status !== "live" && status !== "gemini")) return;
     setDraft("");
     pushMessage("visitor", value);
     if (status === "live" && sessionRef.current) {
       sessionRef.current.sendUserMessage(value);
       return;
     }
-    const history: TranscriptMessage[] = [...messages, { id: crypto.randomUUID(), role: "caller", text: value, at: new Date().toISOString() }]
-      .map((item) => ({ id: item.id, role: item.role === "visitor" ? "caller" : "assistant", text: item.text, at: new Date().toISOString() }));
-    const result = respondToTypedCall(profile, history.slice(0, -1), value);
-    window.setTimeout(() => pushMessage("assistant", result.reply.replace("caller", "visitor")), 180);
-    const details = extractCallerDetails(history);
-    if (details.callerPhone && !captured) captureLead({ caller_name: details.callerName, caller_phone: details.callerPhone, reason: value });
+    setActivity("Gemini is thinking…");
+    setError("");
+    try {
+      const response = await fetch("/api/assistant/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(previewToken ? { previewToken } : { publicSlug }),
+          messages: [...messages, { id: crypto.randomUUID(), role: "visitor" as const, text: value }].map((message) => ({ role: message.role === "visitor" ? "caller" : "assistant", text: message.text })),
+        }),
+      });
+      const data = await response.json() as { reply?: string; model?: string; error?: string };
+      if (!response.ok || !data.reply) throw new Error(data.error || "Gemini could not answer this message.");
+      pushMessage("assistant", data.reply);
+      setActivity(data.model ? `Gemini AI · ${data.model}` : "Gemini AI chat");
+    } catch (replyError) {
+      setError(replyError instanceof Error ? replyError.message : "Gemini could not answer this message.");
+      setActivity("Gemini AI unavailable");
+    }
   }
 
   const close = () => { void endSession(); setPanel(null); setError(""); };

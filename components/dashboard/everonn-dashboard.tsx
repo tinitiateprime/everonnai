@@ -37,7 +37,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useConversation } from "@elevenlabs/react";
 import { useEverOnnWorkspace } from "@/features/everonn/workspace-provider";
 import type { BusinessProfile, TeamMember, TranscriptMessage, WebsiteProject } from "@/features/everonn/types";
-import { extractCallerDetails, respondToTypedCall } from "@/features/voice-agent/engine";
+import { extractCallerDetails } from "@/features/voice-agent/engine";
 
 const sections = [
   ["overview", "Overview", LayoutDashboard],
@@ -203,6 +203,7 @@ function AiAgentSection() {
   const [input, setInput] = useState("");
   const [saved, setSaved] = useState(false);
   const [startingVoice, setStartingVoice] = useState(false);
+  const [replying, setReplying] = useState(false);
   const [voiceError, setVoiceError] = useState("");
   const liveVoice = useConversation({
     onConnect() {
@@ -235,10 +236,10 @@ function AiAgentSection() {
     window.speechSynthesis.speak(speech);
   }
 
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
     const value = input.trim();
-    if (!value) return;
+    if (!value || replying) return;
     const caller: TranscriptMessage = { id: crypto.randomUUID(), role: "caller", text: value, at: new Date().toISOString() };
     if (live) {
       setMessages((current) => [...current, caller]);
@@ -246,11 +247,26 @@ function AiAgentSection() {
       setInput("");
       return;
     }
-    const response = respondToTypedCall(profile, messages, value);
-    const assistant: TranscriptMessage = { id: crypto.randomUUID(), role: "assistant", text: response.reply, at: new Date().toISOString() };
-    setMessages((current) => [...current, caller, assistant]);
     setInput("");
-    speak(response.reply);
+    setMessages((current) => [...current, caller]);
+    setReplying(true);
+    setVoiceError("");
+    try {
+      const response = await fetch("/api/assistant/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-everonn-workspace": workspace.workspaceId },
+        body: JSON.stringify({ messages: [...messages, caller].map((message) => ({ role: message.role, text: message.text })) }),
+      });
+      const data = await response.json() as { reply?: string; error?: string };
+      if (!response.ok || !data.reply) throw new Error(data.error || "Gemini could not answer this message.");
+      const assistant: TranscriptMessage = { id: crypto.randomUUID(), role: "assistant", text: data.reply, at: new Date().toISOString() };
+      setMessages((current) => [...current, assistant]);
+      speak(data.reply);
+    } catch (error) {
+      setVoiceError(error instanceof Error ? error.message : "Gemini could not answer this message.");
+    } finally {
+      setReplying(false);
+    }
   }
 
   async function startLiveVoice() {
@@ -291,7 +307,7 @@ function AiAgentSection() {
   }
 
   return <>
-    <PageHeading eyebrow="AI phone front desk" title="Test the receptionist against approved facts." copy="Start a real ElevenLabs microphone conversation or use the safe typed demo. Both share the approved business profile and handoff rules." />
+    <PageHeading eyebrow="AI phone front desk" title="Test the receptionist against approved facts." copy="Start a live ElevenLabs voice conversation or a Gemini-powered text conversation. Both use the approved business profile and handoff rules." />
     {voiceError && <div className="eo-error"><CircleAlert /> {voiceError}</div>}
     <div className="eo-agent-grid">
       <section className="eo-panel eo-agent-profile">
@@ -303,7 +319,7 @@ function AiAgentSection() {
           {!live ? <button className="eo-primary-button" onClick={startLiveVoice} disabled={startingVoice}><Mic /> {startingVoice ? "Connecting" : "Start live voice"}</button> : <button className="eo-stop-voice" onClick={() => liveVoice.endSession()}><MicOff /> End live voice</button>}
         </div>
         <dl>
-          <div><dt>Voice provider</dt><dd>{workspace.integrations.elevenLabs === "ready" || live ? "ElevenLabs" : "Typed demo"}</dd></div>
+          <div><dt>AI providers</dt><dd>{workspace.integrations.elevenLabs === "ready" || live ? "ElevenLabs + Gemini" : "Gemini text"}</dd></div>
           <div><dt>Approved services</dt><dd>{profile.services.filter((item) => item.active).length}</dd></div>
           <div><dt>Knowledge answers</dt><dd>{profile.knowledge.filter((item) => item.approved).length}</dd></div>
           <div><dt>Human handoff</dt><dd>{profile.transferNumber ? "Configured" : "Callback only"}</dd></div>
@@ -312,12 +328,12 @@ function AiAgentSection() {
       </section>
       <section className="eo-panel eo-agent-console">
         <header>
-          <div><span className="eo-live-dot" /><div><strong>{live ? "Live ElevenLabs conversation" : "Safe typed demonstration"}</strong><small>{live ? "Microphone and speaker are active" : "Not connected to a public phone line"}</small></div></div>
+          <div><span className="eo-live-dot" /><div><strong>{live ? "Live ElevenLabs conversation" : "Live Gemini text conversation"}</strong><small>{live ? "Microphone and speaker are active" : replying ? "Gemini is composing a grounded reply" : "Uses the approved business profile"}</small></div></div>
           <button onClick={resetConversation}><RefreshCw /> Reset</button>
         </header>
         <div className="eo-transcript">{messages.map((message) => <div className={message.role} key={message.id}><span>{message.role === "assistant" ? profile.assistantName : "Caller"}</span><p>{message.text}</p></div>)}</div>
-        <form onSubmit={submit}><input value={input} onChange={(event) => setInput(event.target.value)} placeholder={live ? "Send a text message into the live call…" : "Try: My name is Chris and my furnace is smoking…"} /><button aria-label="Send"><Send /></button></form>
-        <footer><small>{live ? "Live transcript is captured for the inbox summary." : "Browser speech reads demo replies aloud."}</small><button className="eo-primary-button" onClick={saveCall} disabled={saved || messages.length < 3}>{saved ? <><Check /> Saved to inbox</> : "Finish & save summary"}</button></footer>
+        <form onSubmit={submit}><input value={input} onChange={(event) => setInput(event.target.value)} placeholder={live ? "Send a text message into the live call…" : "Ask Gemini using your approved business knowledge…"} disabled={replying} /><button aria-label="Send" disabled={replying || !input.trim()}>{replying ? <RefreshCw className="spin" /> : <Send />}</button></form>
+        <footer><small>{live ? "Live transcript is captured for the inbox summary." : "Gemini replies are grounded by the approved profile."}</small><button className="eo-primary-button" onClick={saveCall} disabled={saved || messages.length < 3}>{saved ? <><Check /> Saved to inbox</> : "Finish & save summary"}</button></footer>
       </section>
     </div>
   </>;
@@ -350,7 +366,42 @@ function WebsiteProjectView({ project, advance }: { project: WebsiteProject; adv
   const next = ["claimed", "verified", "approved", "published"][Math.max(0, stepIndex)] as WebsiteProject["status"] | undefined;
   const actionLabels: Partial<Record<WebsiteProject["status"], string>> = { generated: "Claim this preview", claimed: "Verify business owner", verified: "Approve for publishing", approved: "Publish website" };
   const heroStyle = project.spec.media.hero ? { "--eo-site-image": `url("${project.spec.media.hero.url}")` } as React.CSSProperties : undefined;
-  return <><section className="eo-panel eo-project-status"><div><span>Private preview workflow</span><h2>{project.spec.hero.headline}</h2><p>Created {formatDate(project.createdAt)} · Home + Services + {project.spec.services.length} service pages + About + Contact</p></div><StatusPill tone={project.status === "published" ? "good" : "warning"}>{project.status}</StatusPill><ol>{["Generated", "Claimed", "Owner verified", "Approved", "Published"].map((label, index) => <li className={index <= stepIndex ? "done" : ""} key={label}><i>{index < stepIndex ? <Check /> : index + 1}</i><span>{label}</span></li>)}</ol></section><div className="eo-studio-grid"><section className="eo-panel eo-concept-panel"><div className="eo-concept-tabs">{project.concepts.map((item) => <button className={concept === item ? "active" : ""} onClick={() => setConcept(item)} key={item}>{item}</button>)}</div><div className={`eo-site-mini eo-site-${concept}`}><header><strong>{project.spec.brand.tagline}</strong><span>Services · About · Contact</span></header><div className="eo-site-hero" style={heroStyle}><small>{project.spec.hero.eyebrow}</small><h2>{project.spec.hero.headline}</h2><p>{project.spec.hero.subheadline}</p><button>{project.spec.hero.primaryCta}</button></div><div className="eo-site-services">{project.spec.services.slice(0, 3).map((service) => { const image = project.spec.media.services[service.id]; return <article key={service.id}>{image && <div className="eo-site-service-image" style={{ backgroundImage: `url("${image.url}")` }} />}<span>0{project.spec.services.indexOf(service) + 1}</span><strong>{service.name}</strong><p>{service.summary}</p></article>; })}</div></div><div className="eo-concept-actions"><button className="eo-secondary-button" onClick={() => advance(project.status, concept)}><Check /> Select {concept}</button><Link className="eo-primary-button" href={`/preview/${project.privateToken}?theme=${concept}`} target="_blank">Open multi-page preview <ExternalLink /></Link></div></section><aside className="eo-panel eo-qa-panel"><span>Website QA</span><div className={`eo-qa-result ${project.qa.passed ? "passed" : "failed"}`}>{project.qa.passed ? <CheckCircle2 /> : <CircleAlert />}<div><strong>{project.qa.passed ? "All checks passed" : "Action required"}</strong><small>{project.qa.checks.filter((item) => item.passed).length} of {project.qa.checks.length} checks</small></div></div>{project.qa.checks.map((check) => <div className="eo-qa-check" key={check.key}>{check.passed ? <Check /> : <X />}<span>{check.message}</span></div>)}{next && <button className="eo-primary-button eo-wide" onClick={() => advance(next, concept)}>{actionLabels[project.status]} <ChevronRight /></button>}{project.status === "published" && <a className="eo-primary-button eo-wide" href={`/sites/${project.publicSlug}`} target="_blank">View published site <ExternalLink /></a>}</aside></div></>;
+  return <>
+    <section className="eo-panel eo-project-status">
+      <div>
+        <span>Private preview workflow</span>
+        <h2>{project.spec.hero.headline}</h2>
+        <p>Created {formatDate(project.createdAt)} · Home + Services + {project.spec.services.length} service pages + About + Contact</p>
+        <small>{project.generation ? `Generated by Gemini · ${project.generation.model}` : "Legacy project · regenerate to use verified Gemini-only generation"}</small>
+      </div>
+      <StatusPill tone={project.status === "published" ? "good" : "warning"}>{project.status}</StatusPill>
+      <ol>{["Generated", "Claimed", "Owner verified", "Approved", "Published"].map((label, index) => <li className={index <= stepIndex ? "done" : ""} key={label}><i>{index < stepIndex ? <Check /> : index + 1}</i><span>{label}</span></li>)}</ol>
+    </section>
+    <div className="eo-studio-grid">
+      <section className="eo-panel eo-concept-panel">
+        <div className="eo-concept-tabs">{project.concepts.map((item) => <button className={concept === item ? "active" : ""} onClick={() => setConcept(item)} key={item}>{item}</button>)}</div>
+        <div className={`eo-site-mini eo-site-${concept}`}>
+          <header><strong>{project.spec.brand.tagline}</strong><span>Services · About · Contact</span></header>
+          <div className="eo-site-hero" style={heroStyle}><small>{project.spec.hero.eyebrow}</small><h2>{project.spec.hero.headline}</h2><p>{project.spec.hero.subheadline}</p><button>{project.spec.hero.primaryCta}</button></div>
+          <div className="eo-site-services">{project.spec.services.slice(0, 3).map((service) => {
+            const image = project.spec.media.services[service.id];
+            return <article key={service.id}>{image && <div className="eo-site-service-image" style={{ backgroundImage: `url("${image.url}")` }} />}<span>0{project.spec.services.indexOf(service) + 1}</span><strong>{service.name}</strong><p>{service.summary}</p></article>;
+          })}</div>
+        </div>
+        <div className="eo-concept-actions">
+          <button className="eo-secondary-button" onClick={() => void advance(project.status, concept)}><Check /> Select {concept}</button>
+          <Link className="eo-primary-button" href={`/preview/${project.privateToken}?theme=${concept}`} target="_blank">Open multi-page preview <ExternalLink /></Link>
+        </div>
+      </section>
+      <aside className="eo-panel eo-qa-panel">
+        <span>Website QA</span>
+        <div className={`eo-qa-result ${project.qa.passed ? "passed" : "failed"}`}>{project.qa.passed ? <CheckCircle2 /> : <CircleAlert />}<div><strong>{project.qa.passed ? "All checks passed" : "Action required"}</strong><small>{project.qa.checks.filter((item) => item.passed).length} of {project.qa.checks.length} checks</small></div></div>
+        {project.qa.checks.map((check) => <div className="eo-qa-check" key={check.key}>{check.passed ? <Check /> : <X />}<span>{check.message}</span></div>)}
+        {next && <button className="eo-primary-button eo-wide" onClick={() => void advance(next, concept)}>{actionLabels[project.status]} <ChevronRight /></button>}
+        {project.status === "published" && <a className="eo-primary-button eo-wide" href={`/sites/${project.publicSlug}`} target="_blank">View published site <ExternalLink /></a>}
+      </aside>
+    </div>
+  </>;
 }
 
 function BillingSection() {

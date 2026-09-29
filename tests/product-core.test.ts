@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createDemoWorkspace } from "@/features/everonn/demo-data";
-import { createWebsiteProject, runWebsiteQa } from "@/features/website-studio/generator";
-import { detectUrgency, respondToTypedCall } from "@/features/voice-agent/engine";
+import { createWebsiteProject, generateDeterministicWebsiteSpec, runWebsiteQa } from "@/features/website-studio/generator";
+import { buildReceptionistPrompt, detectUrgency } from "@/features/voice-agent/engine";
 import { buildGmailRaw } from "@/features/integrations/google";
 
 test("website generation preserves approved services and passes QA", () => {
   const profile = createDemoWorkspace().profile;
-  const project = createWebsiteProject(profile);
+  const project = createWebsiteProject(profile, generateDeterministicWebsiteSpec(profile));
   assert.equal(project.concepts.length, 3);
   assert.equal(project.status, "generated");
   assert.equal(project.qa.passed, true);
@@ -20,20 +20,19 @@ test("website generation preserves approved services and passes QA", () => {
 
 test("unsupported claims fail website QA", () => {
   const profile = createDemoWorkspace().profile;
-  const project = createWebsiteProject(profile);
+  const project = createWebsiteProject(profile, generateDeterministicWebsiteSpec(profile));
   project.spec.about.body += " We are award-winning and guaranteed.";
   const qa = runWebsiteQa(project.spec, profile);
   assert.equal(qa.passed, false);
   assert.equal(qa.checks.find((check) => check.key === "no-unsupported-claims")?.passed, false);
 });
 
-test("phone front desk detects urgency and does not invent pricing", () => {
+test("phone front desk detects urgency and instructs AI not to invent pricing", () => {
   const profile = createDemoWorkspace().profile;
   assert.equal(detectUrgency("There is smoke and a gas leak"), "high");
-  const urgent = respondToTypedCall(profile, [], "My furnace is smoking");
-  assert.equal(urgent.handoffRequested, true);
-  const price = respondToTypedCall(profile, [], "How much does a repair cost?");
-  assert.match(price.reply, /Never invent or estimate prices/);
+  const prompt = buildReceptionistPrompt(profile);
+  assert.match(prompt, /Never invent or estimate prices/);
+  assert.match(prompt, /Never invent prices, availability, credentials, bookings, promises, or policies/);
 });
 
 test("Gmail messages are encoded without exposing credentials", () => {

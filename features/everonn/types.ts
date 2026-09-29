@@ -155,6 +155,7 @@ export type WebsiteProject = {
   concepts: Array<"editorial" | "momentum" | "aura">;
   selectedConcept: "editorial" | "momentum" | "aura" | null;
   status: "draft" | "generated" | "claimed" | "verified" | "approved" | "published";
+  generation?: { provider: "gemini"; model: string; generatedAt: string };
   spec: WebsiteSpec;
   qa: { passed: boolean; checks: QaCheck[]; checkedAt: string };
   createdAt: string;

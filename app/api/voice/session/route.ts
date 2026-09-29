@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   try {
     const apiKey = String(process.env.ELEVENLABS_API_KEY || "").trim();
     const agentId = String(process.env.ELEVENLABS_AGENT_ID || "").trim();
-    if (!apiKey || !agentId) return NextResponse.json({ configured: false, error: "ElevenLabs is not configured. The browser-voice demo remains available." }, { status: 503 });
+    if (!apiKey || !agentId) return NextResponse.json({ configured: false, error: "ElevenLabs voice is not configured." }, { status: 503 });
     const workspace = await readWorkspaceJson();
     const selectedWorkspace = request.headers.get("x-everonn-workspace");
     if (!selectedWorkspace || selectedWorkspace !== workspace.workspaceId) return NextResponse.json({ error: "Workspace access denied." }, { status: 403 });

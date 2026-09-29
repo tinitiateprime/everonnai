@@ -23,14 +23,13 @@ test("Gemini website output remains grounded and preserves approved services", a
   assert.deepEqual(result.spec.services.map((service) => service.name), profile.services.filter((service) => service.active).map((service) => service.name));
 });
 
-test("Gemini failures fall back to the deterministic safe generator", async () => {
+test("Gemini failures are reported instead of silently generating template content", async () => {
   const profile = createDemoWorkspace().profile;
-  const result = await generateWebsiteSpec(profile, {
-    config: { apiKey: "test-key", models: ["broken-model"], timeoutMs: 10_000, retryDelayMs: 0 },
-    fetchImpl: (async () => new Response(JSON.stringify({ error: { message: "Provider unavailable" } }), { status: 503 })) as typeof fetch,
-  });
-
-  assert.equal(result.provider, "deterministic");
-  assert.match(result.fallbackReason || "", /Provider unavailable/);
-  assert.equal(result.spec.services.length, profile.services.filter((service) => service.active).length);
+  await assert.rejects(
+    generateWebsiteSpec(profile, {
+      config: { apiKey: "test-key", models: ["broken-model"], timeoutMs: 10_000, retryDelayMs: 0 },
+      fetchImpl: (async () => new Response(JSON.stringify({ error: { message: "Provider unavailable" } }), { status: 503 })) as typeof fetch,
+    }),
+    /Gemini could not generate.*Provider unavailable/,
+  );
 });

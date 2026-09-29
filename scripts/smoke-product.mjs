@@ -16,10 +16,12 @@ try {
   await page.getByRole("heading", { name: /Good morning/ }).waitFor();
   await page.getByRole("link", { name: /Test the AI front desk/ }).click();
   await page.waitForURL(/\/dashboard\/ai-agent$/);
-  const message = page.getByPlaceholder(/Try: My name is Chris/);
+  const message = page.locator(".eo-agent-console input");
   await message.fill("My name is Chris and my furnace is smoking. Call me at +1 555 555 1212.");
   await message.press("Enter");
-  await page.getByText(/contact local emergency services now/i).waitFor();
+  const aiSafetyReply = page.locator(".eo-transcript .assistant").nth(1);
+  await aiSafetyReply.waitFor({ timeout: 60_000 });
+  if (!/emergency|fire department|911|immediate danger/i.test(await aiSafetyReply.innerText())) throw new Error("Gemini did not return an emergency safety response.");
   await page.getByRole("button", { name: /Finish & save summary/ }).click();
   await page.getByText(/Saved to inbox/).waitFor();
 

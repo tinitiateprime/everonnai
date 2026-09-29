@@ -38,15 +38,15 @@ The smoke test covers the dashboard, urgent phone handling, lead persistence, We
 
 No database is required. The default JSON file is committed at `data/everonn.json`; set `EVERONN_DATA_FILE` to an absolute path if you want the writable file stored elsewhere. Writes are validated, serialized, and replaced atomically to protect the workspace from partial saves.
 
-Copy `.env.example` to `.env.local` and add only the providers you intend to enable. Website generation, QA, browser voice, typed phone demo, inbox, preview workflow, JSON persistence, and RBAC demonstrations work without external secrets.
+Copy `.env.example` to `.env.local` and configure Gemini for website generation and typed AI conversations. Pexels supplies generated-site photography, while ElevenLabs supplies live conversational text and WebRTC voice. Inbox, preview workflow, JSON persistence, QA, and RBAC remain local application features.
 
 The provider variable names intentionally match AgenticThat. Existing `GEMINI_API_KEY`/`GOOGLE_API_KEY`, Gemini model and timeout settings, `PEXELS_API_KEY`, ElevenLabs, Google OAuth, encryption, and Resend credentials can therefore be reused unchanged. EverOnn never copies those values into the browser or `data/everonn.json`.
 
-When Gemini is configured, Website Studio requests schema-constrained content, normalizes it against the approved service list, and runs the same unsupported-claim QA before accepting it. If every configured Gemini model fails or produces unsafe content, generation falls back to the deterministic grounded version instead of blocking the workflow.
+Website Studio requires Gemini, requests schema-constrained content, normalizes it against the approved service list, and runs unsupported-claim QA before accepting it. If every configured model fails, omits required content, or produces unsafe content, generation returns a visible error and does not silently publish template copy. Each saved project records the Gemini model that generated it.
 
 Google Calendar and Gmail use a real OAuth authorization-code flow at `/api/integrations/google/connect` and `/api/integrations/google/callback`. Access and refresh tokens are encrypted with AES-256-GCM and stored separately in the ignored `data/provider-connections.json` file. Set `EVERONN_CONNECTIONS_FILE` when that encrypted file should live elsewhere.
 
-When `ELEVENLABS_API_KEY` and `ELEVENLABS_AGENT_ID` are configured, the AI Front Desk can start a private WebRTC microphone session using a short-lived server-minted conversation token. The provider key is never sent to the browser, and the typed demonstration remains available as a fallback.
+When `ELEVENLABS_API_KEY` and `ELEVENLABS_AGENT_ID` are configured, the AI Front Desk can start a private WebRTC microphone session using a short-lived server-minted conversation token. The provider key is never sent to the browser. Typed dashboard conversations use Gemini; generated-site chat prefers ElevenLabs and continues with Gemini if its live text session cannot connect.
 
 The file-backed setup is ready for one Node.js application instance. If EverOnn is later deployed across multiple writable instances, point them at coordinated shared storage or introduce a database at that stage.
 

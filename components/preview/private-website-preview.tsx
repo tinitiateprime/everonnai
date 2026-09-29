@@ -13,8 +13,9 @@ import { WebsiteAssistant } from "./website-assistant";
 export type WebsiteTheme = "editorial" | "momentum" | "aura";
 
 function preparedSpec(project: WebsiteProject, profile: BusinessProfile) {
-  const fallback = generateDeterministicWebsiteSpec(profile);
   const supplied = project.spec as WebsiteSpec & Partial<WebsiteSpec>;
+  if (project.generation?.provider === "gemini") return supplied as WebsiteSpec;
+  const fallback = generateDeterministicWebsiteSpec(profile);
   const services = fallback.services.map((service) => ({
     ...service,
     ...(supplied.services?.find((item) => item.id === service.id || item.name === service.name) || {}),

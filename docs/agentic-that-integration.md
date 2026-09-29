@@ -8,14 +8,14 @@ This is a selective product migration, not a repository merge. Social publishing
 
 | AgenticThat capability | EverOnn implementation |
 | --- | --- |
-| Website Studio structured generation | Gemini-backed, deterministic-fallback generation in `features/website-studio/` |
+| Website Studio structured generation | Gemini-required generation with strict schema validation and grounded QA in `features/website-studio/` |
 | Multi-page generated sites | Home, services index, one detail page per service, about, and contact routes |
 | Service grounding and unsupported-claim QA | `runWebsiteQa` plus automated tests |
 | Three concepts | Editorial, Momentum, and Aura in the dashboard and private preview |
 | Private preview | Token-scoped `/preview/[token]`, noindex metadata, and capability workflow |
 | Owner claim/verify/approve/publish | Explicit state machine in Website Studio |
 | Website media selection | Pexels relevance scoring, composition checks, deduplication, hero/story/service images, and a six-image gallery |
-| Website assistant | Separate live text-chat and WebRTC voice experiences on private previews and published sites |
+| Website assistant | ElevenLabs live chat/voice with Gemini text continuity; no scripted customer-response fallback |
 | Published customer site | Dynamic `/sites/[slug]` routes with responsive navigation, metadata, and assistant access controls |
 | Phone receptionist prompt/safety | `features/voice-agent/engine.ts` |
 | Lead and urgency capture | AI agent demo, shared inbox, and typed/voice summary flow |
@@ -46,6 +46,7 @@ The product stores this profile once in `data/everonn.json`, together with appro
 - Private preview links are capability URLs. Rotate them when regenerating a site and do not expose them outside the intended owner workflow.
 - Published pages do not load the private workspace payload. Chat/voice sessions and callback capture pass through scoped server endpoints that accept only a valid preview token or the active published slug.
 - A configured Google OAuth app is required for live calendar and Gmail operations. Tokens are encrypted separately from workspace JSON.
-- A configured ElevenLabs agent is required for live provider sessions; typed browser speech remains the zero-secret demo fallback.
+- Gemini is required for website generation and typed AI conversations. Generation fails visibly if every configured model fails; it never silently publishes template copy.
+- A configured ElevenLabs agent is required for live text/voice provider sessions. If ElevenLabs text cannot connect, website chat continues through Gemini rather than scripted responses.
 - The local login flow demonstrates password, reset, and MFA UX. Add a production identity provider before exposing private workspaces publicly.
 - JSON persistence is intended for a single writable application instance. Multi-instance deployment requires coordinated shared storage or a future database adapter.

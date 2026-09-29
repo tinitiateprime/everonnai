@@ -177,8 +177,7 @@ export function runWebsiteQa(spec: WebsiteSpec, input: BusinessProfile) {
   return { passed: checks.every((check) => check.passed), checks, checkedAt: new Date().toISOString() };
 }
 
-export function createWebsiteProject(profile: BusinessProfile, suppliedSpec?: WebsiteSpec): WebsiteProject {
-  const spec = suppliedSpec || generateDeterministicWebsiteSpec(profile);
+export function createWebsiteProject(profile: BusinessProfile, spec: WebsiteSpec): WebsiteProject {
   const qa = runWebsiteQa(spec, profile);
   const createdAt = new Date().toISOString();
   const random = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");

@@ -1,0 +1,7 @@
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  SECRETS_SCAN_OMIT_KEYS = "GOOGLE_OAUTH_REDIRECT_URI"

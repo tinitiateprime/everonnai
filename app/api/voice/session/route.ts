@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import type { BusinessProfile } from "@/features/everonn/types";
 import { buildReceptionistPrompt } from "@/features/voice-agent/engine";
+import { getProviderReadiness } from "@/lib/provider-config";
+import { readWorkspaceJson } from "@/lib/json-workspace-store";
 
 const elevenLabsApi = "https://api.elevenlabs.io/v1";
 
@@ -16,7 +17,7 @@ async function elevenLabs(path: string, apiKey: string) {
 }
 
 export async function GET() {
-  return NextResponse.json({ configured: Boolean(process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_AGENT_ID) });
+  return NextResponse.json({ configured: getProviderReadiness().elevenLabs });
 }
 
 export async function POST(request: Request) {
@@ -24,8 +25,10 @@ export async function POST(request: Request) {
     const apiKey = String(process.env.ELEVENLABS_API_KEY || "").trim();
     const agentId = String(process.env.ELEVENLABS_AGENT_ID || "").trim();
     if (!apiKey || !agentId) return NextResponse.json({ configured: false, error: "ElevenLabs is not configured. The browser-voice demo remains available." }, { status: 503 });
-    const { profile } = await request.json() as { profile?: BusinessProfile };
-    if (!profile?.workspaceId) return NextResponse.json({ error: "A workspace business profile is required." }, { status: 400 });
+    const workspace = await readWorkspaceJson();
+    const selectedWorkspace = request.headers.get("x-everonn-workspace");
+    if (!selectedWorkspace || selectedWorkspace !== workspace.workspaceId) return NextResponse.json({ error: "Workspace access denied." }, { status: 403 });
+    const profile = workspace.profile;
     const encoded = encodeURIComponent(agentId);
     const [token, signedUrl] = await Promise.all([
       elevenLabs(`/convai/conversation/token?agent_id=${encoded}`, apiKey),

@@ -19,8 +19,8 @@ This is a selective product migration, not a repository merge. Social publishing
 | Lead and urgency capture | AI agent demo, shared inbox, and typed/voice summary flow |
 | Human handoff | Urgency and explicit-person-request paths create handoff outcomes |
 | Appointment safety | Requests remain unconfirmed until a provider confirms them |
-| Google Calendar/Gmail | Server adapters in `features/integrations/google.ts` |
-| ElevenLabs | Optional secure-session adapter at `/api/voice/session` |
+| Google Calendar/Gmail | OAuth connect/callback/disconnect flow, encrypted refresh-token store, and server adapters |
+| ElevenLabs | Private conversation-token endpoint and live WebRTC microphone experience |
 | Contacts and inbox | Dashboard contacts, calls, unified opportunity inbox |
 | Workspace isolation and RBAC | Tenant repository guards, role grants, JSON validation, and tests |
 | Login, reset, and MFA experience | `/login` interaction and workspace-scoped product UX |
@@ -42,7 +42,7 @@ The product stores this profile once in `data/everonn.json`, together with appro
 - No database or Supabase setup is required for the current product.
 - Provider tokens belong only in environment variables or encrypted server-side storage; they are never written to the workspace JSON.
 - Website preview capability tokens must be stored as SHA-256 digests; plaintext tokens are delivered only to the intended owner.
-- A configured Google OAuth app is required for live calendar and Gmail operations.
-- A configured ElevenLabs agent is required for live provider sessions; browser speech remains the zero-secret demo fallback.
+- A configured Google OAuth app is required for live calendar and Gmail operations. Tokens are encrypted separately from workspace JSON.
+- A configured ElevenLabs agent is required for live provider sessions; typed browser speech remains the zero-secret demo fallback.
 - The local login flow demonstrates password, reset, and MFA UX. Add a production identity provider before exposing private workspaces publicly.
 - JSON persistence is intended for a single writable application instance. Multi-instance deployment requires coordinated shared storage or a future database adapter.

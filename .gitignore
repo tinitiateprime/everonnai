@@ -4,6 +4,7 @@ out
 *.log
 .DS_Store
 data/*.tmp
+data/provider-connections.json
 .env*
 !.env.example
 .vercel

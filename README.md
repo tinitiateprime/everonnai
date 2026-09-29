@@ -40,6 +40,14 @@ No database is required. The default JSON file is committed at `data/everonn.jso
 
 Copy `.env.example` to `.env.local` and add only the providers you intend to enable. Website generation, QA, browser voice, typed phone demo, inbox, preview workflow, JSON persistence, and RBAC demonstrations work without external secrets.
 
+The provider variable names intentionally match AgenticThat. Existing `GEMINI_API_KEY`/`GOOGLE_API_KEY`, Gemini model and timeout settings, `PEXELS_API_KEY`, ElevenLabs, Google OAuth, encryption, and Resend credentials can therefore be reused unchanged. EverOnn never copies those values into the browser or `data/everonn.json`.
+
+When Gemini is configured, Website Studio requests schema-constrained content, normalizes it against the approved service list, and runs the same unsupported-claim QA before accepting it. If every configured Gemini model fails or produces unsafe content, generation falls back to the deterministic grounded version instead of blocking the workflow.
+
+Google Calendar and Gmail use a real OAuth authorization-code flow at `/api/integrations/google/connect` and `/api/integrations/google/callback`. Access and refresh tokens are encrypted with AES-256-GCM and stored separately in the ignored `data/provider-connections.json` file. Set `EVERONN_CONNECTIONS_FILE` when that encrypted file should live elsewhere.
+
+When `ELEVENLABS_API_KEY` and `ELEVENLABS_AGENT_ID` are configured, the AI Front Desk can start a private WebRTC microphone session using a short-lived server-minted conversation token. The provider key is never sent to the browser, and the typed demonstration remains available as a fallback.
+
 The file-backed setup is ready for one Node.js application instance. If EverOnn is later deployed across multiple writable instances, point them at coordinated shared storage or introduce a database at that stage.
 
 See `docs/agentic-that-integration.md` for the migration boundary and implementation map.

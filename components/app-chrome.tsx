@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { ConversationProvider } from "@elevenlabs/react";
 import { WorkspaceProvider } from "@/features/everonn/workspace-provider";
 import { EverOnnChat } from "./everonn-chat";
 import { SiteFooter } from "./site-footer";
@@ -12,10 +13,12 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
 
   return (
     <WorkspaceProvider>
-      {!isProductApp && <SiteHeader />}
-      {children}
-      {!isProductApp && <SiteFooter />}
-      {!isProductApp && <EverOnnChat />}
+      <ConversationProvider>
+        {!isProductApp && <SiteHeader />}
+        {children}
+        {!isProductApp && <SiteFooter />}
+        {!isProductApp && <EverOnnChat />}
+      </ConversationProvider>
     </WorkspaceProvider>
   );
 }

@@ -20,6 +20,8 @@ import {
   LayoutDashboard,
   Menu,
   MessageSquareText,
+  Mic,
+  MicOff,
   PhoneCall,
   Play,
   Plus,
@@ -31,7 +33,8 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import { useConversation } from "@elevenlabs/react";
 import { useEverOnnWorkspace } from "@/features/everonn/workspace-provider";
 import type { BusinessProfile, TeamMember, TranscriptMessage, WebsiteProject } from "@/features/everonn/types";
 import { extractCallerDetails, respondToTypedCall } from "@/features/voice-agent/engine";
@@ -194,11 +197,36 @@ function KnowledgeSection() {
 }
 
 function AiAgentSection() {
-  const { workspace, addConversation, addLead } = useEverOnnWorkspace();
+  const { workspace, addConversation, addLead, setIntegration } = useEverOnnWorkspace();
   const profile = workspace.profile;
   const [messages, setMessages] = useState<TranscriptMessage[]>([{ id: "welcome", role: "assistant", text: profile.greeting, at: new Date().toISOString() }]);
   const [input, setInput] = useState("");
   const [saved, setSaved] = useState(false);
+  const [startingVoice, setStartingVoice] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
+  const liveVoice = useConversation({
+    onConnect() {
+      setIntegration("elevenLabs", "ready");
+      setStartingVoice(false);
+      setVoiceError("");
+    },
+    onDisconnect() {
+      setStartingVoice(false);
+    },
+    onError(message) {
+      setStartingVoice(false);
+      setVoiceError(message || "The ElevenLabs session could not be started.");
+    },
+    onMessage(event) {
+      const role = event.role === "agent" ? "assistant" : "caller";
+      setMessages((current) => {
+        const previous = current.at(-1);
+        if (previous?.role === role && previous.text === event.message) return current;
+        return [...current, { id: crypto.randomUUID(), role, text: event.message, at: new Date().toISOString() }];
+      });
+    },
+  });
+  const live = liveVoice.status === "connected" || liveVoice.status === "connecting";
 
   function speak(value: string) {
     window.speechSynthesis.cancel();
@@ -212,11 +240,44 @@ function AiAgentSection() {
     const value = input.trim();
     if (!value) return;
     const caller: TranscriptMessage = { id: crypto.randomUUID(), role: "caller", text: value, at: new Date().toISOString() };
+    if (live) {
+      setMessages((current) => [...current, caller]);
+      liveVoice.sendUserMessage(value);
+      setInput("");
+      return;
+    }
     const response = respondToTypedCall(profile, messages, value);
     const assistant: TranscriptMessage = { id: crypto.randomUUID(), role: "assistant", text: response.reply, at: new Date().toISOString() };
     setMessages((current) => [...current, caller, assistant]);
     setInput("");
     speak(response.reply);
+  }
+
+  async function startLiveVoice() {
+    setStartingVoice(true);
+    setVoiceError("");
+    try {
+      const permission = await navigator.mediaDevices.getUserMedia({ audio: true });
+      permission.getTracks().forEach((track) => track.stop());
+      const response = await fetch("/api/voice/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-everonn-workspace": workspace.workspaceId },
+        body: JSON.stringify({}),
+      });
+      const data = await response.json() as { conversationToken?: string; dynamicVariables?: Record<string, string>; error?: string };
+      if (!response.ok || !data.conversationToken) throw new Error(data.error || "Unable to create the ElevenLabs session.");
+      liveVoice.startSession({ conversationToken: data.conversationToken, connectionType: "webrtc", dynamicVariables: data.dynamicVariables });
+    } catch (error) {
+      setStartingVoice(false);
+      setVoiceError(error instanceof Error ? error.message : "Microphone access or ElevenLabs setup failed.");
+    }
+  }
+
+  function resetConversation() {
+    if (live) liveVoice.endSession();
+    setMessages([{ id: crypto.randomUUID(), role: "assistant", text: profile.greeting, at: new Date().toISOString() }]);
+    setSaved(false);
+    setVoiceError("");
   }
 
   function saveCall() {
@@ -229,7 +290,37 @@ function AiAgentSection() {
     setSaved(true);
   }
 
-  return <><PageHeading eyebrow="AI phone front desk" title="Test the receptionist against approved facts." copy="This typed and browser-voice demo preserves the AgenticThat safety behavior: no invented prices or availability, explicit handoff, and emergency escalation." /><div className="eo-agent-grid"><section className="eo-panel eo-agent-profile"><div className="eo-agent-avatar"><Bot /></div><h2>{profile.assistantName}</h2><p>AI front desk for {profile.businessName}</p><div className="eo-agent-ready"><i /> Ready for a test conversation</div><dl><div><dt>Voice provider</dt><dd>{workspace.integrations.elevenLabs === "ready" ? "ElevenLabs connected" : "Browser voice demo"}</dd></div><div><dt>Approved services</dt><dd>{profile.services.filter((item) => item.active).length}</dd></div><div><dt>Knowledge answers</dt><dd>{profile.knowledge.filter((item) => item.approved).length}</dd></div><div><dt>Human handoff</dt><dd>{profile.transferNumber ? "Configured" : "Callback only"}</dd></div></dl><Link className="eo-secondary-button" href="/dashboard/knowledge">Edit approved information</Link></section><section className="eo-panel eo-agent-console"><header><div><span className="eo-live-dot" /><div><strong>Live demonstration</strong><small>Not connected to a public phone line</small></div></div><button onClick={() => { setMessages([{ id: crypto.randomUUID(), role: "assistant", text: profile.greeting, at: new Date().toISOString() }]); setSaved(false); }}><RefreshCw /> Reset</button></header><div className="eo-transcript">{messages.map((message) => <div className={message.role} key={message.id}><span>{message.role === "assistant" ? profile.assistantName : "Caller"}</span><p>{message.text}</p></div>)}</div><form onSubmit={submit}><input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Try: My name is Chris and my furnace is smoking…" /><button aria-label="Send"><Send /></button></form><footer><small>Browser speech reads AI replies aloud.</small><button className="eo-primary-button" onClick={saveCall} disabled={saved || messages.length < 3}>{saved ? <><Check /> Saved to inbox</> : "Finish & save summary"}</button></footer></section></div></>;
+  return <>
+    <PageHeading eyebrow="AI phone front desk" title="Test the receptionist against approved facts." copy="Start a real ElevenLabs microphone conversation or use the safe typed demo. Both share the approved business profile and handoff rules." />
+    {voiceError && <div className="eo-error"><CircleAlert /> {voiceError}</div>}
+    <div className="eo-agent-grid">
+      <section className="eo-panel eo-agent-profile">
+        <div className={`eo-agent-avatar ${liveVoice.isSpeaking ? "is-speaking" : ""}`}><Bot /></div>
+        <h2>{profile.assistantName}</h2>
+        <p>AI front desk for {profile.businessName}</p>
+        <div className={`eo-agent-ready ${live ? "is-live" : ""}`}><i /> {liveVoice.status === "connected" ? (liveVoice.isSpeaking ? "AI is speaking" : "Listening to you") : liveVoice.status === "connecting" || startingVoice ? "Connecting securely…" : "Ready for a live conversation"}</div>
+        <div className="eo-live-voice-controls">
+          {!live ? <button className="eo-primary-button" onClick={startLiveVoice} disabled={startingVoice}><Mic /> {startingVoice ? "Connecting" : "Start live voice"}</button> : <button className="eo-stop-voice" onClick={() => liveVoice.endSession()}><MicOff /> End live voice</button>}
+        </div>
+        <dl>
+          <div><dt>Voice provider</dt><dd>{workspace.integrations.elevenLabs === "ready" || live ? "ElevenLabs" : "Typed demo"}</dd></div>
+          <div><dt>Approved services</dt><dd>{profile.services.filter((item) => item.active).length}</dd></div>
+          <div><dt>Knowledge answers</dt><dd>{profile.knowledge.filter((item) => item.approved).length}</dd></div>
+          <div><dt>Human handoff</dt><dd>{profile.transferNumber ? "Configured" : "Callback only"}</dd></div>
+        </dl>
+        <Link className="eo-secondary-button" href="/dashboard/knowledge">Edit approved information</Link>
+      </section>
+      <section className="eo-panel eo-agent-console">
+        <header>
+          <div><span className="eo-live-dot" /><div><strong>{live ? "Live ElevenLabs conversation" : "Safe typed demonstration"}</strong><small>{live ? "Microphone and speaker are active" : "Not connected to a public phone line"}</small></div></div>
+          <button onClick={resetConversation}><RefreshCw /> Reset</button>
+        </header>
+        <div className="eo-transcript">{messages.map((message) => <div className={message.role} key={message.id}><span>{message.role === "assistant" ? profile.assistantName : "Caller"}</span><p>{message.text}</p></div>)}</div>
+        <form onSubmit={submit}><input value={input} onChange={(event) => setInput(event.target.value)} placeholder={live ? "Send a text message into the live call…" : "Try: My name is Chris and my furnace is smoking…"} /><button aria-label="Send"><Send /></button></form>
+        <footer><small>{live ? "Live transcript is captured for the inbox summary." : "Browser speech reads demo replies aloud."}</small><button className="eo-primary-button" onClick={saveCall} disabled={saved || messages.length < 3}>{saved ? <><Check /> Saved to inbox</> : "Finish & save summary"}</button></footer>
+      </section>
+    </div>
+  </>;
 }
 
 function WebsiteSection() {
@@ -241,7 +332,7 @@ function WebsiteSection() {
   async function generate() {
     setGenerating(true); setError("");
     try {
-      const response = await fetch("/api/website-studio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile: workspace.profile }) });
+      const response = await fetch("/api/website-studio", { method: "POST", headers: { "Content-Type": "application/json", "x-everonn-workspace": workspace.workspaceId }, body: JSON.stringify({ profile: workspace.profile }) });
       const data = await response.json() as { project?: WebsiteProject; error?: string };
       if (!response.ok || !data.project) throw new Error(data.error || "Unable to generate the website project.");
       setWebsiteProject(data.project);
@@ -268,9 +359,63 @@ function BillingSection() {
 const roleDescriptions = { owner: "Full workspace, team, billing, and publishing control", manager: "Configure business channels and handle customers", agent: "Operate inbox, calls, contacts, and appointments", viewer: "Read-only workspace access" } as const;
 
 function SettingsSection() {
+  const router = useRouter();
   const { workspace, setIntegration, updateTeamMember, resetDemo } = useEverOnnWorkspace();
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<TeamMember["role"]>("agent");
+  const [connections, setConnections] = useState({ loading: true, googleConfigured: false, googleConnected: false, calendarConnected: false, gmailConnected: false, elevenLabsConfigured: false, error: "" });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const [googleResponse, voiceResponse] = await Promise.all([
+          fetch("/api/integrations/google", { headers: { "x-everonn-workspace": workspace.workspaceId }, cache: "no-store", signal: controller.signal }),
+          fetch("/api/voice/session", { cache: "no-store", signal: controller.signal }),
+        ]);
+        const google = await googleResponse.json() as { configured?: boolean; connected?: boolean; calendar?: boolean; gmail?: boolean; error?: string };
+        const voice = await voiceResponse.json() as { configured?: boolean };
+        if (!googleResponse.ok) throw new Error(google.error || "Unable to read provider status.");
+        setConnections({ loading: false, googleConfigured: Boolean(google.configured), googleConnected: Boolean(google.connected), calendarConnected: Boolean(google.calendar), gmailConnected: Boolean(google.gmail), elevenLabsConfigured: Boolean(voice.configured), error: "" });
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") setConnections((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : "Unable to read provider status." }));
+      }
+    }, 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [workspace.workspaceId]);
+
+  function connectGoogle() {
+    router.push(`/api/integrations/google/connect?workspaceId=${encodeURIComponent(workspace.workspaceId)}`);
+  }
+
+  async function disconnectGoogle() {
+    setConnections((current) => ({ ...current, loading: true, error: "" }));
+    try {
+      const response = await fetch("/api/integrations/google", { method: "DELETE", headers: { "x-everonn-workspace": workspace.workspaceId } });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Unable to disconnect Google.");
+      setIntegration("googleCalendar", "disconnected");
+      setIntegration("gmail", "disconnected");
+      setConnections((current) => ({ ...current, loading: false, googleConnected: false, calendarConnected: false, gmailConnected: false }));
+    } catch (error) {
+      setConnections((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : "Unable to disconnect Google." }));
+    }
+  }
+
   function invite(event: FormEvent) { event.preventDefault(); if (!inviteEmail.trim()) return; updateTeamMember({ id: `member_${crypto.randomUUID()}`, name: inviteEmail.split("@")[0], email: inviteEmail.trim(), role: inviteRole, status: "invited" }); setInviteEmail(""); }
-  return <><PageHeading eyebrow="Workspace controls" title="Team access and connected systems." copy="Roles are workspace-scoped so one customer’s data never appears in another workspace." /><div className="eo-settings-grid"><section className="eo-panel"><div className="eo-panel-heading"><div><span>Connections</span><h2>Customer workflow</h2></div></div>{([ ["googleCalendar", "Google Calendar", "Check availability and create confirmed appointments", CalendarCheck], ["gmail", "Gmail", "Send call summaries and urgent alerts", Send], ["elevenLabs", "ElevenLabs", "Pilot voice provider for browser and phone sessions", Headphones] ] as const).map(([key, name, copy, Icon]) => { const isVoice = key === "elevenLabs"; const connected = isVoice ? workspace.integrations[key] === "ready" : workspace.integrations[key] === "connected"; return <div className="eo-connection" key={key}><span><Icon /></span><div><strong>{name}</strong><small>{copy}</small></div><button onClick={() => setIntegration(key, isVoice ? (connected ? "not_configured" : "ready") : (connected ? "disconnected" : "connected"))}>{connected ? "Disconnect" : "Connect"}</button></div>; })}</section><section className="eo-panel"><div className="eo-panel-heading"><div><span>Role permissions</span><h2>Workspace RBAC</h2></div></div>{Object.entries(roleDescriptions).map(([role, copy]) => <div className="eo-role" key={role}><strong>{role}</strong><p>{copy}</p></div>)}</section></div><section className="eo-panel eo-team-panel"><div className="eo-panel-heading"><div><span>Workspace team</span><h2>Members and invitations</h2></div></div><div className="eo-table-wrap"><table className="eo-table"><thead><tr><th>Member</th><th>Role</th><th>Status</th><th>Access</th></tr></thead><tbody>{workspace.team.map((member) => <tr key={member.id}><td><strong>{member.name}</strong><small>{member.email}</small></td><td><select value={member.role} onChange={(event) => updateTeamMember({ ...member, role: event.target.value as TeamMember["role"] })}><option value="owner">Owner</option><option value="manager">Manager</option><option value="agent">Agent</option><option value="viewer">Viewer</option></select></td><td><StatusPill tone={member.status === "active" ? "good" : "warning"}>{member.status}</StatusPill></td><td>{roleDescriptions[member.role]}</td></tr>)}</tbody></table></div><form className="eo-invite-form" onSubmit={invite}><input type="email" required value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="teammate@business.com" /><select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as TeamMember["role"])}><option value="manager">Manager</option><option value="agent">Agent</option><option value="viewer">Viewer</option></select><button className="eo-primary-button"><Users /> Send invitation</button></form></section><section className="eo-danger-zone"><div><strong>Reset JSON workspace</strong><p>Restore the original demo business, conversations, and configuration in the JSON file.</p></div><button onClick={resetDemo}>Reset demo</button></section></>;
+  return <>
+    <PageHeading eyebrow="Workspace controls" title="Team access and connected systems." copy="Roles are workspace-scoped so one customer’s data never appears in another workspace." />
+    {connections.error && <div className="eo-error"><CircleAlert /> {connections.error}</div>}
+    <div className="eo-settings-grid">
+      <section className="eo-panel">
+        <div className="eo-panel-heading"><div><span>Connections</span><h2>Customer workflow</h2></div></div>
+        <div className="eo-connection"><span><CalendarCheck /></span><div><strong>Google Calendar</strong><small>{connections.calendarConnected ? "Connected with encrypted OAuth tokens" : "Check availability and create confirmed appointments"}</small></div><button disabled={connections.loading || !connections.googleConfigured} onClick={connections.googleConnected ? disconnectGoogle : connectGoogle}>{connections.loading ? "Checking…" : !connections.googleConfigured ? "Needs setup" : connections.calendarConnected ? "Disconnect" : "Connect"}</button></div>
+        <div className="eo-connection"><span><Send /></span><div><strong>Gmail</strong><small>{connections.gmailConnected ? "Connected through the same approved Google account" : "Send call summaries and urgent alerts"}</small></div><button disabled={connections.loading || !connections.googleConfigured} onClick={connections.googleConnected ? disconnectGoogle : connectGoogle}>{connections.gmailConnected ? "Disconnect" : "Connect Google"}</button></div>
+        <div className="eo-connection"><span><Headphones /></span><div><strong>ElevenLabs</strong><small>{connections.elevenLabsConfigured ? "API key and agent are ready for live browser voice" : "Add the API key and Agent ID to enable live voice"}</small></div><button disabled={!connections.elevenLabsConfigured} onClick={() => router.push("/dashboard/ai-agent")}>{connections.elevenLabsConfigured ? "Open live voice" : "Needs setup"}</button></div>
+      </section>
+      <section className="eo-panel"><div className="eo-panel-heading"><div><span>Role permissions</span><h2>Workspace RBAC</h2></div></div>{Object.entries(roleDescriptions).map(([role, copy]) => <div className="eo-role" key={role}><strong>{role}</strong><p>{copy}</p></div>)}</section>
+    </div>
+    <section className="eo-panel eo-team-panel"><div className="eo-panel-heading"><div><span>Workspace team</span><h2>Members and invitations</h2></div></div><div className="eo-table-wrap"><table className="eo-table"><thead><tr><th>Member</th><th>Role</th><th>Status</th><th>Access</th></tr></thead><tbody>{workspace.team.map((member) => <tr key={member.id}><td><strong>{member.name}</strong><small>{member.email}</small></td><td><select value={member.role} onChange={(event) => updateTeamMember({ ...member, role: event.target.value as TeamMember["role"] })}><option value="owner">Owner</option><option value="manager">Manager</option><option value="agent">Agent</option><option value="viewer">Viewer</option></select></td><td><StatusPill tone={member.status === "active" ? "good" : "warning"}>{member.status}</StatusPill></td><td>{roleDescriptions[member.role]}</td></tr>)}</tbody></table></div><form className="eo-invite-form" onSubmit={invite}><input type="email" required value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="teammate@business.com" /><select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as TeamMember["role"])}><option value="manager">Manager</option><option value="agent">Agent</option><option value="viewer">Viewer</option></select><button className="eo-primary-button"><Users /> Send invitation</button></form></section>
+    <section className="eo-danger-zone"><div><strong>Reset JSON workspace</strong><p>Restore the original demo business, conversations, and configuration in the JSON file.</p></div><button onClick={resetDemo}>Reset demo</button></section>
+  </>;
 }

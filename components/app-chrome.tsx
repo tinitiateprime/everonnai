@@ -9,6 +9,7 @@ import { SiteHeader } from "./site-header";
 
 export function AppChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  if (pathname.startsWith("/sites")) return <>{children}</>;
   const isProductApp = pathname.startsWith("/dashboard") || pathname.startsWith("/preview") || pathname.startsWith("/login");
 
   return (

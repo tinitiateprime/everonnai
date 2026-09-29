@@ -12,6 +12,7 @@
     "check": "npm run lint && npm test && npm run build"
   },
   "dependencies": {
+    "@elevenlabs/client": "^1.25.0",
     "@elevenlabs/react": "^1.15.2",
     "lucide-react": "^0.468.0",
     "next": "^16.3.6",

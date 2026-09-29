@@ -19,12 +19,13 @@ test("Pexels media populates hero, service, and gallery placements without dupli
   const fetchImpl = async () => new Response(JSON.stringify({ photos }), { status: 200, headers: { "Content-Type": "application/json" } });
 
   const media = await resolveWebsiteMedia(spec, profile, { apiKey: "test-pexels-key", fetchImpl: fetchImpl as typeof fetch });
-  const assets = [media.hero, ...Object.values(media.services), ...media.gallery].filter(Boolean);
+  const assets = [media.hero, media.story, ...Object.values(media.services), ...media.gallery].filter(Boolean);
 
   assert.equal(media.provider, "pexels");
   assert.ok(media.hero);
+  assert.ok(media.story);
   assert.equal(Object.keys(media.services).length, profile.services.filter((service) => service.active).length);
-  assert.equal(media.gallery.length, 3);
+  assert.equal(media.gallery.length, 6);
   assert.equal(new Set(assets.map((asset) => asset?.id)).size, assets.length);
 });
 
@@ -37,6 +38,7 @@ test("website generation survives a Pexels outage with the visual fallback intac
 
   assert.equal(media.provider, "none");
   assert.equal(media.hero, null);
+  assert.equal(media.story, null);
   assert.equal(media.gallery.length, 0);
   assert.match(media.warning || "", /searches could not be completed/);
 });

@@ -24,9 +24,17 @@ try {
   await page.getByText(/Saved to inbox/).waitFor();
 
   await page.goto(`${baseURL}/dashboard/website`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: /Generate three concepts/ }).click();
+  const previousToken = originalWorkspace.websiteProject?.privateToken || "";
+  const generationButton = page.locator(".eo-page-heading button");
+  await generationButton.click();
+  await page.waitForFunction(() => document.querySelector(".eo-page-heading button")?.textContent?.includes("Generating"));
+  await page.waitForFunction(() => !document.querySelector(".eo-page-heading button")?.textContent?.includes("Generating"), undefined, { timeout: 120_000 });
   await page.getByText("Private preview workflow").waitFor();
-  const previewHref = await page.getByRole("link", { name: /Open private preview/ }).getAttribute("href");
+  const generatedWorkspace = await (await fetch(`${baseURL}/api/workspace`, { cache: "no-store" })).json();
+  const expectedToken = generatedWorkspace.workspace?.websiteProject?.privateToken;
+  if (!expectedToken || expectedToken === previousToken) throw new Error("Website regeneration did not create a fresh multi-page project.");
+  await page.waitForFunction((token) => [...document.querySelectorAll("a")].some((link) => link.getAttribute("href")?.includes(token)), expectedToken);
+  const previewHref = await page.getByRole("link", { name: /Open .*preview/ }).getAttribute("href");
   if (!previewHref) throw new Error("Generated website did not expose its private preview URL.");
   await page.waitForFunction(async (href) => {
     const response = await fetch("/api/workspace", { cache: "no-store" });
@@ -61,8 +69,42 @@ try {
     const galleryImageCount = await preview.locator(".client-gallery-photo img").count();
     if (!serviceImageCount || !galleryImageCount) throw new Error("Pexels media did not render in every generated website section.");
   } else {
-    await preview.locator(".client-hero-art").waitFor();
+    await preview.locator(".client-photo-fallback").first().waitFor();
   }
+
+  await preview.locator(".client-header nav").getByRole("link", { name: "Services", exact: true }).click();
+  await preview.waitForURL(/\/preview\/[^/]+\/services\?theme=/);
+  await preview.locator(".client-services-page .client-service-grid article").first().waitFor();
+  await preview.locator(".client-services-page .client-service-grid article h3 a").first().click();
+  await preview.waitForURL(/\/preview\/[^/]+\/services\/[^?]+\?theme=/);
+  await preview.waitForTimeout(500);
+  if (!await preview.locator(".client-service-detail").count()) {
+    const debug = await preview.evaluate(async () => {
+      const payload = await (await fetch("/api/workspace", { cache: "no-store" })).json();
+      return { url: location.href, token: payload.workspace?.websiteProject?.privateToken, slugs: payload.workspace?.websiteProject?.spec?.services?.map((service) => service.slug) };
+    });
+    throw new Error(`Generated service-detail route did not render (${JSON.stringify(debug)}): ${(await preview.locator("body").innerText()).slice(0, 700)}`);
+  }
+  await preview.locator(".client-header nav").getByRole("link", { name: "About", exact: true }).click();
+  await preview.waitForURL(/\/preview\/[^/]+\/about\?theme=/);
+  await preview.locator(".client-benefits").waitFor();
+  await preview.locator(".client-header nav").getByRole("link", { name: "Contact", exact: true }).click();
+  await preview.waitForURL(/\/preview\/[^/]+\/contact\?theme=/);
+  await preview.locator(".client-contact-page").waitFor();
+  await preview.locator(".client-logo").click();
+  await preview.waitForURL(/\/preview\/[^/?]+\?theme=/);
+  await preview.locator(".client-hero").waitFor();
+
+  await preview.getByRole("button", { name: /Chat with/ }).click();
+  const assistantInput = preview.getByLabel("Message the AI assistant");
+  await assistantInput.waitFor();
+  await preview.waitForFunction(() => !document.querySelector("[aria-label='Message the AI assistant']")?.disabled);
+  await assistantInput.fill("What are your business hours?");
+  await assistantInput.press("Enter");
+  await preview.locator(".client-assistant-messages p.visitor").waitFor();
+  await preview.getByRole("button", { name: "Close assistant" }).click();
+  await preview.getByRole("button", { name: /Talk to .* AI/ }).waitFor();
+
   await preview.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
   if (process.env.SMOKE_PREVIEW_SCREENSHOT) {
     await preview.screenshot({ path: process.env.SMOKE_PREVIEW_SCREENSHOT, fullPage: true });
@@ -80,6 +122,39 @@ try {
   await page.getByRole("button", { name: /Approve for publishing/ }).click();
   await page.getByRole("button", { name: /Publish website/ }).click();
   await page.getByText("published", { exact: true }).waitFor();
+  await page.waitForFunction(async (token) => {
+    const response = await fetch("/api/workspace", { cache: "no-store" });
+    const payload = await response.json();
+    return payload.workspace?.websiteProject?.privateToken === token && payload.workspace?.websiteProject?.status === "published";
+  }, expectedToken);
+  const publishedPayload = await (await fetch(`${baseURL}/api/workspace`, { cache: "no-store" })).json();
+  const publicSlug = publishedPayload.workspace.websiteProject.publicSlug;
+  const published = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const publicRequests = [];
+  published.on("request", (request) => publicRequests.push(request.url()));
+  const publishedResponse = await published.goto(`${baseURL}/sites/${publicSlug}`, { waitUntil: "networkidle" });
+  try {
+    await published.locator(".client-preview").waitFor({ timeout: 8_000 });
+  } catch {
+    const liveWorkspace = await (await fetch(`${baseURL}/api/workspace`, { cache: "no-store" })).json();
+    const liveProject = liveWorkspace.workspace?.websiteProject;
+    const retryResponse = await fetch(`${baseURL}/sites/${publicSlug}`, { cache: "no-store" });
+    throw new Error(`Published site failed to render (${publishedResponse?.status()}, retry ${retryResponse.status}, requested slug ${publicSlug}, live slug ${liveProject?.publicSlug}, expected token ${expectedToken}, live token ${liveProject?.privateToken}, live status ${liveProject?.status}, live concept ${liveProject?.selectedConcept}): ${(await published.locator("body").innerText()).slice(0, 600)}`);
+  }
+  await published.locator(".client-header nav").getByRole("link", { name: "Services", exact: true }).click();
+  await published.waitForURL(new RegExp(`/sites/${publicSlug}/services$`));
+  await published.locator(".client-services-page").waitFor();
+  if (publicRequests.some((url) => url.includes("/api/workspace"))) throw new Error("Published sites must not load the private workspace API.");
+  const leadStatus = await published.evaluate(async (slug) => {
+    const response = await fetch("/api/site-assistant/lead", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ publicSlug: slug, callerName: "Smoke Visitor", callerPhone: "+1 555 010 0200", reason: "Public callback test" }),
+    });
+    return response.status;
+  }, publicSlug);
+  if (leadStatus !== 201) throw new Error(`Published lead capture failed with HTTP ${leadStatus}.`);
+  await published.close();
 
   const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await mobile.goto(`${baseURL}/dashboard`, { waitUntil: "networkidle" });

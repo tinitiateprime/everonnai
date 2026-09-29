@@ -102,21 +102,41 @@ export type Appointment = {
 
 export type QaCheck = { key: string; passed: boolean; message: string };
 
+export type WebsiteServiceSpec = {
+  id: string;
+  slug: string;
+  name: string;
+  summary: string;
+  details: string[];
+  idealFor: string;
+  ctaLabel: string;
+  imageQuery: string;
+  imageAlt: string;
+  pageHeadline: string;
+  pageIntro: string;
+  pageSections: Array<{ title: string; copy: string }>;
+};
+
 export type WebsiteSpec = {
   schemaVersion: 1;
+  seo: { title: string; description: string };
   brand: { tagline: string; positioning: string };
   visualDirection: { primaryColor: string; accentColor: string; mood: string };
-  mediaPlan: { heroQuery: string; galleryQuery: string };
+  mediaPlan: { heroQuery: string; galleryQuery: string; heroAlt: string; storyAlt: string };
   media: {
     hero: WebsiteMediaAsset | null;
+    story: WebsiteMediaAsset | null;
     gallery: WebsiteMediaAsset[];
     services: Record<string, WebsiteMediaAsset>;
   };
-  hero: { eyebrow: string; headline: string; subheadline: string; primaryCta: string };
-  services: Array<{ id: string; name: string; summary: string; details: string[] }>;
-  about: { title: string; body: string };
+  hero: { eyebrow: string; headline: string; subheadline: string; primaryCta: string; secondaryCta: string };
+  servicesIntro: { eyebrow: string; title: string; copy: string };
+  services: WebsiteServiceSpec[];
+  benefits: Array<{ title: string; copy: string }>;
+  process: Array<{ title: string; copy: string }>;
+  about: { eyebrow: string; title: string; body: string };
   faq: Array<{ question: string; answer: string }>;
-  contact: { title: string; copy: string; ctaLabel: string };
+  contact: { eyebrow: string; title: string; copy: string; ctaLabel: string };
 };
 
 export type WebsiteMediaAsset = {

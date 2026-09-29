@@ -42,7 +42,7 @@ async function ensureDataFile() {
   }
 }
 
-export async function readWorkspaceJson() {
+async function readWorkspaceFile() {
   await ensureDataFile();
   const source = await readFile(/*turbopackIgnore: true*/ dataFile, "utf8");
   let workspace: unknown;
@@ -53,6 +53,11 @@ export async function readWorkspaceJson() {
   }
   validateWorkspace(workspace);
   return structuredClone(workspace);
+}
+
+export async function readWorkspaceJson() {
+  await writeQueue;
+  return readWorkspaceFile();
 }
 
 async function writeAtomically(workspace: EverOnnWorkspace) {
@@ -73,4 +78,17 @@ export function writeWorkspaceJson(workspace: EverOnnWorkspace) {
   const operation = writeQueue.then(() => writeAtomically(snapshot));
   writeQueue = operation.catch(() => undefined);
   return operation.then(() => structuredClone(snapshot));
+}
+
+export function updateWorkspaceJson(
+  update: (current: EverOnnWorkspace) => EverOnnWorkspace | Promise<EverOnnWorkspace>,
+) {
+  const operation = writeQueue.then(async () => {
+    const current = await readWorkspaceFile();
+    const next = structuredClone(await update(structuredClone(current)));
+    await writeAtomically(next);
+    return structuredClone(next);
+  });
+  writeQueue = operation.catch(() => undefined);
+  return operation;
 }

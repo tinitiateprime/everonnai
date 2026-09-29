@@ -12,6 +12,9 @@ test("website generation preserves approved services and passes QA", () => {
   assert.equal(project.status, "generated");
   assert.equal(project.qa.passed, true);
   assert.deepEqual(project.spec.services.map((service) => service.name), profile.services.filter((service) => service.active).map((service) => service.name));
+  assert.ok(project.spec.services.every((service) => service.slug && service.imageQuery && service.pageSections.length >= 2));
+  assert.equal(project.spec.process.length, 3);
+  assert.equal(project.spec.benefits.length, 3);
   assert.equal(runWebsiteQa(project.spec, profile).passed, true);
 });
 

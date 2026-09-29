@@ -21,7 +21,7 @@ type WorkspaceContextValue = {
   syncStatus: WorkspaceSyncStatus;
   updateProfile: (patch: Partial<BusinessProfile>) => void;
   setWebsiteProject: (project: WebsiteProject | null) => void;
-  advanceWebsiteProject: (status: WebsiteProject["status"], selectedConcept?: WebsiteProject["selectedConcept"]) => void;
+  advanceWebsiteProject: (status: WebsiteProject["status"], selectedConcept?: WebsiteProject["selectedConcept"]) => Promise<void>;
   addConversation: (conversation: Conversation) => void;
   addLead: (lead: Lead) => void;
   addAppointment: (appointment: Appointment) => void;
@@ -98,16 +98,23 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     setWebsiteProject(project) {
       setWorkspace((current) => ({ ...current, websiteProject: project }));
     },
-    advanceWebsiteProject(status, selectedConcept) {
-      setWorkspace((current) => current.websiteProject ? ({
-        ...current,
-        websiteProject: {
-          ...current.websiteProject,
-          status,
-          selectedConcept: selectedConcept === undefined ? current.websiteProject.selectedConcept : selectedConcept,
-          updatedAt: new Date().toISOString(),
-        },
-      }) : current);
+    async advanceWebsiteProject(status, selectedConcept) {
+      const project = workspace.websiteProject;
+      if (!project) return;
+      setSyncStatus("saving");
+      try {
+        const response = await fetch("/api/website-studio/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-everonn-workspace": workspace.workspaceId },
+          body: JSON.stringify({ privateToken: project.privateToken, status, selectedConcept }),
+        });
+        const data = await response.json() as { project?: WebsiteProject; error?: string };
+        if (!response.ok || !data.project) throw new Error(data.error || "Unable to update the website project.");
+        setWorkspace((current) => ({ ...current, websiteProject: data.project! }));
+        setSyncStatus("saved");
+      } catch {
+        setSyncStatus("error");
+      }
     },
     addConversation(conversation) {
       setWorkspace((current) => ({ ...current, conversations: [conversation, ...current.conversations] }));

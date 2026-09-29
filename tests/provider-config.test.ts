@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { googleOAuthRedirectUri } from "../features/integrations/google-oauth";
 import { getGeminiWebsiteConfig, getProviderReadiness } from "../lib/provider-config";
 
 test("AgenticThat provider variable names work unchanged", () => {
@@ -31,4 +32,8 @@ test("AgenticThat provider variable names work unchanged", () => {
     googleServiceAccount: false,
     resend: true,
   });
+});
+
+test("Google OAuth callback uses the public application URL", () => {
+  assert.equal(googleOAuthRedirectUri("https://everonnai.netlify.app"), "https://everonnai.netlify.app/api/integrations/google/callback");
 });

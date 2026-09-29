@@ -9,20 +9,23 @@ export const googleOAuthScopes = [
 export function getGoogleOAuthConfig() {
   const clientId = String(process.env.GOOGLE_OAUTH_CLIENT_ID || "").trim();
   const clientSecret = String(process.env.GOOGLE_OAUTH_CLIENT_SECRET || "").trim();
-  const redirectUri = String(process.env.GOOGLE_OAUTH_REDIRECT_URI || "").trim();
   const encryptionSecret = String(process.env.CREDENTIAL_ENCRYPTION_KEY || "").trim();
-  if (!clientId || !clientSecret || !redirectUri) throw new Error("Google OAuth is not configured.");
+  if (!clientId || !clientSecret) throw new Error("Google OAuth is not configured.");
   if (encryptionSecret.length < 32) throw new Error("CREDENTIAL_ENCRYPTION_KEY must contain at least 32 characters.");
-  const parsedRedirect = new URL(redirectUri);
-  if (parsedRedirect.protocol !== "http:" && parsedRedirect.protocol !== "https:") throw new Error("GOOGLE_OAUTH_REDIRECT_URI must be an HTTP or HTTPS URL.");
-  return { clientId, clientSecret, redirectUri, encryptionSecret };
+  return { clientId, clientSecret, encryptionSecret };
 }
 
-export function buildGoogleAuthorizationUrl(state: string) {
+export function googleOAuthRedirectUri(requestOrigin: string) {
+  const redirectUri = new URL("/api/integrations/google/callback", requestOrigin);
+  if (redirectUri.protocol !== "http:" && redirectUri.protocol !== "https:") throw new Error("The application URL must use HTTP or HTTPS.");
+  return redirectUri.toString();
+}
+
+export function buildGoogleAuthorizationUrl(state: string, redirectUri: string) {
   const config = getGoogleOAuthConfig();
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.searchParams.set("client_id", config.clientId);
-  url.searchParams.set("redirect_uri", config.redirectUri);
+  url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", googleOAuthScopes.join(" "));
   url.searchParams.set("access_type", "offline");
@@ -66,9 +69,9 @@ function toConnection(payload: GoogleTokenPayload, refreshToken: string): Google
   };
 }
 
-export async function exchangeGoogleAuthorizationCode(code: string, existingRefreshToken = "") {
+export async function exchangeGoogleAuthorizationCode(code: string, redirectUri: string, existingRefreshToken = "") {
   const config = getGoogleOAuthConfig();
-  const payload = await tokenRequest({ code, client_id: config.clientId, client_secret: config.clientSecret, redirect_uri: config.redirectUri, grant_type: "authorization_code" });
+  const payload = await tokenRequest({ code, client_id: config.clientId, client_secret: config.clientSecret, redirect_uri: redirectUri, grant_type: "authorization_code" });
   const refreshToken = payload.refresh_token || existingRefreshToken;
   if (!refreshToken) throw new Error("Google did not return offline access. Reconnect and approve consent again.");
   return toConnection(payload, refreshToken);

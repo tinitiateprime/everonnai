@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exchangeGoogleAuthorizationCode, getGoogleOAuthConfig } from "@/features/integrations/google-oauth";
+import { exchangeGoogleAuthorizationCode, getGoogleOAuthConfig, googleOAuthRedirectUri } from "@/features/integrations/google-oauth";
 import { readWorkspaceJson, writeWorkspaceJson } from "@/lib/json-workspace-store";
 import { getGoogleConnection, saveGoogleConnection, verifyGoogleOAuthState } from "@/lib/provider-credentials";
 
@@ -24,7 +24,8 @@ export async function GET(request: NextRequest) {
     const workspace = await readWorkspaceJson();
     if (workspace.workspaceId !== state.workspaceId) throw new Error("Workspace access denied.");
     const existing = await getGoogleConnection(state.workspaceId);
-    const connection = await exchangeGoogleAuthorizationCode(code, existing?.refreshToken);
+    const redirectUri = googleOAuthRedirectUri(request.nextUrl.origin);
+    const connection = await exchangeGoogleAuthorizationCode(code, redirectUri, existing?.refreshToken);
     await saveGoogleConnection(state.workspaceId, connection);
     const calendarConnected = connection.scope.some((scope) => scope.includes("calendar"));
     const gmailConnected = connection.scope.includes("https://www.googleapis.com/auth/gmail.send");

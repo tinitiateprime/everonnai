@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { EverOnnWorkspace } from "@/features/everonn/types";
-import { readWorkspaceJson, updateWorkspaceJson } from "@/lib/json-workspace-store";
+import { readWorkspaceJson, updateWorkspaceJson, workspacePersistence } from "@/lib/json-workspace-store";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,7 @@ export async function GET(request: Request) {
     if (requestedWorkspace && requestedWorkspace !== workspace.workspaceId) {
       return noStore({ error: "Workspace access denied." }, { status: 403 });
     }
-    return noStore({ workspace, persistence: "json-file" });
+    return noStore({ workspace, persistence: workspacePersistence() });
   } catch (error) {
     return noStore({ error: error instanceof Error ? error.message : "Unable to read the EverOnn JSON workspace." }, { status: 500 });
   }
@@ -62,12 +62,12 @@ export async function PUT(request: Request) {
           : incomingProject,
       };
     });
-    return noStore({ workspace, persistence: "json-file", savedAt: new Date().toISOString() });
+    return noStore({ workspace, persistence: workspacePersistence(), savedAt: new Date().toISOString() });
   } catch (error) {
     return noStore({ error: error instanceof Error ? error.message : "Unable to save the EverOnn JSON workspace." }, { status: 400 });
   }
 }
 
 export async function HEAD() {
-  return new Response(null, { status: 200, headers: { "X-EverOnn-Persistence": "json-file" } });
+  return new Response(null, { status: 200, headers: { "X-EverOnn-Persistence": workspacePersistence() } });
 }

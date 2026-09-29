@@ -1,3 +1,4 @@
+import { getStore, type Store } from "@netlify/blobs";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { copyFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -17,7 +18,16 @@ type OAuthState = { workspaceId: string; nonce: string; returnTo: string; expire
 
 const defaultConnectionsFile = path.join(process.cwd(), "data", "provider-connections.json");
 const connectionsFile = path.resolve(/*turbopackIgnore: true*/ process.env.EVERONN_CONNECTIONS_FILE || defaultConnectionsFile);
+const connectionsBlobKey = "provider-connections-v1";
 let writeQueue: Promise<unknown> = Promise.resolve();
+
+function usesNetlifyBlobs() {
+  return process.env.NETLIFY === "true" || Boolean(process.env.NETLIFY_BLOBS_CONTEXT);
+}
+
+function connectionsBlobStore(): Store {
+  return getStore({ name: "everonn-provider-connections", consistency: "strong" });
+}
 
 function encryptionKey(secret: string) {
   if (secret.trim().length < 32) throw new Error("CREDENTIAL_ENCRYPTION_KEY must contain at least 32 characters.");
@@ -43,16 +53,32 @@ function credentialSecret() {
   return String(process.env.CREDENTIAL_ENCRYPTION_KEY || "").trim();
 }
 
-async function readStore(): Promise<ProviderStore> {
-  await writeQueue.catch(() => undefined);
+function validStore(value: unknown): value is ProviderStore {
+  const store = value as Partial<ProviderStore> | null;
+  return Boolean(store && store.version === 1 && store.google && typeof store.google === "object");
+}
+
+async function readFileStore(): Promise<ProviderStore> {
   try {
     const parsed = JSON.parse(await readFile(/*turbopackIgnore: true*/ connectionsFile, "utf8")) as ProviderStore;
-    if (parsed.version !== 1 || !parsed.google || typeof parsed.google !== "object") throw new Error("Invalid provider connection store.");
+    if (!validStore(parsed)) throw new Error("Invalid provider connection store.");
     return parsed;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, google: {} };
     throw error;
   }
+}
+
+async function readBlobStore() {
+  const entry = await connectionsBlobStore().getWithMetadata(connectionsBlobKey, { type: "json", consistency: "strong" });
+  if (!entry) return { store: { version: 1, google: {} } satisfies ProviderStore, etag: undefined };
+  if (!validStore(entry.data)) throw new Error("Invalid provider connection store.");
+  return { store: structuredClone(entry.data), etag: entry.etag };
+}
+
+async function readStore(): Promise<ProviderStore> {
+  await writeQueue.catch(() => undefined);
+  return usesNetlifyBlobs() ? (await readBlobStore()).store : readFileStore();
 }
 
 async function writeStore(store: ProviderStore) {
@@ -69,10 +95,21 @@ async function writeStore(store: ProviderStore) {
 
 function mutateStore(update: (store: ProviderStore) => void) {
   const operation = writeQueue.then(async () => {
+    if (usesNetlifyBlobs()) {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const current = await readBlobStore();
+        update(current.store);
+        const result = current.etag
+          ? await connectionsBlobStore().setJSON(connectionsBlobKey, current.store, { onlyIfMatch: current.etag })
+          : await connectionsBlobStore().setJSON(connectionsBlobKey, current.store, { onlyIfNew: true });
+        if (result.modified) return;
+      }
+      throw new Error("Provider connections changed repeatedly while saving. Please retry.");
+    }
     let store: ProviderStore;
     try {
       const parsed = JSON.parse(await readFile(/*turbopackIgnore: true*/ connectionsFile, "utf8")) as ProviderStore;
-      store = parsed.version === 1 && parsed.google ? parsed : { version: 1, google: {} };
+      store = validStore(parsed) ? parsed : { version: 1, google: {} };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       store = { version: 1, google: {} };

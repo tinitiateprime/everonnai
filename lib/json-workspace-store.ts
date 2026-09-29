@@ -1,3 +1,4 @@
+import { getStore, type Store } from "@netlify/blobs";
 import { copyFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { EverOnnWorkspace } from "@/features/everonn/types";
@@ -5,7 +6,20 @@ import { createDemoWorkspace } from "@/features/everonn/demo-data";
 
 const defaultDataFile = path.join(process.cwd(), "data", "everonn.json");
 const dataFile = path.resolve(/*turbopackIgnore: true*/ process.env.EVERONN_DATA_FILE || defaultDataFile);
+const workspaceBlobKey = "workspace-v1";
 let writeQueue: Promise<unknown> = Promise.resolve();
+
+function usesNetlifyBlobs() {
+  return process.env.NETLIFY === "true" || Boolean(process.env.NETLIFY_BLOBS_CONTEXT);
+}
+
+function workspaceBlobStore(): Store {
+  return getStore({ name: "everonn-workspace", consistency: "strong" });
+}
+
+export function workspacePersistence() {
+  return usesNetlifyBlobs() ? "netlify-json-blob" : "json-file";
+}
 
 function validateWorkspace(value: unknown): asserts value is EverOnnWorkspace {
   const workspace = value as Partial<EverOnnWorkspace> | null;
@@ -55,8 +69,39 @@ async function readWorkspaceFile() {
   return structuredClone(workspace);
 }
 
+async function readSeedWorkspace() {
+  try {
+    const source = await readFile(/*turbopackIgnore: true*/ defaultDataFile, "utf8");
+    const workspace = JSON.parse(source) as unknown;
+    validateWorkspace(workspace);
+    return structuredClone(workspace);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return createDemoWorkspace();
+  }
+}
+
+async function readWorkspaceBlob() {
+  const store = workspaceBlobStore();
+  const current = await store.getWithMetadata(workspaceBlobKey, { type: "json", consistency: "strong" });
+  if (current) {
+    validateWorkspace(current.data);
+    return { workspace: structuredClone(current.data), etag: current.etag };
+  }
+
+  const seed = await readSeedWorkspace();
+  const created = await store.setJSON(workspaceBlobKey, seed, { onlyIfNew: true });
+  if (created.modified) return { workspace: structuredClone(seed), etag: created.etag };
+
+  const winner = await store.getWithMetadata(workspaceBlobKey, { type: "json", consistency: "strong" });
+  if (!winner) throw new Error("EverOnn could not initialize its Netlify JSON workspace.");
+  validateWorkspace(winner.data);
+  return { workspace: structuredClone(winner.data), etag: winner.etag };
+}
+
 export async function readWorkspaceJson() {
   await writeQueue;
+  if (usesNetlifyBlobs()) return (await readWorkspaceBlob()).workspace;
   return readWorkspaceFile();
 }
 
@@ -75,7 +120,11 @@ async function writeAtomically(workspace: EverOnnWorkspace) {
 
 export function writeWorkspaceJson(workspace: EverOnnWorkspace) {
   const snapshot = structuredClone(workspace);
-  const operation = writeQueue.then(() => writeAtomically(snapshot));
+  validateWorkspace(snapshot);
+  const operation = writeQueue.then(async () => {
+    if (usesNetlifyBlobs()) await workspaceBlobStore().setJSON(workspaceBlobKey, snapshot);
+    else await writeAtomically(snapshot);
+  });
   writeQueue = operation.catch(() => undefined);
   return operation.then(() => structuredClone(snapshot));
 }
@@ -84,6 +133,20 @@ export function updateWorkspaceJson(
   update: (current: EverOnnWorkspace) => EverOnnWorkspace | Promise<EverOnnWorkspace>,
 ) {
   const operation = writeQueue.then(async () => {
+    if (usesNetlifyBlobs()) {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const current = await readWorkspaceBlob();
+        const next = structuredClone(await update(structuredClone(current.workspace)));
+        validateWorkspace(next);
+        if (!current.etag) {
+          await workspaceBlobStore().setJSON(workspaceBlobKey, next);
+          return structuredClone(next);
+        }
+        const result = await workspaceBlobStore().setJSON(workspaceBlobKey, next, { onlyIfMatch: current.etag });
+        if (result.modified) return structuredClone(next);
+      }
+      throw new Error("The workspace changed repeatedly while saving. Please retry.");
+    }
     const current = await readWorkspaceFile();
     const next = structuredClone(await update(structuredClone(current)));
     await writeAtomically(next);

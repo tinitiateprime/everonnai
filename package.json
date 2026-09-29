@@ -1,0 +1,33 @@
+{
+  "name": "everonn-recreation",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "smoke": "node scripts/smoke-product.mjs",
+    "check": "npm run lint && npm test && npm run build"
+  },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "next": "^16.3.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.3",
+    "@types/react-dom": "^19.0.2",
+    "eslint": "^9.17.0",
+    "eslint-config-next": "^16.3.6",
+    "postcss": "^8.4.49",
+    "playwright-core": "^1.61.1",
+    "tailwindcss": "^4.0.0",
+    "tsx": "^4.23.0",
+    "@tailwindcss/postcss": "^4.0.0",
+    "typescript": "^5.7.2"
+  }
+}

@@ -16,7 +16,7 @@ type ProviderStore = { version: 1; google: Record<string, EncryptedPayload> };
 type OAuthState = { workspaceId: string; nonce: string; returnTo: string; expiresAt: number };
 
 const defaultConnectionsFile = path.join(process.cwd(), "data", "provider-connections.json");
-const connectionsFile = path.resolve(process.env.EVERONN_CONNECTIONS_FILE || defaultConnectionsFile);
+const connectionsFile = path.resolve(/*turbopackIgnore: true*/ process.env.EVERONN_CONNECTIONS_FILE || defaultConnectionsFile);
 let writeQueue: Promise<unknown> = Promise.resolve();
 
 function encryptionKey(secret: string) {
@@ -46,7 +46,7 @@ function credentialSecret() {
 async function readStore(): Promise<ProviderStore> {
   await writeQueue.catch(() => undefined);
   try {
-    const parsed = JSON.parse(await readFile(connectionsFile, "utf8")) as ProviderStore;
+    const parsed = JSON.parse(await readFile(/*turbopackIgnore: true*/ connectionsFile, "utf8")) as ProviderStore;
     if (parsed.version !== 1 || !parsed.google || typeof parsed.google !== "object") throw new Error("Invalid provider connection store.");
     return parsed;
   } catch (error) {
@@ -71,7 +71,7 @@ function mutateStore(update: (store: ProviderStore) => void) {
   const operation = writeQueue.then(async () => {
     let store: ProviderStore;
     try {
-      const parsed = JSON.parse(await readFile(connectionsFile, "utf8")) as ProviderStore;
+      const parsed = JSON.parse(await readFile(/*turbopackIgnore: true*/ connectionsFile, "utf8")) as ProviderStore;
       store = parsed.version === 1 && parsed.google ? parsed : { version: 1, google: {} };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;

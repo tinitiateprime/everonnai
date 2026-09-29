@@ -31,7 +31,15 @@ export async function POST(request: Request) {
     const project = createWebsiteProject(body.profile, generation.spec);
     const media = await resolveWebsiteMedia(project.spec, body.profile);
     project.spec.media = { hero: media.hero, gallery: media.gallery, services: media.services };
-    return NextResponse.json({ project, generatedBy: generation.provider, model: generation.model, fallbackReason: generation.fallbackReason, mediaProvider: media.provider });
+    return NextResponse.json({
+      project,
+      generatedBy: generation.provider,
+      model: generation.model,
+      fallbackReason: generation.fallbackReason,
+      mediaProvider: media.provider,
+      mediaCount: Number(Boolean(media.hero)) + media.gallery.length + Object.keys(media.services).length,
+      mediaWarning: media.warning,
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to generate the website project." }, { status: 400 });
   }

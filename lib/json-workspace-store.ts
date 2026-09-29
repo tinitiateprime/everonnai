@@ -4,7 +4,7 @@ import type { EverOnnWorkspace } from "@/features/everonn/types";
 import { createDemoWorkspace } from "@/features/everonn/demo-data";
 
 const defaultDataFile = path.join(process.cwd(), "data", "everonn.json");
-const dataFile = path.resolve(process.env.EVERONN_DATA_FILE || defaultDataFile);
+const dataFile = path.resolve(/*turbopackIgnore: true*/ process.env.EVERONN_DATA_FILE || defaultDataFile);
 let writeQueue: Promise<unknown> = Promise.resolve();
 
 function validateWorkspace(value: unknown): asserts value is EverOnnWorkspace {
@@ -35,7 +35,7 @@ function validateWorkspace(value: unknown): asserts value is EverOnnWorkspace {
 async function ensureDataFile() {
   await mkdir(path.dirname(dataFile), { recursive: true });
   try {
-    await readFile(dataFile, "utf8");
+    await readFile(/*turbopackIgnore: true*/ dataFile, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     await writeFile(dataFile, `${JSON.stringify(createDemoWorkspace(), null, 2)}\n`, { encoding: "utf8", flag: "wx" });
@@ -44,7 +44,7 @@ async function ensureDataFile() {
 
 export async function readWorkspaceJson() {
   await ensureDataFile();
-  const source = await readFile(dataFile, "utf8");
+  const source = await readFile(/*turbopackIgnore: true*/ dataFile, "utf8");
   let workspace: unknown;
   try {
     workspace = JSON.parse(source);

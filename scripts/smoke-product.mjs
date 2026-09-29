@@ -26,6 +26,54 @@ try {
   await page.goto(`${baseURL}/dashboard/website`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: /Generate three concepts/ }).click();
   await page.getByText("Private preview workflow").waitFor();
+  const previewHref = await page.getByRole("link", { name: /Open private preview/ }).getAttribute("href");
+  if (!previewHref) throw new Error("Generated website did not expose its private preview URL.");
+  await page.waitForFunction(async (href) => {
+    const response = await fetch("/api/workspace", { cache: "no-store" });
+    const payload = await response.json();
+    return Boolean(payload.workspace?.websiteProject?.privateToken && href.includes(payload.workspace.websiteProject.privateToken));
+  }, previewHref);
+
+  const preview = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await preview.goto(`${baseURL}${previewHref}`, { waitUntil: "networkidle" });
+  await preview.locator(".client-preview").waitFor();
+  const heroImage = preview.locator(".client-hero-media img");
+  await preview.locator(".client-hero-media img, .client-hero-art").first().waitFor();
+  if (await heroImage.count()) {
+    const previewImages = preview.locator(".client-preview img");
+    const imageCount = await previewImages.count();
+    if (imageCount < 2) throw new Error("Generated preview did not render enough Pexels images.");
+    for (let index = 0; index < imageCount; index += 1) {
+      const image = previewImages.nth(index);
+      await image.scrollIntoViewIfNeeded();
+      await image.evaluate((element) => element.complete
+        ? undefined
+        : new Promise((resolve) => {
+            element.addEventListener("load", resolve, { once: true });
+            element.addEventListener("error", resolve, { once: true });
+          }));
+    }
+    const failedImages = await previewImages.evaluateAll((images) => images
+      .filter((image) => !image.complete || image.naturalWidth === 0)
+      .map((image) => image.currentSrc || image.src));
+    if (failedImages.length) throw new Error(`Generated preview images failed to load: ${failedImages.join(", ")}`);
+    const serviceImageCount = await preview.locator(".client-service-media img").count();
+    const galleryImageCount = await preview.locator(".client-gallery-photo img").count();
+    if (!serviceImageCount || !galleryImageCount) throw new Error("Pexels media did not render in every generated website section.");
+  } else {
+    await preview.locator(".client-hero-art").waitFor();
+  }
+  await preview.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+  if (process.env.SMOKE_PREVIEW_SCREENSHOT) {
+    await preview.screenshot({ path: process.env.SMOKE_PREVIEW_SCREENSHOT, fullPage: true });
+  }
+  if (process.env.SMOKE_PREVIEW_MOBILE_SCREENSHOT) {
+    await preview.setViewportSize({ width: 390, height: 844 });
+    await preview.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+    await preview.screenshot({ path: process.env.SMOKE_PREVIEW_MOBILE_SCREENSHOT, fullPage: true });
+  }
+  await preview.close();
+
   await page.getByRole("button", { name: /Select editorial/ }).click();
   await page.getByRole("button", { name: /Claim this preview/ }).click();
   await page.getByRole("button", { name: /Verify business owner/ }).click();

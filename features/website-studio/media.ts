@@ -31,8 +31,8 @@ function toAsset(photo: PexelsPhoto, alt: string): WebsiteMediaAsset | null {
   };
 }
 
-async function searchPexels(query: string, apiKey: string, perPage = 12) {
-  const response = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&orientation=landscape&size=large&per_page=${perPage}`, {
+async function searchPexels(query: string, apiKey: string, perPage = 12, fetchImpl: typeof fetch = fetch) {
+  const response = await fetchImpl(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&orientation=landscape&size=large&per_page=${perPage}`, {
     headers: { Authorization: apiKey },
     signal: AbortSignal.timeout(12_000),
     cache: "no-store",
@@ -49,22 +49,37 @@ function selectUnique(photos: PexelsPhoto[], used: Set<number>, alt: string) {
   return toAsset(selected, alt);
 }
 
-export async function resolveWebsiteMedia(spec: WebsiteSpec, profile: BusinessProfile, options: { apiKey?: string } = {}) {
+export async function resolveWebsiteMedia(spec: WebsiteSpec, profile: BusinessProfile, options: { apiKey?: string; fetchImpl?: typeof fetch } = {}) {
   const apiKey = String(options.apiKey || process.env.PEXELS_API_KEY || "").trim();
-  if (!apiKey) return { hero: null, gallery: [], services: {}, provider: "none" as const };
+  if (!apiKey) return { hero: null, gallery: [], services: {}, provider: "none" as const, warning: null };
+  const fetchImpl = options.fetchImpl || fetch;
   const used = new Set<number>();
-  const [heroCandidates, galleryCandidates, ...serviceCandidates] = await Promise.all([
-    searchPexels(spec.mediaPlan.heroQuery, apiKey),
-    searchPexels(spec.mediaPlan.galleryQuery, apiKey),
-    ...profile.services.filter((service) => service.active).map((service) => searchPexels(`${service.name} ${profile.businessType}`, apiKey, 8)),
+  const searches = await Promise.allSettled([
+    searchPexels(spec.mediaPlan.heroQuery, apiKey, 12, fetchImpl),
+    searchPexels(spec.mediaPlan.galleryQuery, apiKey, 12, fetchImpl),
+    ...profile.services.filter((service) => service.active).map((service) => searchPexels(`${service.name} ${profile.businessType}`, apiKey, 8, fetchImpl)),
   ]);
-  const hero = selectUnique(heroCandidates, used, `${profile.businessName} ${profile.businessType}`);
-  const gallery = galleryCandidates.map((photo) => selectUnique([photo], used, `${profile.businessType} work and customer experience`)).filter((item): item is WebsiteMediaAsset => Boolean(item)).slice(0, 3);
+  const results = searches.map((result) => result.status === "fulfilled" ? result.value : []);
+  const [heroCandidates = [], galleryCandidates = [], ...serviceCandidates] = results;
+  const sharedFallbacks = [...galleryCandidates, ...heroCandidates];
+  const hero = selectUnique([...heroCandidates, ...galleryCandidates], used, `${profile.businessName} ${profile.businessType}`);
   const services = Object.fromEntries(profile.services.filter((service) => service.active).map((service, index) => {
-    const asset = selectUnique(serviceCandidates[index] || [], used, service.description || service.name);
+    const asset = selectUnique([...(serviceCandidates[index] || []), ...sharedFallbacks], used, service.description || service.name);
     return asset ? [service.id, asset] : null;
   }).filter((item): item is [string, WebsiteMediaAsset] => Boolean(item)));
-  return { hero, gallery, services, provider: "pexels" as const };
+  const gallery = [...galleryCandidates, ...heroCandidates]
+    .map((photo) => selectUnique([photo], used, `${profile.businessType} work and customer experience`))
+    .filter((item): item is WebsiteMediaAsset => Boolean(item))
+    .slice(0, 3);
+  const assetCount = Number(Boolean(hero)) + gallery.length + Object.keys(services).length;
+  const failedSearches = searches.filter((result) => result.status === "rejected").length;
+  return {
+    hero,
+    gallery,
+    services,
+    provider: assetCount ? "pexels" as const : "none" as const,
+    warning: failedSearches ? `${failedSearches} Pexels search${failedSearches === 1 ? "" : "es"} could not be completed.` : null,
+  };
 }
 
 export async function verifyWebsiteMedia(media: WebsiteSpec["media"], fetchImpl: typeof fetch = fetch) {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { EverOnnWorkspace } from "@/features/everonn/types";
+import { getProviderReadiness } from "@/lib/provider-config";
 import { readWorkspaceJson, updateWorkspaceJson, workspacePersistence } from "@/lib/json-workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,16 @@ function noStore<T>(payload: T, init?: ResponseInit) {
   return NextResponse.json(payload, { ...init, headers });
 }
 
+function withRuntimeProviderState(workspace: EverOnnWorkspace) {
+  return {
+    ...workspace,
+    integrations: {
+      ...workspace.integrations,
+      elevenLabs: getProviderReadiness().elevenLabs ? "ready" as const : "not_configured" as const,
+    },
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const workspace = await readWorkspaceJson();
@@ -24,7 +35,7 @@ export async function GET(request: Request) {
     if (requestedWorkspace && requestedWorkspace !== workspace.workspaceId) {
       return noStore({ error: "Workspace access denied." }, { status: 403 });
     }
-    return noStore({ workspace, persistence: workspacePersistence() });
+    return noStore({ workspace: withRuntimeProviderState(workspace), persistence: workspacePersistence() });
   } catch (error) {
     return noStore({ error: error instanceof Error ? error.message : "Unable to read the EverOnn JSON workspace." }, { status: 500 });
   }
@@ -62,7 +73,7 @@ export async function PUT(request: Request) {
           : incomingProject,
       };
     });
-    return noStore({ workspace, persistence: workspacePersistence(), savedAt: new Date().toISOString() });
+    return noStore({ workspace: withRuntimeProviderState(workspace), persistence: workspacePersistence(), savedAt: new Date().toISOString() });
   } catch (error) {
     return noStore({ error: error instanceof Error ? error.message : "Unable to save the EverOnn JSON workspace." }, { status: 400 });
   }

@@ -9,17 +9,17 @@ import { SiteHeader } from "./site-header";
 
 export function AppChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  if (pathname.startsWith("/sites")) return <>{children}</>;
-  const isProductApp = pathname.startsWith("/dashboard") || pathname.startsWith("/preview") || pathname.startsWith("/login");
+  if (pathname.startsWith("/sites") || pathname.startsWith("/preview") || pathname.startsWith("/login") || pathname.startsWith("/join")) return <>{children}</>;
+  if (pathname.startsWith("/dashboard")) {
+    return <WorkspaceProvider><ConversationProvider>{children}</ConversationProvider></WorkspaceProvider>;
+  }
 
   return (
-    <WorkspaceProvider>
-      <ConversationProvider>
-        {!isProductApp && <SiteHeader />}
-        {children}
-        {!isProductApp && <SiteFooter />}
-        {!isProductApp && <EverOnnChat />}
-      </ConversationProvider>
-    </WorkspaceProvider>
+    <>
+      <SiteHeader />
+      {children}
+      <SiteFooter />
+      <EverOnnChat />
+    </>
   );
 }

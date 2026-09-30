@@ -27,20 +27,23 @@ Provider keys and Google tokens are separate from business data. They never ente
 
 ### Browser startup
 
-1. `AppChrome` mounts `WorkspaceProvider` for marketing, dashboard, login, and preview routes.
-2. `WorkspaceProvider` starts with `createDemoWorkspace()` only to render safely.
-3. It calls `GET /api/workspace`.
-4. The server reads the real JSON workspace and calculates live provider status.
-5. The browser replaces demo state with the saved workspace.
+1. The dashboard server page reads the HttpOnly session and resolves the current actor.
+2. Missing or expired sessions redirect to `/login` before the dashboard renders.
+3. `AppChrome` mounts `WorkspaceProvider` only for authenticated dashboard routes.
+4. `WorkspaceProvider` starts with `createDemoWorkspace()` only to render safely.
+5. It calls authenticated `GET /api/workspace`.
+6. The server reads the real JSON workspace, calculates live provider status, and returns the actor.
+7. The browser replaces demo state with the saved workspace.
 
 ### Owner edit
 
 1. A Knowledge or Settings control updates React state.
 2. After 450 ms without another change, `WorkspaceProvider` sends the full workspace to `PUT /api/workspace`.
-3. The server verifies the workspace ID.
-4. It preserves contacts/leads/appointments created concurrently by server automation.
-5. It prevents an older browser copy from moving a published website backward.
-6. The JSON store validates and saves the result atomically.
+3. The server resolves the actor and checks capabilities for every changed section.
+4. It verifies the workspace ID.
+5. It preserves contacts/leads/appointments created concurrently by server automation.
+6. It prevents an older browser copy from moving a published website backward.
+7. The JSON store validates and saves the result atomically.
 
 The browser also refreshes on focus, visibility changes, and every 15 seconds.
 
@@ -54,6 +57,9 @@ flowchart TD
   Google[Google connection] --> CredRuntime{Netlify runtime?}
   CredRuntime -- No --> EncryptedFile[data/provider-connections.json]
   CredRuntime -- Yes --> EncryptedBlob[Netlify encrypted credential Blob]
+  Auth[Authentication] --> AuthRuntime{Netlify runtime?}
+  AuthRuntime -- No --> AuthFile[data/auth.json]
+  AuthRuntime -- Yes --> AuthBlob[Netlify Blob: auth-v1]
 ```
 
 - Local file writes use a temporary file and rename/copy replacement.
@@ -109,7 +115,7 @@ Important controls:
 
 ### Preview flow
 
-`/preview/[privateToken]` is a capability link. The preview is `noindex` and renders the chosen concept from browser workspace state. The UI also accepts `/preview/demo` as a local/demo viewing alias, but customer-assistant API calls require the project's real private token.
+`/preview/[privateToken]` is a capability link. The server reads the project, validates the exact private token, and renders the preview as `noindex`. `/preview/demo` works only for a signed-in actor belonging to the workspace. Customer-assistant API calls always receive the project's real private token.
 
 ### Publish flow
 
@@ -261,15 +267,38 @@ The callback URI is derived from the current origin, except on Netlify where `SI
 
 ## 11. Access-control flow
 
+```mermaid
+sequenceDiagram
+  participant U as User browser
+  participant A as Auth API/store
+  participant D as Dashboard/API
+  participant W as Workspace store
+
+  U->>A: Email + password
+  A->>A: Rate limit, lockout, scrypt verification
+  A-->>U: HttpOnly SameSite session cookie
+  U->>D: Dashboard/API request + cookie
+  D->>A: Hash token and resolve active actor
+  D->>D: Check workspace scope + role capability
+  alt Allowed
+    D->>W: Read or mutate permitted data
+    D-->>U: Result
+  else Missing session or permission
+    D-->>U: 401 or 403
+  end
+```
+
 | Surface | Current check |
 | --- | --- |
-| Dashboard workspace APIs | Matching `x-everonn-workspace` where the route requires it |
+| Dashboard page and workspace APIs | Server-resolved active session, workspace scope, and required role capability |
+| Owner setup | Production-only setup secret plus empty authentication store |
+| Team invitations | Owner-only creation; 256-bit, hashed, one-use token; seven-day expiry; owner role cannot be invited |
 | Private website | Exact private capability token |
 | Published website assistant | Matching slug and project status `published` |
 | Google callback | Signed/expiring state + matching HttpOnly nonce cookie + workspace ID |
 | Provider tokens | Server-only environment/encrypted storage |
 
-Important: the current login is a demonstration, so the workspace header is not proof of identity. Production access needs a real authentication session, server-side actor identity, and RBAC enforcement at every private API boundary.
+Roles are enforced on the server: owner has all capabilities; manager can configure business/AI/website and operate customers; agent can operate inbox/calls/appointments; viewer is read-only. The `x-everonn-workspace` header selects scope but never proves identity by itself.
 
 ## 12. Known non-data flows
 
@@ -277,9 +306,9 @@ These screens do not currently reach a backend:
 
 - marketing demo/preview request form;
 - marketing “Ask EverOnn” widget, which uses local scripted product answers;
-- login/reset/MFA;
 - billing controls;
-- actual invitation delivery/account creation;
+- invitation email delivery (account creation through the URL is implemented);
+- self-service forgotten-password recovery and MFA;
 - “Add contact” button.
 
 Do not confuse the marketing scripted widget with the generated customer-site assistant: the customer-site assistant uses ElevenLabs and Gemini.
@@ -289,6 +318,7 @@ Do not confuse the marketing scripted widget with the generated customer-site as
 | Problem | Start here | Then inspect |
 | --- | --- | --- |
 | Workspace changes do not persist | `features/everonn/workspace-provider.tsx` | `/api/workspace`, `lib/json-workspace-store.ts` |
+| Login or role access fails | `/api/auth/login` or `features/auth/session.ts` | `lib/auth-store.ts`, `features/auth/rbac.ts`, `data/auth.json`/auth Blob |
 | Gemini chat gives an error | `/api/assistant/message` | `features/voice-agent/gemini.ts`, provider env |
 | Voice will not connect | `/api/voice/session` or `/api/site-assistant/session` | ElevenLabs key, agent ID, browser microphone permission |
 | Website generation fails | `/api/website-studio` | `ai-generator.ts`, Gemini model list, QA error |

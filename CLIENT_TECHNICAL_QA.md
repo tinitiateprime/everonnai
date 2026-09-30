@@ -213,23 +213,29 @@ Calendar and Gmail automation results are stored on `lead.automation` and displa
 
 ### 24. Is there a database?
 
-**Short answer:** No. The current version uses one validated JSON workspace and a separate encrypted provider-token store.
+**Short answer:** No. The current version uses separate JSON stores for the workspace, authentication, and encrypted provider tokens.
 
 This is appropriate for one writable application instance. Multiple server instances or ephemeral serverless storage require a shared persistent store or future database adapter.
 
-### 25. Is the current login production authentication?
+### 25. Is the current login real authentication?
 
-**Short answer:** No. Login and MFA currently demonstrate the intended experience but are not a real identity system.
+**Short answer:** Yes. Login verifies a salted scrypt password hash on the server and creates a revocable, seven-day session in an HttpOnly SameSite cookie.
 
-RBAC roles and workspace-scope utilities exist, but production requires a signed server session and route-level role enforcement. The `x-everonn-workspace` header is a scope check, not proof of identity.
+The raw session token is never stored: only its SHA-256 hash is kept in the JSON auth store or Netlify Blob. Login has rate limiting and persistent failed-attempt lockout. State-changing routes check origin, and protected APIs resolve the actor from the session before applying RBAC. Self-service password recovery and MFA remain future work.
 
-### 26. What is working through real providers today?
+### 26. How do the four roles differ?
+
+**Short answer:** Owner controls everything; manager configures the business, AI, and website; agent handles customer operations; viewer has read-only access.
+
+The same capability rules hide dashboard sections and are enforced again in server APIs. Only owners can manage team roles or billing. An owner creates a secure invitation URL for a manager, agent, or viewer; accepting it creates the real account. Invitation email delivery is not connected yet, so the URL is shared manually.
+
+### 27. What is working through real providers today?
 
 **Short answer:** Gemini generation/chat/appointment extraction, Pexels images, ElevenLabs live sessions, Google OAuth, Calendar operations, Gmail sending, JSON persistence, previews, and publishing are implemented when their credentials and persistent runtime are available.
 
-Demo-only boundaries include login/MFA, billing, real invitation delivery, the marketing lead form, and the marketing product chat widget.
+Incomplete boundaries include billing, invitation email delivery, forgotten-password recovery/MFA, the marketing lead form, and the marketing product chat widget.
 
-### 27. What should we check when website generation fails?
+### 28. What should we check when website generation fails?
 
 **Short answer:** Check the Gemini key/model first, then inspect the API error, structured-output completeness, QA result, and Pexels separately.
 

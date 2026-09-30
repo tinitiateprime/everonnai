@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import type { AiConversationMessage } from "@/features/voice-agent/gemini";
 import { generateAssistantReply } from "@/features/voice-agent/gemini";
 import { readWorkspaceJson } from "@/lib/json-workspace-store";
+import { hasCapability } from "@/features/auth/rbac";
+import { assertSameOrigin, authErrorDetails, getCurrentActor } from "@/features/auth/session";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +21,7 @@ function enforceRateLimit(request: Request, scope: string) {
 
 export async function POST(request: Request) {
   try {
+    assertSameOrigin(request);
     const raw = await request.text();
     if (!raw || raw.length > 30_000) return NextResponse.json({ error: "Invalid AI message request." }, { status: 400 });
     const input = JSON.parse(raw) as { previewToken?: string; publicSlug?: string; messages?: AiConversationMessage[] };
@@ -26,7 +29,8 @@ export async function POST(request: Request) {
     const workspace = await readWorkspaceJson();
     const project = workspace.websiteProject;
     const selectedWorkspace = request.headers.get("x-everonn-workspace");
-    const workspaceAllowed = selectedWorkspace === workspace.workspaceId;
+    const actor = selectedWorkspace === workspace.workspaceId ? await getCurrentActor() : null;
+    const workspaceAllowed = Boolean(actor && actor.workspaceId === workspace.workspaceId && hasCapability(actor.role, "calls:operate"));
     const previewAllowed = Boolean(input.previewToken && project?.privateToken === input.previewToken);
     const publicAllowed = Boolean(input.publicSlug && project?.publicSlug === input.publicSlug && project.status === "published");
     if (!workspaceAllowed && !previewAllowed && !publicAllowed) return NextResponse.json({ error: "AI assistant access denied." }, { status: 403 });
@@ -34,7 +38,8 @@ export async function POST(request: Request) {
     const result = await generateAssistantReply(workspace.profile, input.messages);
     return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "The AI assistant could not respond.";
-    return NextResponse.json({ error: message }, { status: message.startsWith("Please wait") ? 429 : 502, headers: { "Cache-Control": "private, no-store, max-age=0" } });
+    const details = authErrorDetails(error, 502);
+    const status = details.message.startsWith("Please wait") ? 429 : details.status;
+    return NextResponse.json({ error: details.message || "The AI assistant could not respond." }, { status, headers: { "Cache-Control": "private, no-store, max-age=0" } });
   }
 }

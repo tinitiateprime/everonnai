@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { WebsiteProject } from "@/features/everonn/types";
 import { updateWorkspaceJson } from "@/lib/json-workspace-store";
+import { assertSameOrigin, authErrorDetails, requireActor } from "@/features/auth/session";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,7 @@ const statusRank = { draft: 0, generated: 1, claimed: 2, verified: 3, approved: 
 
 export async function POST(request: Request) {
   try {
+    assertSameOrigin(request);
     const workspaceId = request.headers.get("x-everonn-workspace");
     const body = await request.json() as {
       privateToken?: string;
@@ -17,6 +19,7 @@ export async function POST(request: Request) {
     if (!workspaceId || !body.privateToken || !body.status || !(body.status in statusRank)) {
       return NextResponse.json({ error: "A valid website transition is required." }, { status: 400 });
     }
+    await requireActor("website:publish", workspaceId);
 
     let savedProject: WebsiteProject | null = null;
     await updateWorkspaceJson((workspace) => {
@@ -43,6 +46,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ project: savedProject }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to update the website project." }, { status: 400 });
+    const details = authErrorDetails(error);
+    return NextResponse.json({ error: details.message || "Unable to update the website project." }, { status: details.status });
   }
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { buildReceptionistPrompt } from "@/features/voice-agent/engine";
 import { getProviderReadiness } from "@/lib/provider-config";
 import { readWorkspaceJson } from "@/lib/json-workspace-store";
+import { assertSameOrigin, authErrorDetails, requireActor } from "@/features/auth/session";
 
 const elevenLabsApi = "https://api.elevenlabs.io/v1";
 
@@ -17,17 +18,25 @@ async function elevenLabs(path: string, apiKey: string) {
 }
 
 export async function GET() {
-  return NextResponse.json({ configured: getProviderReadiness().elevenLabs });
+  try {
+    await requireActor("workspace:view");
+    return NextResponse.json({ configured: getProviderReadiness().elevenLabs });
+  } catch (error) {
+    const details = authErrorDetails(error);
+    return NextResponse.json({ error: details.message }, { status: details.status });
+  }
 }
 
 export async function POST(request: Request) {
   try {
+    assertSameOrigin(request);
     const apiKey = String(process.env.ELEVENLABS_API_KEY || "").trim();
     const agentId = String(process.env.ELEVENLABS_AGENT_ID || "").trim();
     if (!apiKey || !agentId) return NextResponse.json({ configured: false, error: "ElevenLabs voice is not configured." }, { status: 503 });
     const workspace = await readWorkspaceJson();
     const selectedWorkspace = request.headers.get("x-everonn-workspace");
     if (!selectedWorkspace || selectedWorkspace !== workspace.workspaceId) return NextResponse.json({ error: "Workspace access denied." }, { status: 403 });
+    await requireActor("calls:operate", workspace.workspaceId);
     const profile = workspace.profile;
     const encoded = encodeURIComponent(agentId);
     const [token, signedUrl] = await Promise.all([
@@ -54,6 +63,7 @@ export async function POST(request: Request) {
       expiresAt: new Date(Date.now() + 14 * 60_000).toISOString(),
     });
   } catch (error) {
-    return NextResponse.json({ configured: true, error: error instanceof Error ? error.message : "Unable to create the voice session." }, { status: 502 });
+    const details = authErrorDetails(error, 502);
+    return NextResponse.json({ configured: true, error: details.message || "Unable to create the voice session." }, { status: details.status });
   }
 }

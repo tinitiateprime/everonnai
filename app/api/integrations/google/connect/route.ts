@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { buildGoogleAuthorizationUrl, getGoogleOAuthConfig, googleOAuthRedirectUri } from "@/features/integrations/google-oauth";
 import { readWorkspaceJson } from "@/lib/json-workspace-store";
 import { signGoogleOAuthState } from "@/lib/provider-credentials";
+import { authErrorDetails, requireActor } from "@/features/auth/session";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,7 @@ export async function GET(request: NextRequest) {
     const workspace = await readWorkspaceJson();
     const workspaceId = request.nextUrl.searchParams.get("workspaceId") || "";
     if (!workspaceId || workspaceId !== workspace.workspaceId) return NextResponse.json({ error: "Workspace access denied." }, { status: 403 });
+    await requireActor("business:configure", workspaceId);
     const config = getGoogleOAuthConfig();
     const redirectUri = googleOAuthRedirectUri(request.nextUrl.origin);
     const nonce = randomBytes(24).toString("base64url");
@@ -25,6 +27,7 @@ export async function GET(request: NextRequest) {
     });
     return response;
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to start Google authorization." }, { status: 503 });
+    const details = authErrorDetails(error, 503);
+    return NextResponse.json({ error: details.message || "Unable to start Google authorization." }, { status: details.status });
   }
 }

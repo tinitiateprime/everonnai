@@ -4,14 +4,48 @@ const executablePath = process.platform === "win32"
   ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
   : undefined;
 const baseURL = process.env.SMOKE_BASE_URL || "http://localhost:3000";
-const snapshotResponse = await fetch(`${baseURL}/api/workspace`, { cache: "no-store" });
-if (!snapshotResponse.ok) throw new Error(`Could not snapshot workspace JSON (${snapshotResponse.status}).`);
-const snapshotPayload = await snapshotResponse.json();
-const originalWorkspace = snapshotPayload.workspace;
+const smokeEmail = String(process.env.SMOKE_AUTH_EMAIL || "").trim();
+const smokePassword = String(process.env.SMOKE_AUTH_PASSWORD || "");
+const smokeName = String(process.env.SMOKE_AUTH_NAME || "EverOnn Smoke Owner").trim();
+const smokeSetupToken = String(process.env.SMOKE_AUTH_SETUP_TOKEN || "");
+if (!smokeEmail || !smokePassword) {
+  throw new Error("Set SMOKE_AUTH_EMAIL and SMOKE_AUTH_PASSWORD to an owner account before running the product smoke test.");
+}
 const browser = await chromium.launch({ headless: true, executablePath });
+const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+let originalWorkspace;
+
+async function signIn(page) {
+  await page.goto(`${baseURL}/login`, { waitUntil: "networkidle" });
+  if (new URL(page.url()).pathname.startsWith("/dashboard")) return;
+  const firstRun = await page.getByRole("heading", { name: "Create the owner account." }).count();
+  if (firstRun) {
+    await page.getByLabel("Owner name").fill(smokeName);
+    await page.getByLabel("Work email").fill(smokeEmail);
+    await page.getByLabel("Password", { exact: true }).fill(smokePassword);
+    await page.getByLabel("Confirm password").fill(smokePassword);
+    const setupToken = page.getByLabel("Owner setup token");
+    if (await setupToken.count()) {
+      if (!smokeSetupToken) throw new Error("This deployment also requires SMOKE_AUTH_SETUP_TOKEN for first-owner setup.");
+      await setupToken.fill(smokeSetupToken);
+    }
+    await page.getByRole("button", { name: "Create owner and sign in" }).click();
+  } else {
+    await page.getByLabel("Work email").fill(smokeEmail);
+    await page.getByLabel("Password").fill(smokePassword);
+    await page.getByRole("button", { name: "Sign in securely" }).click();
+  }
+  await page.waitForURL(/\/dashboard(?:\/.*)?$/);
+}
 
 try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
+  await signIn(page);
+  const snapshotResponse = await page.request.get(`${baseURL}/api/workspace`, { headers: { "Cache-Control": "no-store" } });
+  if (!snapshotResponse.ok()) throw new Error(`Could not snapshot workspace JSON (${snapshotResponse.status()}).`);
+  const snapshotPayload = await snapshotResponse.json();
+  originalWorkspace = snapshotPayload.workspace;
+  if (snapshotPayload.actor?.role !== "owner") throw new Error("The smoke test account must have the owner role.");
   await page.goto(`${baseURL}/dashboard`, { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: /Good morning/ }).waitFor();
   await page.getByRole("link", { name: /Test the AI front desk/ }).click();
@@ -32,7 +66,7 @@ try {
   await page.waitForFunction(() => document.querySelector(".eo-page-heading button")?.textContent?.includes("Generating"));
   await page.waitForFunction(() => !document.querySelector(".eo-page-heading button")?.textContent?.includes("Generating"), undefined, { timeout: 120_000 });
   await page.getByText("Private preview workflow").waitFor();
-  const generatedWorkspace = await (await fetch(`${baseURL}/api/workspace`, { cache: "no-store" })).json();
+  const generatedWorkspace = await (await page.request.get(`${baseURL}/api/workspace`, { headers: { "Cache-Control": "no-store" } })).json();
   const expectedToken = generatedWorkspace.workspace?.websiteProject?.privateToken;
   if (!expectedToken || expectedToken === previousToken) throw new Error("Website regeneration did not create a fresh multi-page project.");
   await page.waitForFunction((token) => [...document.querySelectorAll("a")].some((link) => link.getAttribute("href")?.includes(token)), expectedToken);
@@ -44,7 +78,7 @@ try {
     return Boolean(payload.workspace?.websiteProject?.privateToken && href.includes(payload.workspace.websiteProject.privateToken));
   }, previewHref);
 
-  const preview = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const preview = await context.newPage();
   await preview.goto(`${baseURL}${previewHref}`, { waitUntil: "networkidle" });
   await preview.locator(".client-preview").waitFor();
   const heroImage = preview.locator(".client-hero-media img");
@@ -129,19 +163,20 @@ try {
     const payload = await response.json();
     return payload.workspace?.websiteProject?.privateToken === token && payload.workspace?.websiteProject?.status === "published";
   }, expectedToken);
-  const publishedPayload = await (await fetch(`${baseURL}/api/workspace`, { cache: "no-store" })).json();
+  const publishedPayload = await (await page.request.get(`${baseURL}/api/workspace`, { headers: { "Cache-Control": "no-store" } })).json();
   const publicSlug = publishedPayload.workspace.websiteProject.publicSlug;
-  const published = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const published = await context.newPage();
+  await published.setViewportSize({ width: 1280, height: 900 });
   const publicRequests = [];
   published.on("request", (request) => publicRequests.push(request.url()));
   const publishedResponse = await published.goto(`${baseURL}/sites/${publicSlug}`, { waitUntil: "networkidle" });
   try {
     await published.locator(".client-preview").waitFor({ timeout: 8_000 });
   } catch {
-    const liveWorkspace = await (await fetch(`${baseURL}/api/workspace`, { cache: "no-store" })).json();
+    const liveWorkspace = await (await page.request.get(`${baseURL}/api/workspace`, { headers: { "Cache-Control": "no-store" } })).json();
     const liveProject = liveWorkspace.workspace?.websiteProject;
-    const retryResponse = await fetch(`${baseURL}/sites/${publicSlug}`, { cache: "no-store" });
-    throw new Error(`Published site failed to render (${publishedResponse?.status()}, retry ${retryResponse.status}, requested slug ${publicSlug}, live slug ${liveProject?.publicSlug}, expected token ${expectedToken}, live token ${liveProject?.privateToken}, live status ${liveProject?.status}, live concept ${liveProject?.selectedConcept}): ${(await published.locator("body").innerText()).slice(0, 600)}`);
+    const retryResponse = await page.request.get(`${baseURL}/sites/${publicSlug}`, { headers: { "Cache-Control": "no-store" } });
+    throw new Error(`Published site failed to render (${publishedResponse?.status()}, retry ${retryResponse.status()}, requested slug ${publicSlug}, live slug ${liveProject?.publicSlug}, expected token ${expectedToken}, live token ${liveProject?.privateToken}, live status ${liveProject?.status}, live concept ${liveProject?.selectedConcept}): ${(await published.locator("body").innerText()).slice(0, 600)}`);
   }
   await published.locator(".client-header nav").getByRole("link", { name: "Services", exact: true }).click();
   await published.waitForURL(new RegExp(`/sites/${publicSlug}/services$`));
@@ -158,26 +193,32 @@ try {
   if (leadStatus !== 201) throw new Error(`Published lead capture failed with HTTP ${leadStatus}.`);
   await published.close();
 
-  const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const mobile = await context.newPage();
+  await mobile.setViewportSize({ width: 390, height: 844 });
   await mobile.goto(`${baseURL}/dashboard`, { waitUntil: "networkidle" });
+  await mobile.getByRole("button", { name: "Sign out" }).waitFor();
   await mobile.getByRole("button", { name: "Open navigation" }).click();
   await mobile.getByRole("button", { name: "Knowledge" }).waitFor();
   await mobile.getByRole("complementary").getByRole("button", { name: "Close navigation" }).click();
+  await mobile.close();
 
-  const login = await browser.newPage({ viewport: { width: 1100, height: 800 } });
-  await login.goto(`${baseURL}/login`, { waitUntil: "networkidle" });
-  await login.getByRole("button", { name: "Continue securely" }).click();
-  await login.getByLabel("Verification code").fill("123456");
-  await login.getByRole("button", { name: "Verify and open workspace" }).click();
-  await login.waitForURL(/\/dashboard$/);
+  await page.goto(`${baseURL}/dashboard`, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.waitForURL(/\/login/);
+  await signIn(page);
+  await page.getByRole("heading", { name: /Good morning/ }).waitFor();
 
   process.stdout.write("EverOnn product smoke test passed.\n");
 } finally {
+  let restoreError;
+  if (originalWorkspace) {
+    const restoreResponse = await context.request.put(`${baseURL}/api/workspace`, {
+      headers: { "Content-Type": "application/json", "x-everonn-workspace": originalWorkspace.workspaceId },
+      data: { workspace: originalWorkspace },
+    });
+    if (!restoreResponse.ok()) restoreError = new Error(`Could not restore workspace JSON (${restoreResponse.status()}).`);
+  }
+  await context.close();
   await browser.close();
-  const restoreResponse = await fetch(`${baseURL}/api/workspace`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", "x-everonn-workspace": originalWorkspace.workspaceId },
-    body: JSON.stringify({ workspace: originalWorkspace }),
-  });
-  if (!restoreResponse.ok) throw new Error(`Could not restore workspace JSON (${restoreResponse.status}).`);
+  if (restoreError) throw restoreError;
 }

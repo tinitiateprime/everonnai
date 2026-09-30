@@ -5,6 +5,7 @@ out
 .DS_Store
 data/*.tmp
 data/provider-connections.json
+data/auth.json
 .env*
 !.env.example
 .vercel

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { exchangeGoogleAuthorizationCode, getGoogleOAuthConfig, googleOAuthRedirectUri } from "@/features/integrations/google-oauth";
 import { readWorkspaceJson, writeWorkspaceJson } from "@/lib/json-workspace-store";
 import { getGoogleConnection, saveGoogleConnection, verifyGoogleOAuthState } from "@/lib/provider-credentials";
+import { requireActor } from "@/features/auth/session";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ export async function GET(request: NextRequest) {
     if (!nonce || nonce !== state.nonce) throw new Error("Google authorization could not be matched to this browser.");
     const workspace = await readWorkspaceJson();
     if (workspace.workspaceId !== state.workspaceId) throw new Error("Workspace access denied.");
+    await requireActor("business:configure", state.workspaceId);
     const existing = await getGoogleConnection(state.workspaceId);
     const redirectUri = googleOAuthRedirectUri(request.nextUrl.origin);
     const connection = await exchangeGoogleAuthorizationCode(code, redirectUri, existing?.refreshToken);

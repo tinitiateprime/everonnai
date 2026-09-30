@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { buildReceptionistPrompt } from "@/features/voice-agent/engine";
+import { assertSameOrigin, authErrorDetails } from "@/features/auth/session";
 import { readWorkspaceJson } from "@/lib/json-workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,7 @@ async function elevenLabs(path: string, apiKey: string) {
 
 export async function POST(request: Request) {
   try {
+    assertSameOrigin(request);
     const raw = await request.text();
     if (raw.length > 4_000) return NextResponse.json({ error: "Invalid assistant request." }, { status: 400 });
     const input = raw ? JSON.parse(raw) as { previewToken?: string; publicSlug?: string } : {};
@@ -74,8 +76,8 @@ export async function POST(request: Request) {
       expiresAt: new Date(Date.now() + 14 * 60_000).toISOString(),
     }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "The AI assistant is temporarily unavailable.";
-    const status = message.startsWith("Please wait") ? 429 : 502;
-    return NextResponse.json({ error: message }, { status, headers: { "Cache-Control": "private, no-store, max-age=0" } });
+    const details = authErrorDetails(error, 502);
+    const status = details.message.startsWith("Please wait") ? 429 : details.status;
+    return NextResponse.json({ error: details.message || "The AI assistant is temporarily unavailable." }, { status, headers: { "Cache-Control": "private, no-store, max-age=0" } });
   }
 }

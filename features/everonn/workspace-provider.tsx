@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createDemoWorkspace } from "./demo-data";
 import type {
   Appointment,
@@ -35,7 +36,15 @@ type WorkspaceContextValue = {
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
+function handleExpiredSession(response: Response, replace: (href: string) => void) {
+  if (response.status !== 401) return false;
+  const returnTo = `${window.location.pathname}${window.location.search}`;
+  replace(`/login?returnTo=${encodeURIComponent(returnTo)}`);
+  return true;
+}
+
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const [workspace, setWorkspace] = useState<EverOnnWorkspace>(() => createDemoWorkspace());
   const [hydrated, setHydrated] = useState(false);
   const [persistenceReady, setPersistenceReady] = useState(false);
@@ -46,6 +55,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     const timer = window.setTimeout(async () => {
       try {
         const response = await fetch("/api/workspace", { cache: "no-store", signal: controller.signal });
+        if (handleExpiredSession(response, router.replace)) return;
         const data = await response.json() as { workspace?: EverOnnWorkspace; error?: string };
         if (!response.ok || !data.workspace) throw new Error(data.error || "Unable to load the workspace JSON file.");
         setWorkspace(data.workspace);
@@ -61,7 +71,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     if (!hydrated || !persistenceReady) return;
@@ -75,6 +85,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ workspace }),
           signal: controller.signal,
         });
+        if (handleExpiredSession(response, router.replace)) return;
         const data = await response.json() as { error?: string };
         if (!response.ok) throw new Error(data.error || "Unable to save the workspace JSON file.");
         setSyncStatus("saved");
@@ -86,7 +97,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [hydrated, persistenceReady, workspace]);
+  }, [hydrated, persistenceReady, router, workspace]);
 
   useEffect(() => {
     if (!hydrated || !persistenceReady) return;
@@ -95,6 +106,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       if (document.visibilityState === "hidden" || syncStatus === "saving") return;
       try {
         const response = await fetch("/api/workspace", { cache: "no-store", signal: controller.signal });
+        if (handleExpiredSession(response, router.replace)) return;
         const data = await response.json() as { workspace?: EverOnnWorkspace };
         if (response.ok && data.workspace) setWorkspace(data.workspace);
       } catch (error) {
@@ -111,7 +123,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [hydrated, persistenceReady, syncStatus]);
+  }, [hydrated, persistenceReady, router, syncStatus]);
 
   const value = useMemo<WorkspaceContextValue>(() => ({
     workspace,
@@ -182,7 +194,21 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       }));
     },
     resetDemo() {
-      setWorkspace(createDemoWorkspace());
+      setWorkspace((current) => {
+        const demo = createDemoWorkspace();
+        const workspaceId = current.workspaceId;
+        return {
+          ...demo,
+          workspaceId,
+          profile: { ...demo.profile, workspaceId },
+          contacts: demo.contacts.map((item) => ({ ...item, workspaceId })),
+          leads: demo.leads.map((item) => ({ ...item, workspaceId })),
+          conversations: demo.conversations.map((item) => ({ ...item, workspaceId })),
+          appointments: demo.appointments.map((item) => ({ ...item, workspaceId })),
+          websiteProject: demo.websiteProject ? { ...demo.websiteProject, workspaceId } : null,
+          team: current.team,
+        };
+      });
     },
   }), [hydrated, syncStatus, workspace]);
 

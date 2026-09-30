@@ -37,3 +37,21 @@ test("AgenticThat provider variable names work unchanged", () => {
 test("Google OAuth callback uses the public application URL", () => {
   assert.equal(googleOAuthRedirectUri("https://everonnai.netlify.app"), "https://everonnai.netlify.app/api/integrations/google/callback");
 });
+
+test("Google OAuth callback uses Netlify's stable site URL instead of an immutable deploy URL", () => {
+  const previousNetlify = process.env.NETLIFY;
+  const previousUrl = process.env.URL;
+  process.env.NETLIFY = "true";
+  process.env.URL = "https://everonnai.netlify.app";
+  try {
+    assert.equal(
+      googleOAuthRedirectUri("https://deploy-id--everonnai.netlify.app"),
+      "https://everonnai.netlify.app/api/integrations/google/callback",
+    );
+  } finally {
+    if (previousNetlify === undefined) delete process.env.NETLIFY;
+    else process.env.NETLIFY = previousNetlify;
+    if (previousUrl === undefined) delete process.env.URL;
+    else process.env.URL = previousUrl;
+  }
+});

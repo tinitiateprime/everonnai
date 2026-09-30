@@ -39,9 +39,7 @@ test("Google OAuth callback uses the public application URL", () => {
 });
 
 test("Google OAuth callback uses Netlify's stable site URL instead of an immutable deploy URL", () => {
-  const previousNetlify = process.env.NETLIFY;
   const previousSiteName = process.env.SITE_NAME;
-  process.env.NETLIFY = "true";
   process.env.SITE_NAME = "everonnai";
   try {
     assert.equal(
@@ -49,8 +47,6 @@ test("Google OAuth callback uses Netlify's stable site URL instead of an immutab
       "https://everonnai.netlify.app/api/integrations/google/callback",
     );
   } finally {
-    if (previousNetlify === undefined) delete process.env.NETLIFY;
-    else process.env.NETLIFY = previousNetlify;
     if (previousSiteName === undefined) delete process.env.SITE_NAME;
     else process.env.SITE_NAME = previousSiteName;
   }

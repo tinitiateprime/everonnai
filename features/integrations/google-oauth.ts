@@ -16,7 +16,7 @@ export function getGoogleOAuthConfig() {
 }
 
 export function googleOAuthRedirectUri(requestOrigin: string) {
-  const netlifySiteName = process.env.NETLIFY === "true" ? String(process.env.SITE_NAME || "").trim() : "";
+  const netlifySiteName = String(process.env.SITE_NAME || "").trim();
   const netlifySiteUrl = netlifySiteName ? `https://${netlifySiteName}.netlify.app` : "";
   const redirectUri = new URL("/api/integrations/google/callback", netlifySiteUrl || requestOrigin);
   if (redirectUri.protocol !== "http:" && redirectUri.protocol !== "https:") throw new Error("The application URL must use HTTP or HTTPS.");

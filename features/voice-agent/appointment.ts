@@ -1,6 +1,7 @@
 import "server-only";
 import type { BusinessProfile } from "@/features/everonn/types";
 import { getGeminiWebsiteConfig } from "@/lib/provider-config";
+import { parseEmbeddedJsonObject } from "./appointment-time";
 
 export { localDateTimeToUtc } from "./appointment-time";
 
@@ -30,7 +31,7 @@ function extractJson(payload: unknown) {
   const response = payload as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
   const source = response.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
   if (!source) throw new Error("Gemini returned no appointment details.");
-  return JSON.parse(source.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "")) as Record<string, unknown>;
+  return parseEmbeddedJsonObject(source);
 }
 
 function normalizeIntent(value: Record<string, unknown>): AppointmentIntent {

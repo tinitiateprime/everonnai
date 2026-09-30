@@ -4,7 +4,7 @@ import { createDemoWorkspace } from "@/features/everonn/demo-data";
 import { createWebsiteProject, generateDeterministicWebsiteSpec, runWebsiteQa } from "@/features/website-studio/generator";
 import { buildReceptionistPrompt, detectUrgency, extractCallerDetails } from "@/features/voice-agent/engine";
 import { bookGoogleCalendarAppointment, buildGmailRaw } from "@/features/integrations/google";
-import { localDateTimeToUtc } from "@/features/voice-agent/appointment-time";
+import { localDateTimeToUtc, parseEmbeddedJsonObject } from "@/features/voice-agent/appointment-time";
 
 test("website generation preserves approved services and passes QA", () => {
   const profile = createDemoWorkspace().profile;
@@ -52,6 +52,13 @@ test("front desk extracts written and spoken email addresses", () => {
 test("appointment times use the business time zone", () => {
   assert.equal(localDateTimeToUtc("2026-10-02T11:00:00", "Asia/Kolkata").toISOString(), "2026-10-02T05:30:00.000Z");
   assert.equal(localDateTimeToUtc("2026-07-02T11:00:00", "America/Denver").toISOString(), "2026-07-02T17:00:00.000Z");
+});
+
+test("appointment extraction accepts a JSON object wrapped in model prose", () => {
+  assert.deepEqual(
+    parseEmbeddedJsonObject('Here is the result: {"appointmentRequested":true,"service":"Door installation","startsAtLocal":"2026-10-02T11:00:00"}'),
+    { appointmentRequested: true, service: "Door installation", startsAtLocal: "2026-10-02T11:00:00" },
+  );
 });
 
 test("Google Calendar bookings are idempotent and invite the customer", async () => {

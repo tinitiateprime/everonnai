@@ -32,3 +32,11 @@ export function localDateTimeToUtc(value: string, timeZone: string) {
   }
   return date;
 }
+
+export function parseEmbeddedJsonObject(source: string) {
+  const cleaned = source.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  const objectStart = cleaned.indexOf("{");
+  const objectEnd = cleaned.lastIndexOf("}");
+  if (objectStart < 0 || objectEnd <= objectStart) throw new Error("The response does not contain a JSON object.");
+  return JSON.parse(cleaned.slice(objectStart, objectEnd + 1)) as Record<string, unknown>;
+}

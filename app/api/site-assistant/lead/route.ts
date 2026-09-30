@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { Contact, Lead, Urgency } from "@/features/everonn/types";
+import { processLeadAutomation } from "@/features/integrations/lead-automation";
 import { updateWorkspaceJson } from "@/lib/json-workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -93,7 +94,17 @@ export async function POST(request: Request) {
       };
     });
 
-    return NextResponse.json({ saved: true, lead, contact }, { status: 201, headers: { "Cache-Control": "private, no-store" } });
+    let appointment = null;
+    let automationError = "";
+    try {
+      const result = await processLeadAutomation(lead!.id);
+      lead = result.lead;
+      appointment = result.appointment;
+    } catch (error) {
+      automationError = error instanceof Error ? error.message : "Automated follow-up could not run.";
+    }
+
+    return NextResponse.json({ saved: true, lead, contact, appointment, automationError: automationError || undefined }, { status: 201, headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to capture callback details." }, { status: 400 });
   }

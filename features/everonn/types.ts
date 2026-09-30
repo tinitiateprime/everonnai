@@ -71,6 +71,15 @@ export type Lead = {
   source: "phone" | "chat" | "website";
   urgency: Urgency;
   status: "new" | "qualified" | "follow_up" | "closed";
+  automation?: {
+    appointmentStatus: "not_requested" | "needs_details" | "unavailable" | "confirmed" | "failed";
+    appointmentId?: string;
+    googleEventId?: string;
+    gmailStatus: "not_configured" | "pending" | "sent" | "failed";
+    gmailMessageId?: string;
+    message?: string;
+    processedAt: string;
+  };
   createdAt: string;
 };
 
@@ -97,6 +106,10 @@ export type Appointment = {
   time: string;
   status: "requested" | "confirmed" | "cancelled";
   provider: "manual" | "google";
+  leadId?: string;
+  contactEmail?: string;
+  googleEventId?: string;
+  googleEventUrl?: string;
   createdAt: string;
 };
 

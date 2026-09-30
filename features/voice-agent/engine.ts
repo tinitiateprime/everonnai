@@ -28,7 +28,7 @@ function extractEmail(value: string) {
 export function extractCallerDetails(messages: TranscriptMessage[]) {
   const callerText = messages.filter((item) => item.role === "caller").map((item) => item.text).join(" ");
   const phone = callerText.match(/(?:\+?\d[\d ()-]{6,}\d)/)?.[0] || "";
-  const name = callerText.match(/\b(?:my name is|this is|i am|i'm)\s+([a-z][a-z.'-]*(?:\s+[a-z][a-z.'-]*){0,2}?)(?=\s+(?:and\b|my\b|email\b|phone\b|number\b|calling\b|about\b|because\b)|[,.!?]|$)/i)?.[1] || "";
+  const name = callerText.match(/\b(?:my name is|this is|i am|i'm|name\s*(?:is|:))\s+([a-z][a-z.'-]*(?:\s+[a-z][a-z.'-]*){0,2}?)(?=\s+(?:and\b|my\b|email\b|phone\b|number\b|calling\b|about\b|because\b)|[,.!?]|$)/i)?.[1] || "";
   return { callerName: clean(name, 120), callerPhone: clean(phone, 40), callerEmail: clean(extractEmail(callerText), 254), urgency: detectUrgency(callerText) };
 }
 

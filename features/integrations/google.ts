@@ -1,6 +1,12 @@
 const calendarApi = "https://www.googleapis.com/calendar/v3";
 const gmailApi = "https://gmail.googleapis.com/gmail/v1";
 
+class GoogleRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
 async function googleRequest<T>(url: string, accessToken: string, init: RequestInit = {}) {
   const response = await fetch(url, {
     ...init,
@@ -9,7 +15,7 @@ async function googleRequest<T>(url: string, accessToken: string, init: RequestI
     cache: "no-store",
   });
   const payload = await response.json().catch(() => null) as T | { error?: { message?: string } } | null;
-  if (!response.ok) throw new Error((payload as { error?: { message?: string } } | null)?.error?.message || `Google returned HTTP ${response.status}.`);
+  if (!response.ok) throw new GoogleRequestError((payload as { error?: { message?: string } } | null)?.error?.message || `Google returned HTTP ${response.status}.`, response.status);
   return payload as T;
 }
 
@@ -22,17 +28,45 @@ export async function checkGoogleCalendarAvailability(input: { accessToken: stri
   return { available: busy.length === 0, busy };
 }
 
-export async function bookGoogleCalendarAppointment(input: { accessToken: string; calendarId: string; startsAt: string; endsAt: string; timeZone: string; businessName: string; service: string; customerName: string; customerPhone: string }) {
-  return googleRequest<{ id: string; htmlLink?: string }>(`${calendarApi}/calendars/${encodeURIComponent(input.calendarId)}/events`, input.accessToken, {
-    method: "POST",
-    body: JSON.stringify({
-      summary: `${input.service} · ${input.customerName || "Customer"}`,
-      description: `EverOnn request for ${input.businessName}\nCustomer: ${input.customerName}\nCallback: ${input.customerPhone}`,
-      start: { dateTime: input.startsAt, timeZone: input.timeZone },
-      end: { dateTime: input.endsAt, timeZone: input.timeZone },
-      extendedProperties: { private: { source: "everonn" } },
-    }),
-  });
+export async function bookGoogleCalendarAppointment(input: {
+  accessToken: string;
+  calendarId: string;
+  eventId: string;
+  startsAt: string;
+  endsAt: string;
+  timeZone: string;
+  businessName: string;
+  service: string;
+  customerName: string;
+  customerPhone: string;
+  customerEmail?: string;
+  reason: string;
+  sourceLeadId: string;
+}) {
+  const eventUrl = `${calendarApi}/calendars/${encodeURIComponent(input.calendarId)}/events`;
+  try {
+    return await googleRequest<{ id: string; htmlLink?: string }>(`${eventUrl}${input.customerEmail ? "?sendUpdates=all" : ""}`, input.accessToken, {
+      method: "POST",
+      body: JSON.stringify({
+        id: input.eventId,
+        summary: `${input.service} · ${input.customerName || "Customer"}`,
+        description: [
+          `EverOnn appointment for ${input.businessName}`,
+          `Customer: ${input.customerName || "Not provided"}`,
+          `Phone: ${input.customerPhone || "Not provided"}`,
+          `Email: ${input.customerEmail || "Not provided"}`,
+          `Request: ${input.reason}`,
+        ].join("\n"),
+        start: { dateTime: input.startsAt, timeZone: input.timeZone },
+        end: { dateTime: input.endsAt, timeZone: input.timeZone },
+        attendees: input.customerEmail ? [{ email: input.customerEmail }] : undefined,
+        extendedProperties: { private: { source: "everonn", leadId: input.sourceLeadId } },
+      }),
+    });
+  } catch (error) {
+    if (!(error instanceof GoogleRequestError) || error.status !== 409) throw error;
+    return googleRequest<{ id: string; htmlLink?: string }>(`${eventUrl}/${encodeURIComponent(input.eventId)}`, input.accessToken);
+  }
 }
 
 function base64Url(value: string) {

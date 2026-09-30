@@ -173,7 +173,17 @@ function InboxSection() {
     const contact = workspace.contacts.find((item) => item.id === lead.contactId);
     return [lead.callerPhone, contact?.email].filter(Boolean).join(" · ") || "No contact details";
   };
-  return <><PageHeading eyebrow="Unified conversations" title="Every opportunity, in one inbox." copy="Phone calls, website chats, and forms become organized customer conversations with clear next steps." /><section className="eo-panel"><div className="eo-toolbar"><div className="eo-filter active">All <b>{workspace.leads.length}</b></div><div className="eo-filter">New <b>{workspace.leads.filter((item) => item.status === "new").length}</b></div><div className="eo-filter">Needs follow-up</div></div><div className="eo-table-wrap"><table className="eo-table"><thead><tr><th>Customer</th><th>Channel</th><th>Request</th><th>Urgency</th><th>Status</th><th>Received</th></tr></thead><tbody>{workspace.leads.map((lead) => <tr key={lead.id}><td><strong>{lead.callerName}</strong><small>{contactDetails(lead)}</small></td><td><span className="eo-inline-channel"><ChannelIcon channel={lead.source} /> {lead.source}</span></td><td>{lead.reason}</td><td><StatusPill tone={lead.urgency === "high" ? "danger" : "neutral"}>{lead.urgency}</StatusPill></td><td><StatusPill tone={lead.status === "new" ? "warning" : "good"}>{lead.status.replace("_", " ")}</StatusPill></td><td>{formatDate(lead.createdAt)}</td></tr>)}</tbody></table></div></section></>;
+  const automationDetails = (lead: Lead) => {
+    if (!lead.automation) return "";
+    const appointment = lead.automation.appointmentStatus === "confirmed" ? "Calendar confirmed"
+      : lead.automation.appointmentStatus === "unavailable" ? "Calendar busy — follow-up required"
+        : lead.automation.appointmentStatus === "needs_details" ? "Appointment needs a complete date and time"
+          : lead.automation.appointmentStatus === "failed" ? "Calendar automation needs attention" : "";
+    const email = lead.automation.gmailStatus === "sent" ? "Email notification sent"
+      : lead.automation.gmailStatus === "failed" ? "Email notification failed" : "";
+    return [appointment, email].filter(Boolean).join(" · ");
+  };
+  return <><PageHeading eyebrow="Unified conversations" title="Every opportunity, in one inbox." copy="Phone calls, website chats, and forms become organized customer conversations with clear next steps." /><section className="eo-panel"><div className="eo-toolbar"><div className="eo-filter active">All <b>{workspace.leads.length}</b></div><div className="eo-filter">New <b>{workspace.leads.filter((item) => item.status === "new").length}</b></div><div className="eo-filter">Needs follow-up</div></div><div className="eo-table-wrap"><table className="eo-table"><thead><tr><th>Customer</th><th>Channel</th><th>Request</th><th>Urgency</th><th>Status</th><th>Received</th></tr></thead><tbody>{workspace.leads.map((lead) => <tr key={lead.id}><td><strong>{lead.callerName}</strong><small>{contactDetails(lead)}</small></td><td><span className="eo-inline-channel"><ChannelIcon channel={lead.source} /> {lead.source}</span></td><td>{lead.reason}{automationDetails(lead) && <small>{automationDetails(lead)}</small>}</td><td><StatusPill tone={lead.urgency === "high" ? "danger" : "neutral"}>{lead.urgency}</StatusPill></td><td><StatusPill tone={lead.status === "new" ? "warning" : "good"}>{lead.status.replace("_", " ")}</StatusPill></td><td>{formatDate(lead.createdAt)}</td></tr>)}</tbody></table></div></section></>;
 }
 
 function ContactsSection() {

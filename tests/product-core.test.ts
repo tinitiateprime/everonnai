@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { createDemoWorkspace } from "@/features/everonn/demo-data";
 import { createWebsiteProject, generateDeterministicWebsiteSpec, runWebsiteQa } from "@/features/website-studio/generator";
 import { buildReceptionistPrompt, detectUrgency, extractCallerDetails } from "@/features/voice-agent/engine";
-import { buildGmailRaw } from "@/features/integrations/google";
+import { bookGoogleCalendarAppointment, buildGmailRaw } from "@/features/integrations/google";
+import { localDateTimeToUtc } from "@/features/voice-agent/appointment-time";
 
 test("website generation preserves approved services and passes QA", () => {
   const profile = createDemoWorkspace().profile;
@@ -43,6 +44,48 @@ test("front desk extracts written and spoken email addresses", () => {
 
   const spoken = extractCallerDetails([{ id: "2", role: "caller", text: "You can email me at alex dot smith at gmail dot com", at }]);
   assert.equal(spoken.callerEmail, "alex.smith@gmail.com");
+
+  const labeled = extractCallerDetails([{ id: "3", role: "caller", text: "Contact details are name: Tester, phone number: +91 3729464785", at }]);
+  assert.equal(labeled.callerName, "Tester");
+});
+
+test("appointment times use the business time zone", () => {
+  assert.equal(localDateTimeToUtc("2026-10-02T11:00:00", "Asia/Kolkata").toISOString(), "2026-10-02T05:30:00.000Z");
+  assert.equal(localDateTimeToUtc("2026-07-02T11:00:00", "America/Denver").toISOString(), "2026-07-02T17:00:00.000Z");
+});
+
+test("Google Calendar bookings are idempotent and invite the customer", async () => {
+  const previousFetch = globalThis.fetch;
+  let requestedUrl = "";
+  let requestedBody: Record<string, unknown> = {};
+  globalThis.fetch = (async (input, init) => {
+    requestedUrl = String(input);
+    requestedBody = JSON.parse(String(init?.body || "{}")) as Record<string, unknown>;
+    return new Response(JSON.stringify({ id: "event_1", htmlLink: "https://calendar.google.com/event" }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+  try {
+    const event = await bookGoogleCalendarAppointment({
+      accessToken: "token",
+      calendarId: "primary",
+      eventId: "abcdef123456",
+      startsAt: "2026-10-02T05:30:00.000Z",
+      endsAt: "2026-10-02T06:30:00.000Z",
+      timeZone: "Asia/Kolkata",
+      businessName: "US Carpentry Services",
+      service: "Door installation",
+      customerName: "Tester",
+      customerPhone: "+91 3729464785",
+      customerEmail: "tester@example.com",
+      reason: "Book door installation",
+      sourceLeadId: "lead_1",
+    });
+    assert.equal(event.id, "event_1");
+    assert.match(requestedUrl, /calendars\/primary\/events\?sendUpdates=all$/);
+    assert.equal(requestedBody.id, "abcdef123456");
+    assert.deepEqual(requestedBody.attendees, [{ email: "tester@example.com" }]);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
 });
 
 test("Gmail messages are encoded without exposing credentials", () => {

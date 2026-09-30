@@ -75,7 +75,7 @@ Rules:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: "application/json", responseSchema, temperature: 0, maxOutputTokens: 300 },
+          generationConfig: { responseMimeType: "application/json", responseSchema, temperature: 0, maxOutputTokens: 2048 },
         }),
         signal: AbortSignal.timeout(Math.min(config.timeoutMs, 25_000)),
         cache: "no-store",

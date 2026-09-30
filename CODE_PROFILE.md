@@ -6,7 +6,7 @@ This is the practical guide to the EverOnn codebase. Use it to answer three ques
 2. Which internal and external API calls does it make?
 3. What data does it read or change?
 
-For request-by-request diagrams, read [PROJECT_DATA_FLOW.md](PROJECT_DATA_FLOW.md).
+For request-by-request diagrams, read [PROJECT_DATA_FLOW.md](PROJECT_DATA_FLOW.md). For meeting-ready answers, read [CLIENT_TECHNICAL_QA.md](CLIENT_TECHNICAL_QA.md).
 
 > Keep this document factual. “Connected” means the code calls a real provider. “Demo only” means the screen works visually but has no production backend.
 

@@ -10,6 +10,6 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Living architecture documentation
 
-`CODE_PROFILE.md` and `PROJECT_DATA_FLOW.md` are the project's maintained code and data-flow guides.
+`CODE_PROFILE.md`, `PROJECT_DATA_FLOW.md`, and `CLIENT_TECHNICAL_QA.md` are the project's maintained code, data-flow, and client Q&A guides.
 
 Whenever a code change alters routes, API calls, module responsibilities, data shapes, persistence, provider integrations, environment variables, access control, or feature completeness, update the relevant guide in the same change. Describe implemented behavior, and keep production-connected behavior clearly separated from demo-only behavior.

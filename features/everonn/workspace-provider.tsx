@@ -140,8 +140,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         if (!response.ok || !data.project) throw new Error(data.error || "Unable to update the website project.");
         setWorkspace((current) => ({ ...current, websiteProject: data.project! }));
         setSyncStatus("saved");
-      } catch {
+      } catch (error) {
         setSyncStatus("error");
+        throw error;
       }
     },
     addConversation(conversation) {

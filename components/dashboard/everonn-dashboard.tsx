@@ -169,7 +169,11 @@ function Overview() {
 
 function InboxSection() {
   const { workspace } = useEverOnnWorkspace();
-  return <><PageHeading eyebrow="Unified conversations" title="Every opportunity, in one inbox." copy="Phone calls, website chats, and forms become organized customer conversations with clear next steps." /><section className="eo-panel"><div className="eo-toolbar"><div className="eo-filter active">All <b>{workspace.leads.length}</b></div><div className="eo-filter">New <b>{workspace.leads.filter((item) => item.status === "new").length}</b></div><div className="eo-filter">Needs follow-up</div></div><div className="eo-table-wrap"><table className="eo-table"><thead><tr><th>Customer</th><th>Channel</th><th>Request</th><th>Urgency</th><th>Status</th><th>Received</th></tr></thead><tbody>{workspace.leads.map((lead) => <tr key={lead.id}><td><strong>{lead.callerName}</strong><small>{lead.callerPhone}</small></td><td><span className="eo-inline-channel"><ChannelIcon channel={lead.source} /> {lead.source}</span></td><td>{lead.reason}</td><td><StatusPill tone={lead.urgency === "high" ? "danger" : "neutral"}>{lead.urgency}</StatusPill></td><td><StatusPill tone={lead.status === "new" ? "warning" : "good"}>{lead.status.replace("_", " ")}</StatusPill></td><td>{formatDate(lead.createdAt)}</td></tr>)}</tbody></table></div></section></>;
+  const contactDetails = (lead: Lead) => {
+    const contact = workspace.contacts.find((item) => item.id === lead.contactId);
+    return [lead.callerPhone, contact?.email].filter(Boolean).join(" · ") || "No contact details";
+  };
+  return <><PageHeading eyebrow="Unified conversations" title="Every opportunity, in one inbox." copy="Phone calls, website chats, and forms become organized customer conversations with clear next steps." /><section className="eo-panel"><div className="eo-toolbar"><div className="eo-filter active">All <b>{workspace.leads.length}</b></div><div className="eo-filter">New <b>{workspace.leads.filter((item) => item.status === "new").length}</b></div><div className="eo-filter">Needs follow-up</div></div><div className="eo-table-wrap"><table className="eo-table"><thead><tr><th>Customer</th><th>Channel</th><th>Request</th><th>Urgency</th><th>Status</th><th>Received</th></tr></thead><tbody>{workspace.leads.map((lead) => <tr key={lead.id}><td><strong>{lead.callerName}</strong><small>{contactDetails(lead)}</small></td><td><span className="eo-inline-channel"><ChannelIcon channel={lead.source} /> {lead.source}</span></td><td>{lead.reason}</td><td><StatusPill tone={lead.urgency === "high" ? "danger" : "neutral"}>{lead.urgency}</StatusPill></td><td><StatusPill tone={lead.status === "new" ? "warning" : "good"}>{lead.status.replace("_", " ")}</StatusPill></td><td>{formatDate(lead.createdAt)}</td></tr>)}</tbody></table></div></section></>;
 }
 
 function ContactsSection() {
@@ -183,9 +187,9 @@ function CallsSection() {
 }
 
 function AppointmentsSection() {
-  const { workspace, setIntegration } = useEverOnnWorkspace();
+  const { workspace } = useEverOnnWorkspace();
   const connected = workspace.integrations.googleCalendar === "connected";
-  return <><PageHeading eyebrow="Booking & requests" title="Keep appointment intent attached to the customer." copy="The AI records requested times and confirms a booking only when a connected calendar accepts it." action={<button className={connected ? "eo-secondary-button" : "eo-primary-button"} onClick={() => setIntegration("googleCalendar", connected ? "disconnected" : "connected")}><CalendarCheck /> {connected ? "Calendar connected" : "Connect Google Calendar"}</button>} /><div className="eo-notice"><ShieldCheck /><div><strong>No invented availability</strong><p>Without a verified calendar result, EverOnn saves an unconfirmed request and asks the team to follow up.</p></div></div><section className="eo-panel"><div className="eo-appointment-grid">{workspace.appointments.map((appointment) => <article key={appointment.id}><div className="eo-date-block"><strong>{new Date(`${appointment.date}T00:00:00`).toLocaleDateString("en", { day: "2-digit" })}</strong><span>{new Date(`${appointment.date}T00:00:00`).toLocaleDateString("en", { month: "short" })}</span></div><div><h3>{appointment.service}</h3><p>{appointment.contactName} · {appointment.contactPhone}</p><small>{appointment.time} · {workspace.profile.timeZone}</small></div><StatusPill tone={appointment.status === "confirmed" ? "good" : "warning"}>{appointment.status}</StatusPill></article>)}</div></section></>;
+  return <><PageHeading eyebrow="Booking & requests" title="Keep appointment intent attached to the customer." copy="The AI records requested times and confirms a booking only when a connected calendar accepts it." action={<Link className={connected ? "eo-secondary-button" : "eo-primary-button"} href="/dashboard/settings"><CalendarCheck /> {connected ? "Manage Google Calendar" : "Connect Google Calendar"}</Link>} /><div className="eo-notice"><ShieldCheck /><div><strong>No invented availability</strong><p>Without a verified calendar result, EverOnn saves an unconfirmed request and asks the team to follow up.</p></div></div><section className="eo-panel"><div className="eo-appointment-grid">{workspace.appointments.map((appointment) => <article key={appointment.id}><div className="eo-date-block"><strong>{new Date(`${appointment.date}T00:00:00`).toLocaleDateString("en", { day: "2-digit" })}</strong><span>{new Date(`${appointment.date}T00:00:00`).toLocaleDateString("en", { month: "short" })}</span></div><div><h3>{appointment.service}</h3><p>{appointment.contactName} · {appointment.contactPhone}</p><small>{appointment.time} · {workspace.profile.timeZone}</small></div><StatusPill tone={appointment.status === "confirmed" ? "good" : "warning"}>{appointment.status}</StatusPill></article>)}</div></section></>;
 }
 
 function KnowledgeSection() {
@@ -313,16 +317,16 @@ function AiAgentSection() {
 
   useEffect(() => {
     const details = extractCallerDetails(messages);
-    if (!details.callerPhone) return;
+    if (!details.callerPhone && !details.callerEmail) return;
     const phoneKey = details.callerPhone.replace(/\D/g, "").slice(-15);
     const reason = messages.filter((item) => item.role === "caller").map((item) => item.text).join(" ").slice(0, 300);
-    const signature = `${phoneKey}|${details.callerName}|${details.urgency}|${reason}`;
-    if (!phoneKey || signature === lastCaptureSignature.current) return;
+    const signature = `${phoneKey}|${details.callerEmail}|${details.callerName}|${details.urgency}|${reason}`;
+    if (signature === lastCaptureSignature.current) return;
     lastCaptureSignature.current = signature;
     void fetch("/api/site-assistant/lead", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-everonn-workspace": workspace.workspaceId },
-      body: JSON.stringify({ callerName: details.callerName || "AI caller", callerPhone: details.callerPhone, reason, urgency: details.urgency, source: "phone" }),
+      body: JSON.stringify({ callerName: details.callerName || "AI caller", callerPhone: details.callerPhone, callerEmail: details.callerEmail, reason, urgency: details.urgency, source: "phone" }),
     }).then(async (response) => {
       const data = await response.json() as { lead?: Lead; contact?: Contact };
       if (!response.ok || !data.lead || !data.contact) throw new Error("Lead capture failed.");
@@ -330,7 +334,7 @@ function AiAgentSection() {
       upsertLead(data.lead);
     }).catch(() => {
       lastCaptureSignature.current = "";
-      setVoiceError("The conversation is active, but the callback details could not be saved. Please try the number again.");
+      setVoiceError("The conversation is active, but the contact details could not be saved. Please repeat the phone number or email.");
     });
   }, [messages, upsertContact, upsertLead, workspace.workspaceId]);
 
@@ -467,10 +471,25 @@ function WebsiteSection() {
 
 function WebsiteProjectView({ project, advance }: { project: WebsiteProject; advance: (status: WebsiteProject["status"], concept?: WebsiteProject["selectedConcept"]) => Promise<void> }) {
   const [concept, setConcept] = useState<"editorial" | "momentum" | "aura">(project.selectedConcept || "editorial");
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState("");
   const stepIndex = ["generated", "claimed", "verified", "approved", "published"].indexOf(project.status);
   const next = ["claimed", "verified", "approved", "published"][Math.max(0, stepIndex)] as WebsiteProject["status"] | undefined;
   const actionLabels: Partial<Record<WebsiteProject["status"], string>> = { generated: "Claim this preview", claimed: "Verify business owner", verified: "Approve for publishing", approved: "Publish website" };
   const heroStyle = project.spec.media.hero ? { "--eo-site-image": `url("${project.spec.media.hero.url}")` } as React.CSSProperties : undefined;
+
+  async function updatePublishing(status: WebsiteProject["status"]) {
+    setPublishing(true);
+    setPublishError("");
+    try {
+      await advance(status, concept);
+    } catch (error) {
+      setPublishError(error instanceof Error ? error.message : "Unable to update the website publishing status.");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
   return <>
     <section className="eo-panel eo-project-status">
       <div>
@@ -494,7 +513,7 @@ function WebsiteProjectView({ project, advance }: { project: WebsiteProject; adv
           })}</div>
         </div>
         <div className="eo-concept-actions">
-          <button className="eo-secondary-button" onClick={() => void advance(project.status, concept)}><Check /> Select {concept}</button>
+          <button className="eo-secondary-button" onClick={() => void updatePublishing(project.status)} disabled={publishing}><Check /> {publishing ? "Saving…" : `Select ${concept}`}</button>
           <Link className="eo-primary-button" href={`/preview/${project.privateToken}?theme=${concept}`} target="_blank">Open multi-page preview <ExternalLink /></Link>
         </div>
       </section>
@@ -502,7 +521,8 @@ function WebsiteProjectView({ project, advance }: { project: WebsiteProject; adv
         <span>Website QA</span>
         <div className={`eo-qa-result ${project.qa.passed ? "passed" : "failed"}`}>{project.qa.passed ? <CheckCircle2 /> : <CircleAlert />}<div><strong>{project.qa.passed ? "All checks passed" : "Action required"}</strong><small>{project.qa.checks.filter((item) => item.passed).length} of {project.qa.checks.length} checks</small></div></div>
         {project.qa.checks.map((check) => <div className="eo-qa-check" key={check.key}>{check.passed ? <Check /> : <X />}<span>{check.message}</span></div>)}
-        {next && <button className="eo-primary-button eo-wide" onClick={() => void advance(next, concept)}>{actionLabels[project.status]} <ChevronRight /></button>}
+        {publishError && <div className="eo-error eo-publish-error"><CircleAlert /> {publishError}</div>}
+        {next && <button className="eo-primary-button eo-wide" onClick={() => void updatePublishing(next)} disabled={publishing}>{publishing ? "Saving…" : actionLabels[project.status]} {!publishing && <ChevronRight />}</button>}
         {project.status === "published" && <a className="eo-primary-button eo-wide" href={`/sites/${project.publicSlug}`} target="_blank">View published site <ExternalLink /></a>}
       </aside>
     </div>
@@ -520,7 +540,7 @@ function SettingsSection() {
   const { workspace, setIntegration, updateTeamMember, resetDemo } = useEverOnnWorkspace();
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<TeamMember["role"]>("agent");
-  const [connections, setConnections] = useState({ loading: true, googleConfigured: false, googleConnected: false, calendarConnected: false, gmailConnected: false, elevenLabsConfigured: false, error: "" });
+  const [connections, setConnections] = useState({ loading: true, googleConfigured: false, googleConnected: false, calendarConnected: false, gmailConnected: false, googleRedirectUri: "", elevenLabsConfigured: false, error: "" });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -530,10 +550,10 @@ function SettingsSection() {
           fetch("/api/integrations/google", { headers: { "x-everonn-workspace": workspace.workspaceId }, cache: "no-store", signal: controller.signal }),
           fetch("/api/voice/session", { cache: "no-store", signal: controller.signal }),
         ]);
-        const google = await googleResponse.json() as { configured?: boolean; connected?: boolean; calendar?: boolean; gmail?: boolean; error?: string };
+        const google = await googleResponse.json() as { configured?: boolean; connected?: boolean; calendar?: boolean; gmail?: boolean; redirectUri?: string; error?: string };
         const voice = await voiceResponse.json() as { configured?: boolean };
         if (!googleResponse.ok) throw new Error(google.error || "Unable to read provider status.");
-        setConnections({ loading: false, googleConfigured: Boolean(google.configured), googleConnected: Boolean(google.connected), calendarConnected: Boolean(google.calendar), gmailConnected: Boolean(google.gmail), elevenLabsConfigured: Boolean(voice.configured), error: "" });
+        setConnections({ loading: false, googleConfigured: Boolean(google.configured), googleConnected: Boolean(google.connected), calendarConnected: Boolean(google.calendar), gmailConnected: Boolean(google.gmail), googleRedirectUri: google.redirectUri || "", elevenLabsConfigured: Boolean(voice.configured), error: "" });
       } catch (error) {
         if ((error as Error).name !== "AbortError") setConnections((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : "Unable to read provider status." }));
       }
@@ -563,6 +583,7 @@ function SettingsSection() {
   return <>
     <PageHeading eyebrow="Workspace controls" title="Team access and connected systems." copy="Roles are workspace-scoped so one customer’s data never appears in another workspace." />
     {connections.error && <div className="eo-error"><CircleAlert /> {connections.error}</div>}
+    {connections.googleConfigured && !connections.googleConnected && connections.googleRedirectUri && <div className="eo-notice"><ShieldCheck /><div><strong>Google Cloud authorized redirect URI</strong><p>Add this exact URI to the OAuth web client before connecting: <code>{connections.googleRedirectUri}</code></p></div></div>}
     <div className="eo-settings-grid">
       <section className="eo-panel">
         <div className="eo-panel-heading"><div><span>Connections</span><h2>Customer workflow</h2></div></div>

@@ -26,7 +26,7 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
   const sessionRef = useRef<AssistantSession | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const messagesRef = useRef<AssistantMessage[]>([]);
-  const capturedRef = useRef(false);
+  const capturedRef = useRef("");
 
   const pushMessage = useCallback((role: AssistantMessage["role"], value: unknown) => {
     const text = clean(value, 1200);
@@ -42,9 +42,11 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
   const captureLead = useCallback((details: Record<string, unknown> = {}) => {
     const callerName = clean(details.caller_name || details.name, 120) || "Website visitor";
     const callerPhone = clean(details.caller_phone || details.phone, 40);
+    const callerEmail = clean(details.caller_email || details.email, 254).toLowerCase();
     const reason = clean(details.reason || details.message, 300) || "AI website assistant conversation";
-    if (callerPhone && !capturedRef.current) {
-      capturedRef.current = true;
+    const signature = `${callerPhone.replace(/\D/g, "").slice(-15)}|${callerEmail}|${callerName.toLowerCase()}`;
+    if ((callerPhone || callerEmail) && signature !== capturedRef.current) {
+      capturedRef.current = signature;
       setCaptured(true);
       void fetch("/api/site-assistant/lead", {
         method: "POST",
@@ -53,17 +55,18 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
           ...(previewToken ? { previewToken } : { publicSlug }),
           callerName,
           callerPhone,
+          callerEmail,
           reason,
           urgency: details.urgency,
           source: details.source,
         }),
       }).then((response) => {
         if (!response.ok) {
-          capturedRef.current = false;
+          if (capturedRef.current === signature) capturedRef.current = "";
           setCaptured(false);
         }
       }).catch(() => {
-        capturedRef.current = false;
+        if (capturedRef.current === signature) capturedRef.current = "";
         setCaptured(false);
       });
     }
@@ -78,9 +81,9 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
       at: new Date().toISOString(),
     }));
     const details = extractCallerDetails(transcript);
-    if (!details.callerPhone) return;
+    if (!details.callerPhone && !details.callerEmail) return;
     const reason = transcript.filter((message) => message.role === "caller").map((message) => message.text).join(" ").slice(0, 300);
-    captureLead({ caller_name: details.callerName, caller_phone: details.callerPhone, reason, urgency: details.urgency, source });
+    captureLead({ caller_name: details.callerName, caller_phone: details.callerPhone, caller_email: details.callerEmail, reason, urgency: details.urgency, source });
   }, [captureLead]);
 
   const clientTools = useMemo(() => ({
@@ -110,7 +113,7 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
     setPanel(mode);
     setMessages([]);
     messagesRef.current = [];
-    capturedRef.current = false;
+    capturedRef.current = "";
     setCaptured(false);
     setError("");
     setStatus("connecting");

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createDemoWorkspace } from "@/features/everonn/demo-data";
 import { createWebsiteProject, generateDeterministicWebsiteSpec, runWebsiteQa } from "@/features/website-studio/generator";
-import { buildReceptionistPrompt, detectUrgency } from "@/features/voice-agent/engine";
+import { buildReceptionistPrompt, detectUrgency, extractCallerDetails } from "@/features/voice-agent/engine";
 import { buildGmailRaw } from "@/features/integrations/google";
 
 test("website generation preserves approved services and passes QA", () => {
@@ -33,6 +33,16 @@ test("phone front desk detects urgency and instructs AI not to invent pricing", 
   const prompt = buildReceptionistPrompt(profile);
   assert.match(prompt, /Never invent or estimate prices/);
   assert.match(prompt, /Never invent prices, availability, credentials, bookings, promises, or policies/);
+});
+
+test("front desk extracts written and spoken email addresses", () => {
+  const at = new Date().toISOString();
+  const written = extractCallerDetails([{ id: "1", role: "caller", text: "My name is Sam and my email is Sam.Test+quote@example.co.uk", at }]);
+  assert.equal(written.callerName, "Sam");
+  assert.equal(written.callerEmail, "sam.test+quote@example.co.uk");
+
+  const spoken = extractCallerDetails([{ id: "2", role: "caller", text: "You can email me at alex dot smith at gmail dot com", at }]);
+  assert.equal(spoken.callerEmail, "alex.smith@gmail.com");
 });
 
 test("Gmail messages are encoded without exposing credentials", () => {

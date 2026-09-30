@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getGoogleOAuthConfig, googleOAuthScopes, revokeGoogleConnection } from "@/features/integrations/google-oauth";
+import { getGoogleOAuthConfig, googleOAuthRedirectUri, googleOAuthScopes, revokeGoogleConnection } from "@/features/integrations/google-oauth";
 import { readWorkspaceJson, writeWorkspaceJson } from "@/lib/json-workspace-store";
 import { deleteGoogleConnection, getGoogleConnection } from "@/lib/provider-credentials";
 
@@ -28,6 +28,7 @@ export async function GET(request: Request) {
       calendar: Boolean(connection?.scope.some((scope) => scope.includes("calendar"))),
       gmail: Boolean(connection?.scope.includes("https://www.googleapis.com/auth/gmail.send")),
       requiredScopes: googleOAuthScopes,
+      redirectUri: googleOAuthRedirectUri(new URL(request.url).origin),
     });
   } catch (error) {
     return noStore({ error: error instanceof Error ? error.message : "Unable to read Google connection status." }, 403);

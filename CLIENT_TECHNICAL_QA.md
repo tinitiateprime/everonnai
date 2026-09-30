@@ -245,4 +245,3 @@ Debug in this order:
 ## One answer worth memorizing
 
 > “The dashboard sends the approved business profile to our server-side `POST /api/website-studio` route. That route calls Gemini’s `generateContent` API for a structured multi-page content specification, validates it against the approved services, runs factual QA, searches Pexels for relevant images, and saves the finished project in the workspace JSON. The separate status API only controls claim, approval, and publishing.”
-

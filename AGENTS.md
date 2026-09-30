@@ -7,3 +7,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## Living architecture documentation
+
+`CODE_PROFILE.md` and `PROJECT_DATA_FLOW.md` are the project's maintained code and data-flow guides.
+
+Whenever a code change alters routes, API calls, module responsibilities, data shapes, persistence, provider integrations, environment variables, access control, or feature completeness, update the relevant guide in the same change. Describe implemented behavior, and keep production-connected behavior clearly separated from demo-only behavior.

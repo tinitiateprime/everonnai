@@ -207,6 +207,7 @@ Secrets never belong in workspace JSON files.
 
 | Variables | Used by |
 | --- | --- |
+| `NEXT_PUBLIC_APP_URL` | Authoritative public HTTP(S) origin for state-changing API checks behind a hosting proxy; falls back to the request URL when unset |
 | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Website generation, chat, appointment extraction |
 | `GEMINI_WEBSITE_MODEL(S)` | Ordered Gemini model selection |
 | `GEMINI_WEBSITE_TIMEOUT_MS`, `GEMINI_WEBSITE_RETRY_DELAY_MS` | Gemini timeout/retry behavior |
@@ -223,7 +224,8 @@ Secrets never belong in workspace JSON files.
 
 Runtime details that commonly cause confusion:
 
-- `NEXT_PUBLIC_APP_URL` is documented in `.env.example` but is not currently read by application code.
+- `features/auth/request-origin.ts` compares browser `Origin` with `NEXT_PUBLIC_APP_URL` when configured, otherwise with the request URL's origin. Only an exact HTTP(S) origin matches; client-supplied `Host` and `X-Forwarded-*` headers cannot add trusted origins. Requests without an `Origin` header retain the existing non-browser behavior.
+- On Amplify, set `NEXT_PUBLIC_APP_URL` to the exact public site origin and include it and `EVERONN_AUTH_SETUP_TOKEN` in `.env.production` before `npm run build` in the build specification. The setup token remains server-only. This enables setup/origin checks; durable AWS authentication/workspace storage is not yet implemented.
 - `GOOGLE_OAUTH_REDIRECT_URI` is not read; the callback is derived from the request origin or Netlify `SITE_NAME`.
 - `GOOGLE_CALENDAR_SERVICE_ACCOUNT_BASE64`, `RESEND_API_KEY`, and `AUTH_EMAIL_FROM` are reported by provider-readiness code, but no current product flow uses those providers.
 - `NETLIFY` and `NETLIFY_BLOBS_CONTEXT` are host-provided switches that select Blob persistence.

@@ -317,6 +317,10 @@ sequenceDiagram
 
 Roles are enforced on the server: owner has all capabilities; manager can configure business/AI/website and operate customers; agent can operate inbox/calls/appointments; viewer is read-only. The `x-everonn-workspace` header selects scope but never proves identity by itself.
 
+State-changing API routes also call `assertSameOrigin()`. For browser requests, `features/auth/request-origin.ts` compares the exact HTTP(S) `Origin` with the configured `NEXT_PUBLIC_APP_URL`; when unset, it compares with the request URL's origin. Configuring the public origin supports Amplify or other proxies whose internal request URL differs from the browser URL. Invalid configured URLs and unrelated browser origins fail the check; `Host` and `X-Forwarded-*` headers do not grant trust. Non-browser requests without `Origin` retain existing behavior.
+
+Amplify must receive the public URL and owner setup token through its Next.js build/runtime environment. Passing those values does not add durable AWS persistence: outside Netlify, authentication and workspace stores still use local JSON files.
+
 ## 12. Known non-data flows
 
 These screens do not currently reach a backend:

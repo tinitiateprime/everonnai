@@ -4,6 +4,7 @@ import type { NextResponse } from "next/server";
 import { authorizeWorkspaceAction, type Capability } from "./rbac";
 import type { AuthActor } from "./types";
 import { actorForSessionToken } from "@/lib/auth-store";
+import { isSameOriginRequest } from "./request-origin";
 
 export const authCookieName = "everonn_session";
 export const authSessionMaxAge = 7 * 24 * 60 * 60;
@@ -53,8 +54,7 @@ export function clearAuthCookie(response: NextResponse, requestUrl: string) {
 }
 
 export function assertSameOrigin(request: Request) {
-  const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin) throw new AuthAccessError("Cross-origin request denied.", 403);
+  if (!isSameOriginRequest(request)) throw new AuthAccessError("Cross-origin request denied.", 403);
 }
 
 export function authErrorDetails(error: unknown, fallbackStatus = 400) {

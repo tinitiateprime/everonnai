@@ -223,6 +223,8 @@ The primary workspace remains in `data/everonn.json`; customer signups are store
 
 The raw session token is never stored: only its SHA-256 hash is kept in the JSON auth store or Netlify Blob. Login has rate limiting and persistent failed-attempt lockout. State-changing routes check origin, and protected APIs resolve the actor from the session before applying RBAC. Self-service password recovery and MFA remain future work.
 
+If owner setup reports "Cross-origin request denied" behind Amplify or another proxy, set `NEXT_PUBLIC_APP_URL` to the exact public HTTPS origin, without `/login`, and rebuild/redeploy with that value available to Next.js. The origin check trusts that configured address instead of the proxy's internal URL and still rejects unrelated origins. The setup token must also be available to the server. Durable AWS authentication/workspace storage remains a separate deployment requirement; this origin fix does not provide it.
+
 ### 26. Can a new customer create an account without seeing another customer's data?
 
 **Short answer:** Yes. “Create a new account” creates that customer as the owner of a new, empty, isolated business workspace.

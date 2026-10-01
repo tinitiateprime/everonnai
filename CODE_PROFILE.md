@@ -23,7 +23,7 @@ There is currently no database.
 | Web application | Next.js 16 App Router, React 19, TypeScript |
 | Styling | Tailwind CSS 4 plus project CSS files |
 | Icons | Lucide React |
-| Main business data | `data/everonn.json` locally; Netlify Blobs when Netlify runtime variables are present |
+| Main business data | Primary workspace in `data/everonn.json`; self-registered customer workspaces in ignored `data/workspaces.json`; Netlify Blobs on Netlify |
 | Authentication | Scrypt password hashes and hashed opaque sessions in ignored `data/auth.json`; Netlify Blobs on Netlify |
 | Provider credentials | Environment variables and encrypted `data/provider-connections.json` locally |
 | AI text and structured generation | Google Gemini REST API |
@@ -39,7 +39,7 @@ Path alias: `@/something` means a file starting at the project root, configured 
 Read these files in this order when learning the product:
 
 1. `features/everonn/types.ts` — every important business data shape.
-2. `data/everonn.json` — the currently saved workspace.
+2. `data/everonn.json` and `data/workspaces.json` — the primary workspace and isolated self-registered customer workspaces.
 3. `features/everonn/workspace-provider.tsx` — browser state, loading, autosaving, and refresh.
 4. `lib/json-workspace-store.ts` — server-side persistence and validation.
 5. `features/auth/session.ts` and `lib/auth-store.ts` — signed-in actor, sessions, passwords, invitations, and role checks.
@@ -55,13 +55,13 @@ Read these files in this order when learning the product:
 | --- | --- |
 | `app/` | Pages, layouts, public routes, preview routes, published sites, and API route handlers |
 | `components/` | Browser UI: dashboard, marketing UI, generated-site renderer, and assistants |
-| `features/everonn/` | Domain types, demo seed, browser workspace provider, and tenant repository foundation |
+| `features/everonn/` | Domain types, demo seed, new-customer starter workspace, browser workspace provider, and tenant repository foundation |
 | `features/website-studio/` | Gemini prompt/schema, output normalization, QA, project creation, and Pexels selection |
 | `features/voice-agent/` | Receptionist prompt, contact extraction, Gemini replies, appointment extraction, and timezone conversion |
 | `features/integrations/` | Google OAuth, Calendar/Gmail clients, and lead automation orchestration |
 | `features/auth/` | Authentication types, password hashing, session helpers, role capabilities, and workspace-scope guards |
 | `lib/` | Workspace/auth JSON persistence, provider readiness, and encrypted credential storage |
-| `data/` | Workspace JSON plus ignored auth and encrypted provider-connection files |
+| `data/` | Primary workspace JSON plus ignored customer-workspace, auth, and encrypted provider-connection files |
 | `tests/` | Unit and integration-level behavior tests |
 | `scripts/` | Browser smoke test for the main product journey |
 
@@ -71,7 +71,7 @@ Read these files in this order when learning the product:
 | --- | --- | --- |
 | `/` | `app/page.tsx` | EverOnn marketing homepage |
 | `/product/*`, `/industries/*`, `/pricing`, etc. | `app/[...slug]/page.tsx` | Static marketing/detail pages |
-| `/login` | `app/login/page.tsx` | First-owner setup or credential sign-in |
+| `/login` | `app/login/page.tsx` | First-owner setup, credential sign-in, or a new customer's isolated workspace registration |
 | `/join/[token]` | `app/join/[token]/page.tsx` | Accepts a one-time team invitation and creates an account |
 | `/dashboard` | `app/dashboard/[[...section]]/page.tsx` | Authenticated, role-aware owner/manager/agent/viewer dashboard |
 | `/dashboard/knowledge` | `components/dashboard/everonn-dashboard.tsx` | Edits the central business profile, services, and approved knowledge |
@@ -107,13 +107,14 @@ The implementation is `app/api/workspace/route.ts`. All methods require a valid 
 | --- | --- | --- |
 | `GET /api/auth/session` | Diagnostics/client checks | Returns setup state and the current actor, never the session token |
 | `POST /api/auth/setup` | First visit to `/login` | Verifies the production setup token, creates the first owner, and sets the session cookie |
+| `POST /api/auth/register` | “Create a new account” on `/login` | Creates a separate owner account and empty business workspace, then sets the session cookie |
 | `POST /api/auth/login` | `/login` | Verifies the scrypt password hash, applies lockout/rate limits, and sets the session cookie |
 | `POST /api/auth/logout` | Dashboard header | Revokes the server session and clears the cookie |
 | `POST /api/auth/password` | Dashboard Settings | Verifies the current password, changes it, revokes other sessions, and rotates the current session |
 | `POST /api/auth/invitations` | Owner Settings | Creates a seven-day, one-use, non-owner invitation URL |
 | `GET/POST /api/auth/invitations/[token]` | `/join/[token]` | Reads invitation metadata and creates the invited account/session |
 
-The browser cookie contains a random opaque token. Only its SHA-256 hash is stored. Passwords use Node scrypt with a unique random salt. State-changing routes enforce same-origin requests, and server routes call `requireActor()` rather than trusting browser-supplied role data.
+The browser cookie contains a random opaque token. Only its SHA-256 hash is stored. Passwords use Node scrypt with a unique random salt. State-changing routes enforce same-origin requests, and server routes call `requireActor()` rather than trusting browser-supplied role data. Public registration always creates a unique workspace; joining an existing business still requires an owner-generated invitation.
 
 ### AI assistant and voice
 
@@ -194,7 +195,7 @@ The same `BusinessProfile` feeds website generation, Gemini chat, ElevenLabs dyn
 
 ### Secret data
 
-Secrets never belong in `data/everonn.json`.
+Secrets never belong in workspace JSON files.
 
 - API keys and OAuth client credentials live in `.env.local` locally or host environment variables.
 - Google access/refresh tokens are AES-256-GCM encrypted by `lib/provider-credentials.ts`.
@@ -215,6 +216,7 @@ Secrets never belong in `data/everonn.json`.
 | `CREDENTIAL_ENCRYPTION_KEY` | Token encryption and signed OAuth state; minimum 32 characters |
 | `PHONE_FRONT_DESK_FOLLOW_UP_ENABLED` | Gmail owner notification switch; defaults to enabled |
 | `EVERONN_DATA_FILE` | Optional local workspace JSON path |
+| `EVERONN_WORKSPACES_FILE` | Optional local JSON path for additional self-registered workspaces |
 | `EVERONN_CONNECTIONS_FILE` | Optional local encrypted token-store path |
 | `EVERONN_AUTH_FILE` | Optional local authentication JSON path |
 | `EVERONN_AUTH_SETUP_TOKEN` | Required in production before creating the first owner account |
@@ -230,14 +232,14 @@ Runtime details that commonly cause confusion:
 
 ### Connected implementation
 
-- JSON workspace load/save with validation and serialized writes.
+- Isolated multi-workspace JSON load/save with validation and serialized writes.
 - Gemini website generation, grounded chat, and appointment extraction.
 - Pexels image search and selection.
 - ElevenLabs browser voice/live site chat when configured.
 - Private previews, multi-page generated sites, QA gates, and dynamic publication.
 - Contact/lead capture and Google Calendar/Gmail follow-up.
 - Google OAuth with encrypted refresh tokens.
-- Credential login, HttpOnly server sessions, password changes, first-owner setup, secure invitation acceptance, and API-level RBAC.
+- Credential login, separate new-customer registration, HttpOnly server sessions, password changes, first-owner setup, secure invitation acceptance, and API-level RBAC.
 - Role-aware dashboard navigation and actions for owner, manager, agent, and viewer.
 
 ### Demonstration or incomplete production boundary
@@ -247,10 +249,11 @@ Runtime details that commonly cause confusion:
 - Marketing `components/lead-form.tsx` shows success locally but does not send or save the submission.
 - Billing values and “Manage plan” are UI placeholders.
 - Team invitations create real accounts when accepted, but the owner must currently copy and send the invitation URL; email delivery is not connected.
+- New-customer registration is rate limited, but signup email verification and an external anti-bot challenge are not connected yet.
 - Self-service forgotten-password recovery and MFA are not implemented. Signed-in users can change their password in Settings.
 - “Add contact” currently has no creation workflow.
 - In-memory API rate limits reset when the server process restarts and are not shared between instances.
-- File JSON is suitable for one writable server instance. A serverless host without durable disk needs a persistent storage adapter.
+- Local file JSON is suitable for one writable server instance. Netlify uses strongly consistent Blob records for the primary workspace, additional workspaces, auth, and credentials.
 
 ## 11. Safe change checklist
 

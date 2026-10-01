@@ -18,9 +18,9 @@ let originalWorkspace;
 async function signIn(page) {
   await page.goto(`${baseURL}/login`, { waitUntil: "networkidle" });
   if (new URL(page.url()).pathname.startsWith("/dashboard")) return;
-  const firstRun = await page.getByRole("heading", { name: "Create the owner account." }).count();
+  const firstRun = await page.getByRole("heading", { name: "Create the platform owner." }).count();
   if (firstRun) {
-    await page.getByLabel("Owner name").fill(smokeName);
+    await page.getByLabel("Your name").fill(smokeName);
     await page.getByLabel("Work email").fill(smokeEmail);
     await page.getByLabel("Password", { exact: true }).fill(smokePassword);
     await page.getByLabel("Confirm password").fill(smokePassword);
@@ -29,7 +29,7 @@ async function signIn(page) {
       if (!smokeSetupToken) throw new Error("This deployment also requires SMOKE_AUTH_SETUP_TOKEN for first-owner setup.");
       await setupToken.fill(smokeSetupToken);
     }
-    await page.getByRole("button", { name: "Create owner and sign in" }).click();
+    await page.getByRole("button", { name: "Create platform owner" }).click();
   } else {
     await page.getByLabel("Work email").fill(smokeEmail);
     await page.getByLabel("Password").fill(smokePassword);

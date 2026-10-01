@@ -173,6 +173,35 @@ export async function initializeOwnerAccount(input: { workspaceId: string; membe
   });
 }
 
+export async function registerWorkspaceOwner(input: { workspaceId: string; memberId: string; name: string; email: string; password: string }) {
+  const passwordHash = await hashPassword(input.password);
+  const email = normalizeEmail(input.email).slice(0, 254);
+  return mutateStore((store) => {
+    if (store.users.some((user) => user.email === email)) {
+      throw Object.assign(new Error("An account already exists for this email address."), { status: 409 });
+    }
+    if (store.users.some((user) => user.workspaceId === input.workspaceId)) {
+      throw Object.assign(new Error("This workspace account already exists."), { status: 409 });
+    }
+    const now = new Date().toISOString();
+    const user: AuthUserRecord = {
+      userId: `user_${crypto.randomUUID()}`,
+      memberId: input.memberId,
+      workspaceId: input.workspaceId,
+      name: input.name.trim().slice(0, 120),
+      email,
+      role: "owner",
+      passwordHash,
+      status: "active",
+      failedLoginCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    store.users.push(user);
+    return newSession(store, user);
+  });
+}
+
 export async function authenticateCredentials(email: string, password: string) {
   const normalizedEmail = normalizeEmail(email);
   const snapshot = await readStore();

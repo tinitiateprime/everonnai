@@ -9,7 +9,7 @@ export async function GET(_request: Request, context: RouteContext<"/api/auth/in
   const { token } = await context.params;
   const invitation = await getTeamInvitation(token);
   if (!invitation) return NextResponse.json({ error: "This invitation is invalid or has expired." }, { status: 404 });
-  const workspace = await readWorkspaceJson();
+  const workspace = await readWorkspaceJson(invitation.workspaceId);
   const member = workspace.team.find((item) => item.id === invitation.memberId && item.status === "invited" && item.email.toLowerCase() === invitation.email && item.role === invitation.role);
   if (workspace.workspaceId !== invitation.workspaceId || !member) {
     return NextResponse.json({ error: "This invitation is no longer active." }, { status: 404 });
@@ -26,7 +26,7 @@ export async function POST(request: Request, context: RouteContext<"/api/auth/in
     const input = JSON.parse(raw) as { password?: string };
     const invitation = await getTeamInvitation(token);
     if (!invitation) return NextResponse.json({ error: "This invitation is invalid or has expired." }, { status: 404 });
-    const snapshot = await readWorkspaceJson();
+    const snapshot = await readWorkspaceJson(invitation.workspaceId);
     const invitedMember = snapshot.team.find((member) => member.id === invitation.memberId && member.status === "invited" && member.email.toLowerCase() === invitation.email && member.role === invitation.role);
     if (snapshot.workspaceId !== invitation.workspaceId || !invitedMember) {
       return NextResponse.json({ error: "This invitation is no longer active." }, { status: 404 });
@@ -41,7 +41,7 @@ export async function POST(request: Request, context: RouteContext<"/api/auth/in
           ...workspace,
           team: workspace.team.map((member) => member.id === result.invitation.memberId ? { ...member, status: "active", name: result.invitation.name, email: result.invitation.email, role: result.invitation.role } : member),
         };
-      });
+      }, result.invitation.workspaceId);
     } catch (workspaceError) {
       await rollbackAcceptedTeamInvitation(result.actor.userId, token, result.invitation).catch(() => undefined);
       throw workspaceError;

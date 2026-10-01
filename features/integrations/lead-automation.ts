@@ -67,8 +67,8 @@ function automationEmail(input: {
   };
 }
 
-export async function processLeadAutomation(leadId: string): Promise<AutomationResult> {
-  const snapshot = await readWorkspaceJson();
+export async function processLeadAutomation(leadId: string, workspaceId: string): Promise<AutomationResult> {
+  const snapshot = await readWorkspaceJson(workspaceId);
   const lead = snapshot.leads.find((item) => item.id === leadId);
   if (!lead) throw new Error("The lead no longer exists in this workspace.");
   const contact = snapshot.contacts.find((item) => item.id === lead.contactId);
@@ -110,7 +110,7 @@ export async function processLeadAutomation(leadId: string): Promise<AutomationR
         },
       };
       return { ...current, leads: current.leads.map((item) => item.id === reservedLead.id ? reservedLead : item) };
-    });
+    }, workspaceId);
   }
 
   if (!existingAppointment) {
@@ -232,7 +232,7 @@ export async function processLeadAutomation(leadId: string): Promise<AutomationR
         : current.contacts,
       appointments: storedAppointment || !appointment ? current.appointments : [appointment, ...current.appointments],
     };
-  });
+  }, workspaceId);
 
   return {
     lead: updated.leads.find((item) => item.id === lead.id)!,

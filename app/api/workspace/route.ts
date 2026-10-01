@@ -37,8 +37,8 @@ async function withRuntimeProviderState(workspace: EverOnnWorkspace) {
 
 export async function GET(request: Request) {
   try {
-    const workspace = await readWorkspaceJson();
-    const actor = await requireActor("workspace:view", workspace.workspaceId);
+    const actor = await requireActor("workspace:view");
+    const workspace = await readWorkspaceJson(actor.workspaceId);
     const requestedWorkspace = request.headers.get("x-everonn-workspace");
     if (requestedWorkspace && requestedWorkspace !== workspace.workspaceId) {
       return noStore({ error: "Workspace access denied." }, { status: 403 });
@@ -78,8 +78,7 @@ export async function PUT(request: Request) {
     if (length > 2_000_000) return noStore({ error: "The workspace JSON payload is too large." }, { status: 413 });
     const requestedWorkspace = request.headers.get("x-everonn-workspace");
     const body = await request.json() as { workspace?: EverOnnWorkspace };
-    const currentSnapshot = await readWorkspaceJson();
-    const actor = await requireActor("workspace:view", currentSnapshot.workspaceId);
+    const actor = await requireActor("workspace:view");
     let teamChanged = false;
     const workspace = await updateWorkspaceJson((current) => {
       if (requestedWorkspace && requestedWorkspace !== current.workspaceId) {
@@ -108,7 +107,7 @@ export async function PUT(request: Request) {
           ? currentProject
           : incomingProject,
       };
-    });
+    }, actor.workspaceId);
     if (teamChanged) await syncAuthUsersFromTeam(workspace.workspaceId, workspace.team);
     return noStore({ workspace: await withRuntimeProviderState(workspace), actor, persistence: workspacePersistence(), savedAt: new Date().toISOString() });
   } catch (error) {

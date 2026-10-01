@@ -11,10 +11,10 @@ function noStore<T>(payload: T, status = 200) {
 }
 
 async function selectedWorkspace(request: Request) {
-  const workspace = await readWorkspaceJson();
   const workspaceId = request.headers.get("x-everonn-workspace") || new URL(request.url).searchParams.get("workspaceId");
-  if (!workspaceId || workspaceId !== workspace.workspaceId) throw new Error("Workspace access denied.");
-  await requireActor("business:configure", workspace.workspaceId);
+  if (!workspaceId) throw new Error("Workspace access denied.");
+  await requireActor("business:configure", workspaceId);
+  const workspace = await readWorkspaceJson(workspaceId);
   return workspace;
 }
 

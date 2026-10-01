@@ -4,7 +4,7 @@ import { generateWebsiteSpec } from "@/features/website-studio/ai-generator";
 import { resolveWebsiteMedia } from "@/features/website-studio/media";
 import type { BusinessProfile } from "@/features/everonn/types";
 import { getProviderReadiness } from "@/lib/provider-config";
-import { updateWorkspaceJson } from "@/lib/json-workspace-store";
+import { findWorkspaceJson, updateWorkspaceJson } from "@/lib/json-workspace-store";
 import { assertSameOrigin, authErrorDetails, requireActor } from "@/features/auth/session";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +39,11 @@ export async function POST(request: Request) {
     normalizeWebsiteBusinessProfile(body.profile);
     const generation = await generateWebsiteSpec(body.profile);
     const project = createWebsiteProject(body.profile, generation.spec);
+    const slugCollision = await findWorkspaceJson((workspace) => workspace.workspaceId !== body.profile!.workspaceId && workspace.websiteProject?.publicSlug === project.publicSlug);
+    if (slugCollision) {
+      const suffix = body.profile.workspaceId.replace(/[^a-z0-9]/gi, "").slice(-8).toLowerCase();
+      project.publicSlug = `${project.publicSlug.slice(0, 54)}-${suffix}`;
+    }
     project.generation = { provider: "gemini", model: generation.model, generatedAt: new Date().toISOString() };
     const media = await resolveWebsiteMedia(project.spec, body.profile);
     project.spec.media = { hero: media.hero, story: media.story, gallery: media.gallery, services: media.services };
@@ -47,7 +52,7 @@ export async function POST(request: Request) {
         throw new Error("The profile does not belong to the selected workspace.");
       }
       return { ...workspace, profile: body.profile!, websiteProject: project };
-    });
+    }, body.profile.workspaceId);
     return NextResponse.json({
       project,
       generatedBy: generation.provider,

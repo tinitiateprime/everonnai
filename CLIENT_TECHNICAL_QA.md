@@ -29,7 +29,7 @@ Code locations:
 - Gemini call: `features/website-studio/ai-generator.ts`
 - Prompt, project creation, and QA: `features/website-studio/generator.ts`
 - Pexels image calls: `features/website-studio/media.ts`
-- Saved data: `data/everonn.json` locally
+- Saved data: the signed-in customer's workspace record (`data/everonn.json` for the primary workspace or `data/workspaces.json` for additional local workspaces)
 
 `app/api/website-studio/status/route.ts` does **not** generate the website. It only moves an existing project through claim, verification, approval, and publication.
 
@@ -117,7 +117,7 @@ QA checks include:
 
 **Short answer:** It is saved as `workspace.websiteProject` in the JSON workspace.
 
-Locally this is normally `data/everonn.json`. On Netlify, the same logical workspace uses Netlify Blobs. Provider credentials are stored separately and never inside the website project.
+Locally the primary workspace is in `data/everonn.json`, while additional customer workspaces are in ignored `data/workspaces.json`. On Netlify, the same logical workspaces use Netlify Blobs. Provider credentials are stored separately and never inside the website project.
 
 ### 12. Does changing Knowledge automatically change the existing website?
 
@@ -213,9 +213,9 @@ Calendar and Gmail automation results are stored on `lead.automation` and displa
 
 ### 24. Is there a database?
 
-**Short answer:** No. The current version uses separate JSON stores for the workspace, authentication, and encrypted provider tokens.
+**Short answer:** No. The current version uses JSON stores for isolated business workspaces, authentication, and encrypted provider tokens.
 
-This is appropriate for one writable application instance. Multiple server instances or ephemeral serverless storage require a shared persistent store or future database adapter.
+The primary workspace remains in `data/everonn.json`; customer signups are stored separately in ignored `data/workspaces.json`. Netlify uses Blob records instead of local files. Local files are appropriate for one writable application instance.
 
 ### 25. Is the current login real authentication?
 
@@ -223,19 +223,25 @@ This is appropriate for one writable application instance. Multiple server insta
 
 The raw session token is never stored: only its SHA-256 hash is kept in the JSON auth store or Netlify Blob. Login has rate limiting and persistent failed-attempt lockout. State-changing routes check origin, and protected APIs resolve the actor from the session before applying RBAC. Self-service password recovery and MFA remain future work.
 
-### 26. How do the four roles differ?
+### 26. Can a new customer create an account without seeing another customer's data?
+
+**Short answer:** Yes. “Create a new account” creates that customer as the owner of a new, empty, isolated business workspace.
+
+It does not join the original owner's workspace. A manager, agent, or viewer joins an existing business only through a secure invitation created by that business's owner. Every protected API resolves the workspace from the server session. Signup is rate limited; email verification and an external anti-bot challenge remain production-hardening work.
+
+### 27. How do the four roles differ?
 
 **Short answer:** Owner controls everything; manager configures the business, AI, and website; agent handles customer operations; viewer has read-only access.
 
 The same capability rules hide dashboard sections and are enforced again in server APIs. Only owners can manage team roles or billing. An owner creates a secure invitation URL for a manager, agent, or viewer; accepting it creates the real account. Invitation email delivery is not connected yet, so the URL is shared manually.
 
-### 27. What is working through real providers today?
+### 28. What is working through real providers today?
 
 **Short answer:** Gemini generation/chat/appointment extraction, Pexels images, ElevenLabs live sessions, Google OAuth, Calendar operations, Gmail sending, JSON persistence, previews, and publishing are implemented when their credentials and persistent runtime are available.
 
 Incomplete boundaries include billing, invitation email delivery, forgotten-password recovery/MFA, the marketing lead form, and the marketing product chat widget.
 
-### 28. What should we check when website generation fails?
+### 29. What should we check when website generation fails?
 
 **Short answer:** Check the Gemini key/model first, then inspect the API error, structured-output completeness, QA result, and Pexels separately.
 

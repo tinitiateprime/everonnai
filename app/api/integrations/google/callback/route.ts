@@ -22,9 +22,8 @@ export async function GET(request: NextRequest) {
     const state = verifyGoogleOAuthState(encodedState, config.encryptionSecret);
     const nonce = request.cookies.get("everonn_google_oauth")?.value || "";
     if (!nonce || nonce !== state.nonce) throw new Error("Google authorization could not be matched to this browser.");
-    const workspace = await readWorkspaceJson();
-    if (workspace.workspaceId !== state.workspaceId) throw new Error("Workspace access denied.");
     await requireActor("business:configure", state.workspaceId);
+    const workspace = await readWorkspaceJson(state.workspaceId);
     const existing = await getGoogleConnection(state.workspaceId);
     const redirectUri = googleOAuthRedirectUri(request.nextUrl.origin);
     const connection = await exchangeGoogleAuthorizationCode(code, redirectUri, existing?.refreshToken);

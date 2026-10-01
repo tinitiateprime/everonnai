@@ -12,6 +12,6 @@ export default async function JoinPage({ params }: { params: Promise<{ token: st
   if (actor) redirect("/dashboard");
   const { token } = await params;
   const invitation = await getTeamInvitation(token);
-  const workspace = invitation ? await readWorkspaceJson() : null;
+  const workspace = invitation ? await readWorkspaceJson(invitation.workspaceId) : null;
   return <JoinClient token={token} invitation={invitation ? { name: invitation.name, email: invitation.email, role: invitation.role, businessName: workspace!.profile.businessName, expiresAt: invitation.expiresAt } : null} />;
 }

@@ -31,7 +31,7 @@ export async function POST(request: Request) {
         if (current.workspaceId !== actor.workspaceId) throw new Error("Workspace access denied.");
         const member = { id: memberId, name, email, role, status: "invited" as const };
         return { ...current, team: [...current.team.filter((item) => item.email.toLowerCase() !== email), member] };
-      });
+      }, actor.workspaceId);
     } catch (workspaceError) {
       await cancelTeamInvitation(created.token).catch(() => undefined);
       throw workspaceError;

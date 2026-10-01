@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { buildReceptionistPrompt } from "@/features/voice-agent/engine";
 import { assertSameOrigin, authErrorDetails } from "@/features/auth/session";
-import { readWorkspaceJson } from "@/lib/json-workspace-store";
+import { findWorkspaceJson } from "@/lib/json-workspace-store";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +39,11 @@ export async function POST(request: Request) {
     const raw = await request.text();
     if (raw.length > 4_000) return NextResponse.json({ error: "Invalid assistant request." }, { status: 400 });
     const input = raw ? JSON.parse(raw) as { previewToken?: string; publicSlug?: string } : {};
-    const workspace = await readWorkspaceJson();
+    const workspace = await findWorkspaceJson((candidate) => Boolean(
+      (input.previewToken && candidate.websiteProject?.privateToken === input.previewToken)
+      || (input.publicSlug && candidate.websiteProject?.publicSlug === input.publicSlug && candidate.websiteProject.status === "published")
+    ));
+    if (!workspace) return NextResponse.json({ error: "This website assistant is unavailable." }, { status: 404 });
     const project = workspace.websiteProject;
     const previewAllowed = Boolean(input.previewToken && project?.privateToken === input.previewToken);
     const publicAllowed = Boolean(input.publicSlug && project?.publicSlug === input.publicSlug && project.status === "published");

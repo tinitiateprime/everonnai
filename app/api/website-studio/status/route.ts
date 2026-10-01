@@ -42,7 +42,7 @@ export async function POST(request: Request) {
         updatedAt: new Date().toISOString(),
       };
       return { ...workspace, websiteProject: savedProject };
-    });
+    }, workspaceId);
 
     return NextResponse.json({ project: savedProject }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

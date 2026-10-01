@@ -9,10 +9,10 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
-    const workspace = await readWorkspaceJson();
     const workspaceId = request.nextUrl.searchParams.get("workspaceId") || "";
-    if (!workspaceId || workspaceId !== workspace.workspaceId) return NextResponse.json({ error: "Workspace access denied." }, { status: 403 });
+    if (!workspaceId) return NextResponse.json({ error: "Workspace access denied." }, { status: 403 });
     await requireActor("business:configure", workspaceId);
+    await readWorkspaceJson(workspaceId);
     const config = getGoogleOAuthConfig();
     const redirectUri = googleOAuthRedirectUri(request.nextUrl.origin);
     const nonce = randomBytes(24).toString("base64url");

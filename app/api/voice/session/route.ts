@@ -33,10 +33,10 @@ export async function POST(request: Request) {
     const apiKey = String(process.env.ELEVENLABS_API_KEY || "").trim();
     const agentId = String(process.env.ELEVENLABS_AGENT_ID || "").trim();
     if (!apiKey || !agentId) return NextResponse.json({ configured: false, error: "ElevenLabs voice is not configured." }, { status: 503 });
-    const workspace = await readWorkspaceJson();
     const selectedWorkspace = request.headers.get("x-everonn-workspace");
-    if (!selectedWorkspace || selectedWorkspace !== workspace.workspaceId) return NextResponse.json({ error: "Workspace access denied." }, { status: 403 });
-    await requireActor("calls:operate", workspace.workspaceId);
+    if (!selectedWorkspace) return NextResponse.json({ error: "Workspace access denied." }, { status: 403 });
+    await requireActor("calls:operate", selectedWorkspace);
+    const workspace = await readWorkspaceJson(selectedWorkspace);
     const profile = workspace.profile;
     const encoded = encodeURIComponent(agentId);
     const [token, signedUrl] = await Promise.all([

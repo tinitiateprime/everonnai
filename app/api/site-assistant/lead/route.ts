@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import type { Contact, Lead, Urgency } from "@/features/everonn/types";
 import { processLeadAutomation } from "@/features/integrations/lead-automation";
-import { updateWorkspaceJson } from "@/lib/json-workspace-store";
+import { findWorkspaceJson, readWorkspaceJson, updateWorkspaceJson } from "@/lib/json-workspace-store";
 import { hasCapability } from "@/features/auth/rbac";
 import { assertSameOrigin, authErrorDetails, getCurrentActor } from "@/features/auth/session";
 
@@ -65,11 +65,22 @@ export async function POST(request: Request) {
 
     let lead: Lead | null = null;
     let contact: Contact | null = null;
-    const actor = request.headers.get("x-everonn-workspace") ? await getCurrentActor() : null;
+    const selectedWorkspace = request.headers.get("x-everonn-workspace");
+    const actor = selectedWorkspace ? await getCurrentActor() : null;
+    const workspaceAllowed = Boolean(selectedWorkspace && actor?.workspaceId === selectedWorkspace && hasCapability(actor.role, "inbox:operate"));
+    const resolvedWorkspace = workspaceAllowed
+      ? await readWorkspaceJson(selectedWorkspace!)
+      : selectedWorkspace
+        ? null
+        : await findWorkspaceJson((candidate) => Boolean(
+          (input.previewToken && candidate.websiteProject?.privateToken === input.previewToken)
+          || (input.publicSlug && candidate.websiteProject?.publicSlug === input.publicSlug && candidate.websiteProject.status === "published")
+        ));
+    if (!resolvedWorkspace) return NextResponse.json({ error: "This website assistant is unavailable." }, { status: 404 });
+    const workspaceId = resolvedWorkspace.workspaceId;
     if (!actor) enforcePublicRateLimit(request, input.publicSlug || input.previewToken || "unscoped");
     await updateWorkspaceJson((workspace) => {
       const project = workspace.websiteProject;
-      const workspaceAllowed = Boolean(request.headers.get("x-everonn-workspace") === workspace.workspaceId && actor?.workspaceId === workspace.workspaceId && hasCapability(actor.role, "inbox:operate"));
       const previewAllowed = Boolean(input.previewToken && project?.privateToken === input.previewToken);
       const publicAllowed = Boolean(input.publicSlug && project?.publicSlug === input.publicSlug && project.status === "published");
       if (!workspaceAllowed && (!project || (!previewAllowed && !publicAllowed))) throw new Error("This website assistant is unavailable.");
@@ -117,12 +128,12 @@ export async function POST(request: Request) {
           ? workspace.leads.map((item) => item.id === existingLead.id ? lead! : item)
           : [lead, ...workspace.leads],
       };
-    });
+    }, workspaceId);
 
     let appointment = null;
     let automationError = "";
     try {
-      const result = await processLeadAutomation(lead!.id);
+      const result = await processLeadAutomation(lead!.id, workspaceId);
       lead = result.lead;
       appointment = result.appointment;
     } catch (error) {

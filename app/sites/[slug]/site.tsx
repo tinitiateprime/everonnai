@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { GeneratedWebsite } from "@/components/preview/private-website-preview";
 import type { WebsiteProject } from "@/features/everonn/types";
-import { readWorkspaceJson } from "@/lib/json-workspace-store";
+import { findWorkspaceJson } from "@/lib/json-workspace-store";
 
 function routeExists(project: WebsiteProject, route: string[]) {
   if (!route.length || (route.length === 1 && ["services", "about", "contact"].includes(route[0]))) return true;
@@ -10,7 +10,8 @@ function routeExists(project: WebsiteProject, route: string[]) {
 }
 
 async function publishedProject(slug: string, route: string[]) {
-  const workspace = await readWorkspaceJson();
+  const workspace = await findWorkspaceJson((candidate) => candidate.websiteProject?.publicSlug === slug && candidate.websiteProject.status === "published");
+  if (!workspace) notFound();
   const project = workspace.websiteProject;
   if (!project || project.status !== "published" || project.publicSlug !== slug || !project.selectedConcept || !routeExists(project, route)) notFound();
   return { workspace, project };

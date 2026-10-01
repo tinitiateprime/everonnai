@@ -32,7 +32,7 @@ Provider keys and Google tokens are separate from business data. They never ente
 3. `AppChrome` mounts `WorkspaceProvider` only for authenticated dashboard routes.
 4. `WorkspaceProvider` starts with `createDemoWorkspace()` only to render safely.
 5. It calls authenticated `GET /api/workspace`.
-6. The server reads the real JSON workspace, calculates live provider status, and returns the actor.
+6. The server reads only the JSON workspace named by the actor's server-side `workspaceId`, calculates live provider status, and returns the actor.
 7. The browser replaces demo state with the saved workspace.
 
 ### Owner edit
@@ -51,9 +51,11 @@ The browser also refreshes on focus, visibility changes, and every 15 seconds.
 
 ```mermaid
 flowchart TD
-  Request[Read or write workspace] --> Runtime{Netlify runtime variables present?}
-  Runtime -- No --> File[data/everonn.json or EVERONN_DATA_FILE]
-  Runtime -- Yes --> Blob[Netlify Blob: workspace-v1]
+  Request[Read or write actor workspace] --> Runtime{Netlify runtime variables present?}
+  Runtime -- No --> PrimaryFile[Primary: data/everonn.json]
+  Runtime -- No --> CustomerFile[Customers: data/workspaces.json]
+  Runtime -- Yes --> PrimaryBlob[Primary Blob: workspace-v1]
+  Runtime -- Yes --> CustomerBlob[Customer Blob: workspaces-v1]
   Google[Google connection] --> CredRuntime{Netlify runtime?}
   CredRuntime -- No --> EncryptedFile[data/provider-connections.json]
   CredRuntime -- Yes --> EncryptedBlob[Netlify encrypted credential Blob]
@@ -65,6 +67,7 @@ flowchart TD
 - Local file writes use a temporary file and rename/copy replacement.
 - A write queue prevents overlapping local operations.
 - Blob writes use ETags and retry conflicts up to five times.
+- Each account's server-resolved workspace ID selects exactly one business record; browser headers cannot grant access to another workspace.
 - Moving to another host does not automatically move Netlify Blob data or OAuth tokens.
 - A host with an ephemeral filesystem cannot safely persist this JSON between deployments without a durable volume or storage adapter.
 
@@ -267,6 +270,19 @@ The callback URI is derived from the current origin, except on Netlify where `SI
 
 ## 11. Access-control flow
 
+### Account entry paths
+
+```mermaid
+flowchart LR
+  NewCustomer[New customer] --> Register[POST /api/auth/register]
+  Register --> Owner[Owner account]
+  Register --> NewWorkspace[Separate empty business workspace]
+  TeamMember[Existing business team member] --> Invite[Owner invitation URL]
+  Invite --> ExistingWorkspace[Inviting owner's workspace]
+```
+
+“Create a new account” always creates a separate owner workspace with empty leads, contacts, conversations, appointments, and website state. It never adds a user to an existing customer's data. Managers, agents, and viewers join an existing workspace only through its owner's one-use invitation.
+
 ```mermaid
 sequenceDiagram
   participant U as User browser
@@ -292,6 +308,7 @@ sequenceDiagram
 | --- | --- |
 | Dashboard page and workspace APIs | Server-resolved active session, workspace scope, and required role capability |
 | Owner setup | Production-only setup secret plus empty authentication store |
+| Public registration | Rate limited; globally unique email; creates a unique owner workspace rather than joining an existing one |
 | Team invitations | Owner-only creation; 256-bit, hashed, one-use token; seven-day expiry; owner role cannot be invited |
 | Private website | Exact private capability token |
 | Published website assistant | Matching slug and project status `published` |

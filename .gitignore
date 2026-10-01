@@ -6,6 +6,7 @@ out
 data/*.tmp
 data/provider-connections.json
 data/auth.json
+data/workspaces.json
 .env*
 !.env.example
 .vercel

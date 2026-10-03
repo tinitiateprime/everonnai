@@ -172,11 +172,11 @@ The browser receives only a short-lived ElevenLabs conversation token or signed 
 
 **Short answer:** When the transcript contains a phone number or email, the browser sends the extracted customer details to `POST /api/site-assistant/lead`.
 
-That route validates access, upserts a contact, upserts an open lead, saves both, and starts appointment/email automation.
+That route validates access and saves progressive customer details under one request ID while preserving prior provider results. Automation starts on final submission, Finish & save, voice disconnect, or closing the public assistant. Capturing a contact alone does not trigger an email or allocate a booking time.
 
 ### 20. How is an appointment created?
 
-**Short answer:** Gemini extracts the appointment intent and local date/time, then EverOnn checks Google Calendar availability and creates an event only if the slot is free.
+**Short answer:** The customer must supply an active service, date, and exact time. Explicit form choices bypass AI; conversational extraction must supply matching customer quotes before Calendar can be called.
 
 The flow is:
 
@@ -189,7 +189,7 @@ Lead saved
 → appointment saved in workspace JSON
 ```
 
-A missing/ambiguous time is marked `needs_details`. A busy time is saved as an unconfirmed request. EverOnn only says `confirmed` after Google creates the event.
+A missing/ambiguous service, date, or time is marked `needs_details`; no random time is selected. Gemini text asks for missing scheduling details and ElevenLabs receives the same rule in the approved prompt. A busy or disconnected calendar leaves the selected slot unconfirmed, and a cancelled request stays cancelled until a different selection is submitted. EverOnn only reports confirmation after Google creates or verifies the event. The Appointments screen includes the real customer request and blank controls to collect service/date/time.
 
 ### 21. Which Google Calendar APIs are called?
 
@@ -201,7 +201,7 @@ The implementation is in `features/integrations/google.ts`. A deterministic even
 
 **Short answer:** After lead processing, EverOnn sends a summary through the connected Gmail account using Gmail’s `users/me/messages/send` API.
 
-The lead stores `pending`, `sent`, or `failed` Gmail status. A successfully sent lead is not emailed again during a retry.
+The lead stores `pending`, `sent`, `failed`, or `delivery_unknown` Gmail status and a persisted send-attempt marker. These survive transcript updates and stale browser saves. A pending/attempted/sent request is never automatically resent, even after a timeout. Gmail offers no application idempotency key, so uncertain delivery requires checking the connected account's Sent folder before a manual resend.
 
 ### 23. Where can the owner see captured information?
 
@@ -243,6 +243,22 @@ The same capability rules hide dashboard sections and are enforced again in serv
 
 Incomplete boundaries include billing, invitation email delivery, forgotten-password recovery/MFA, the marketing lead form, and the marketing product chat widget.
 
+### Provider usage: can we see exactly what each AI feature consumes?
+
+**Short answer:** Owners and managers can open Dashboard > Usage to see this workspace's Gemini requests/tokens and ElevenLabs conversation duration, credits, reported USD costs, and speech analytics by feature.
+
+Gemini website generation, website chat, the dashboard text call assistant, and appointment extraction are metered on the server for every actual `generateContent` attempt. Input, output, thinking, cached input, tool prompt, and total tokens come from the provider's `usageMetadata`. Retries and output later rejected by website QA still consume tokens and remain in the meter. Cached input is already included in prompt tokens; it is not added again to the provider total. HTTP failures and network failures are recorded separately; absent token metadata is unavailable, rather than a claimed zero charge. Local booking clarification and explicit appointment form selections do not make Gemini calls and consume no API tokens.
+
+ElevenLabs session token/signed-URL requests count as setup requests. Actual voice or live text conversations are counted separately, using provider conversation records. The application passes a server-issued opaque identity as the SDK `userId`; both that identity and the provider agent must match before the conversation can be attributed to a workspace. Voice duration excludes the elapsed time of text-only chat. Conversation credits and USD costs are taken from `metadata.cost` and `metadata.cost_fiat`; TTS characters and generated/transcribed audio seconds are separate analytics. Charges stay pending while the provider processes a conversation. The server can discover missed browser callbacks by listing conversations for the opaque identity, and stable provider IDs prevent duplicate charges on repeated sync.
+
+The meter starts recording after this implementation is enabled. It does not reconstruct past Gemini calls, import unassigned historical ElevenLabs calls, or claim an account-wide balance for credentials shared by multiple customer workspaces. Gemini currency charges, account quotas, subscription billing, and invoices are not connected. ElevenLabs fields omitted by a provider remain unavailable; reading conversations requires the corresponding ElevenLabs API-key permissions. The Usage page reads every 15 seconds and synchronizes ElevenLabs every minute while visible; Refresh usage also synchronizes. No scheduler or post-call webhook is configured, so unattended reconciliation runs when this page is opened or a session callback reaches the server.
+
+Records are stored separately from editable business JSON, with no prompts, transcripts, API keys, or customer details. Local storage defaults to `usage/` beside `EVERONN_DATA_FILE`, configurable with `EVERONN_USAGE_DIR`; Netlify uses its own Blob store. Reporting dates use the business timezone, and server RBAC restricts usage to owners/managers in their own workspace.
+
+Validation: `npm test` covers nullable provider metadata, timezone boundaries, failed/retried requests, rejected website output, stable conversation charges, storage failures, and tenant isolation. After `npm run build`, `npm run smoke:usage` starts disposable stores with mocked providers and verifies real API recording/reconciliation, desktop/mobile UI, filters, and cross-workspace access. It makes no paid provider requests. Its default port is 3000; if changed with `SMOKE_USAGE_PORT`, build with the matching `NEXT_PUBLIC_APP_URL` for browser origin checks.
+
+Provider field references: [Gemini UsageMetadata](https://ai.google.dev/api/generate-content#UsageMetadata), [ElevenLabs conversation details](https://elevenlabs.io/docs/api-reference/conversations/get), and [ElevenLabs conversation filters](https://elevenlabs.io/docs/api-reference/conversations/list).
+
 ### 29. What should we check when website generation fails?
 
 **Short answer:** Check the Gemini key/model first, then inspect the API error, structured-output completeness, QA result, and Pexels separately.
@@ -259,3 +275,13 @@ Debug in this order:
 ## One answer worth memorizing
 
 > “The dashboard sends the approved business profile to our server-side `POST /api/website-studio` route. That route calls Gemini’s `generateContent` API for a structured multi-page content specification, validates it against the approved services, runs factual QA, searches Pexels for relevant images, and saves the finished project in the workspace JSON. The separate status API only controls claim, approval, and publishing.”
+
+### Request workflow verification
+
+Automated tests cover repeated updates/retries, uncertain mail delivery, booking recovery, missing/invented times, busy or disconnected Calendar, and stale saves. The disposable browser smoke (`npm run smoke:booking` after `npm run build`) verifies the actual desktop/mobile request flow with providers disabled. It proves local application behavior; live Google and ElevenLabs account permissions and remote agent prompt configuration still need deployment validation.
+
+The primary US Carpentry workspace uses carpentry services documented in its saved description and Asia/Kolkata for its Hyderabad location. Identified Northstar profile details, sample customer records, sample appointment, and sample team members were removed; unsupported after-hours sample knowledge was unapproved. Existing real Google appointments retain their original booking timezone and show a review notice when it differs from the current business timezone. The private generated website was rebuilt from the corrected profile through Gemini/Pexels and remains unpublished.
+
+Both voice session routes use `features/voice-agent/session-context.ts`. The existing ElevenLabs template reads faq_notes rather than approved_instructions, so the full approved receptionist rules are supplied through both variables. Calendar/handoff/duration/language fields now match the remote template. Website and dashboard voice tools use the real lead endpoint result; booked=true requires a confirmed Calendar appointment. The configured provider key allows reading the remote agent but its prompt update request returned HTTP 401, so remote configuration was left unchanged and the supported existing dynamic-variable contract is used.
+
+Dashboard Inbox filters now select real subsets, and authorized operators can update lead status. Contacts can be added with callback validation and their details/call/email links can be opened. The notification icon opens Inbox. Billing shows its unconnected state without fictitious subscription prices, usage, or invoice dates. Customer Settings no longer exposes the demo-reset action. Latest customer phone/email/name corrections are extracted, and newer contact records survive stale browser autosaves.

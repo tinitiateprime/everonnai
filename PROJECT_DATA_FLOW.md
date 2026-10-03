@@ -25,6 +25,35 @@ Provider keys and Google tokens are separate from business data. They never ente
 
 ## 2. Workspace load and save
 
+### Provider usage metering (separate from business edits)
+
+```mermaid
+flowchart LR
+  Feature[Website / chat / appointment extraction] --> Begin[Durable pending usage record]
+  Begin --> Gemini[Gemini generateContent attempt]
+  Gemini --> Metadata[HTTP result and usageMetadata]
+  Metadata --> Ledger[(Workspace usage records)]
+  Setup[ElevenLabs session route] --> Credentials[Meter token and signed-URL requests]
+  Credentials --> Ticket[Server-issued opaque session identity]
+  Ticket --> SDK[ElevenLabs SDK userId]
+  SDK --> Callback[Connection / disconnect callback]
+  Callback --> Verify[Verify provider agentId and userId]
+  Refresh[Usage page refresh] --> Discover[List provider conversations by opaque userId]
+  Discover --> Verify
+  Verify --> Conversation[Stable conversation ID / duration / credits / USD / speech analytics]
+  Conversation --> Ledger
+  Ledger --> Summary[Authenticated workspace-only usage summary]
+  Summary --> Dashboard[Dashboard Usage]
+```
+
+Production Gemini entry points pass a trusted workspace/feature context to `meteredGeminiRequest`. The durable record is established before a provider request; a final-write failure retains the pending record and does not initiate an extra chargeable retry. Usage is captured before application parsing and grounding QA, so discarded output is still measured. Provider HTTP success describes the external request, not whether the resulting website passed QA. Missing metrics are preserved as null. Provider totals include thinking tokens; cached input remains a subset of input.
+
+Both ElevenLabs session routes meter credential requests and create an opaque session record with the server-resolved workspace, feature, and agent. The browser sends only session/conversation identities to the usage callback API. The server verifies the provider's userId and agentId before obtaining any metrics; the client cannot supply duration, tokens, credits, or costs. Sync can discover conversations after lost browser callbacks, pages through provider results, and updates one record per provider conversation. Stable IDs and conditional Blob writes prevent repeat syncs or stale pending snapshots from erasing final charges. Metrics remain separate from session credential request counts. Provider metadata/monitoring reads are not counted as feature API consumption.
+
+`GET /api/usage?period=today|7d|30d|month|all` resolves the workspace from the authenticated actor and requires `usage:view` (owners/managers). It returns provider and feature totals, daily buckets in the business timezone, and the latest 50 records; opaque tracking identities are excluded. `POST /api/usage/sync` performs a bounded batch of ten pending sessions per refresh. Public `POST /api/usage/elevenlabs/session` accepts a valid opaque ticket for up to 24 hours and performs provider-verified reconciliation, without exposing workspace summaries. The Usage page polls records every 15 seconds and syncs every minute while visible; connection/disconnect notifications also reconcile. There is no background scheduler or configured webhook. Unconnected issued tickets stop automatic discovery after 24 hours; associated conversations remain eligible while charges are pending.
+
+Persistence uses individual JSON records under `events/{workspaceHash}` and `sessions/{workspaceHash}` in `usage/` beside the primary data file (or `EVERONN_USAGE_DIR`). On Netlify, records use the dedicated `everonn-usage` Blob store with strong reads and conditional updates. Local updates are atomic and serialized in one application process; local files require a single writable instance. Business autosaves cannot overwrite usage. All-records totals read the durable ledger; only the displayed recent list is limited to 50 and the all-time chart to the last 30 days. No history is fabricated, no shared provider-account balance is exposed, and Gemini monetary billing remains external.
+
 ### Browser startup
 
 1. The dashboard server page reads the HttpOnly session and resolves the current actor.
@@ -41,7 +70,7 @@ Provider keys and Google tokens are separate from business data. They never ente
 2. After 450 ms without another change, `WorkspaceProvider` sends the full workspace to `PUT /api/workspace`.
 3. The server resolves the actor and checks capabilities for every changed section.
 4. It verifies the workspace ID.
-5. It preserves contacts/leads/appointments created concurrently by server automation.
+5. It preserves server-owned request details, provider delivery markers, and Google appointment rows, including records created concurrently by server automation. Incoming browser data cannot reset the automation lease.
 6. It prevents an older browser copy from moving a published website backward.
 7. The JSON store validates and saves the result atomically.
 
@@ -160,8 +189,8 @@ A lead is captured only after a transcript or ElevenLabs client tool supplies a 
 3. The browser calls `POST /api/site-assistant/lead`.
 4. The route checks workspace, private token, or published slug access.
 5. It normalizes phone/email and finds an existing contact.
-6. It upserts the contact and an open lead instead of creating obvious duplicates.
-7. It immediately calls `processLeadAutomation(leadId)`.
+6. It upserts the contact and lead by a browser-generated requestId, preserving automation state even when customer contact details change. Legacy callers without a requestId reuse an open lead for that contact. Request text is retained up to 12,000 characters; oversized requests fail with a clear error.
+7. Progressive `finalize:false` calls save collecting details without provider actions. Final submission, Finish & save, voice disconnect, or closing the public assistant calls `processLeadAutomation(leadId, workspaceId)`. Browser capture calls run in sequence so a final request cannot overtake earlier details.
 8. The response returns the saved lead, contact, possible appointment, and a non-fatal automation error.
 
 The lead remains saved even if Google or Gemini automation fails.
@@ -179,14 +208,15 @@ sequenceDiagram
 
   L->>A: processLeadAutomation(leadId)
   A->>S: Read lead, contact, profile, connection state
-  A->>S: Reserve Gmail status as pending when eligible
-  A->>G: Extract booking intent, service, local date/time
+  A->>S: Claim expiring workspace automation lease
+  A->>G: Extract customer quotes + booking details (unless explicit form fields)
   alt No appointment requested
     A->>A: appointmentStatus = not_requested
   else Missing/ambiguous date or time
     A->>A: appointmentStatus = needs_details
-  else Complete appointment request
-    A->>C: freeBusy on primary calendar
+  else Complete validated appointment request
+    A->>C: Recover deterministic event if already accepted
+    A->>C: Verified freeBusy on primary calendar when no existing event
     alt Busy
       A->>A: Save requested appointment; human follow-up required
     else Free
@@ -194,33 +224,39 @@ sequenceDiagram
       A->>A: Mark appointment confirmed
     end
   end
-  A->>M: Send owner lead summary
   A->>S: Save appointment + automation result
+  A->>S: Persist pending + gmailAttemptedAt when eligible
+  A->>M: Send owner lead summary once
+  A->>S: Save sent identifier or delivery_unknown; release lease
   A-->>L: Updated lead and appointment
 ```
 
 ### Safety rules
 
 - Gemini gets the current UTC time, business timezone, duration, approved services, and customer message.
-- It must return an empty time when date or time is missing or ambiguous.
-- Local business time is converted to UTC with IANA timezone handling.
+- Service/date/time evidence must quote customer turns exactly. Independent date/time parsing checks the model timestamp against those quotes. Missing or ambiguous preferences are not booked. Explicit forms require an active service plus a valid future date and exact time, with no defaults.
+- Gemini text asks a deterministic missing-service/date/time question before generation when a scheduling request lacks explicit preferences; the shared ElevenLabs prompt instructs the same collection. Voice session variables include both approved_instructions and faq_notes (the configured remote template uses faq_notes), plus live calendar_connected, duration, language, and handoff flags. Client tools return a structured booked flag from the server-confirmed event.
+- Local business time is converted to UTC with IANA timezone handling. Invalid dates, nonexistent DST times, and repeated ambiguous DST times are rejected.
 - Requests in the past or more than two years ahead are rejected.
 - A busy slot is saved as `requested`, never `confirmed`.
-- A free slot is confirmed only after Google creates the event.
+- A cancelled appointment stays cancelled on retry; booking resumes only after the customer selects a different service, date, or time.
+- Missing/error freeBusy data cannot establish a free slot. A free slot is confirmed only after Google creates or verifies the existing event.
+- The original request, UTC start/end, customer details, and booking timezone are stored with the appointment. Busy/disconnected calendars retain an unconfirmed chosen slot, never an allocated alternative.
 
 ### Duplicate protection
 
 - Calendar event ID is a deterministic hash of workspace ID + lead ID. A Google `409` loads the existing event instead of duplicating it.
-- An existing appointment for the lead is reused.
-- Gmail status is reserved as `pending`; a fresh reservation blocks a second sender.
-- A `sent` Gmail message is not sent again. A stuck pending reservation can retry after two minutes.
+- A confirmed appointment is retained; later detail changes are flagged for human review. A previously unconfirmed request can be retried with a new customer-selected time. A cancelled request cannot be recreated from the same saved selection. Recovering an existing event verifies its actual start/end; mismatches require review.
+- Each workspace has an in-process queue and a five-minute durable automation lease. Netlify uses conditional writes across workers; local files support a single server process.
+- Gmail pending/attempted/sent markers survive every progressive lead update and stale workspace autosave. Reservations are never reclaimed based on age.
+- If a send times out or returns no message ID, delivery is marked delivery_unknown and automatic resend is blocked. Check the connected Gmail Sent folder before manually sending anything again.
 
 ### Where results appear
 
 - `workspace.leads[].automation` stores Calendar/Gmail result and error text.
 - `workspace.appointments[]` stores requested/confirmed appointment and Google IDs/URL.
 - Dashboard Inbox shows Calendar/Gmail automation status.
-- Dashboard Appointments shows the saved appointment.
+- Dashboard Appointments shows the actual request and saved appointment, including customers still needing details. Its scheduling controls require a service, date, and time and are restricted to appointment operators. The public assistant exposes the same controls once callback details are saved.
 
 ## 9. Dashboard AI agent flow
 
@@ -327,10 +363,9 @@ These screens do not currently reach a backend:
 
 - marketing demo/preview request form;
 - marketing “Ask EverOnn” widget, which uses local scripted product answers;
-- billing controls;
+- subscription billing provider calls (the UI reports that billing is unavailable);
 - invitation email delivery (account creation through the URL is implemented);
 - self-service forgotten-password recovery and MFA;
-- “Add contact” button.
 
 Do not confuse the marketing scripted widget with the generated customer-site assistant: the customer-site assistant uses ElevenLabs and Gemini.
 
@@ -350,3 +385,9 @@ Do not confuse the marketing scripted widget with the generated customer-site as
 | Published site is 404 | `app/sites/[slug]/site.tsx` | status, public slug, selected concept, requested route |
 
 Whenever one of these paths changes, update this document in the same code change.
+
+The primary US Carpentry workspace uses carpentry services documented in its saved description and Asia/Kolkata for its Hyderabad location. Identified Northstar profile details, sample customer records, sample appointment, and sample team members were removed; unsupported after-hours sample knowledge was unapproved. Existing real Google appointments retain their original booking timezone and show a review notice when it differs from the current business timezone. The private generated website was rebuilt from the corrected profile through Gemini/Pexels and remains unpublished.
+
+Both voice session routes use `features/voice-agent/session-context.ts`. The existing ElevenLabs template reads faq_notes rather than approved_instructions, so the full approved receptionist rules are supplied through both variables. Calendar/handoff/duration/language fields now match the remote template. Website and dashboard voice tools use the real lead endpoint result; booked=true requires a confirmed Calendar appointment. The configured provider key allows reading the remote agent but its prompt update request returned HTTP 401, so remote configuration was left unchanged and the supported existing dynamic-variable contract is used.
+
+Dashboard Inbox filters now select real subsets, and authorized operators can update lead status. Contacts can be added with callback validation and their details/call/email links can be opened. The notification icon opens Inbox. Billing shows its unconnected state without fictitious subscription prices, usage, or invoice dates. Customer Settings no longer exposes the demo-reset action. Latest customer phone/email/name corrections are extracted, and newer contact records survive stale browser autosaves.

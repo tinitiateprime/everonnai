@@ -6,6 +6,7 @@ import { getProviderReadiness } from "@/lib/provider-config";
 import { getGoogleConnection } from "@/lib/provider-credentials";
 import { syncAuthUsersFromTeam } from "@/lib/auth-store";
 import { readWorkspaceJson, updateWorkspaceJson, workspacePersistence } from "@/lib/json-workspace-store";
+import { preserveContactServerState, preserveLeadServerState } from "@/features/everonn/lead-capture";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,7 @@ async function withRuntimeProviderState(workspace: EverOnnWorkspace) {
     ...workspace,
     integrations: {
       ...workspace.integrations,
+      gemini: getProviderReadiness().gemini ? "ready" as const : "not_configured" as const,
       googleCalendar: googleConnection?.scope.some((scope) => scope.includes("calendar")) ? "connected" as const : "disconnected" as const,
       gmail: googleConnection?.scope.includes("https://www.googleapis.com/auth/gmail.send") ? "connected" as const : "disconnected" as const,
       elevenLabs: getProviderReadiness().elevenLabs ? "ready" as const : "not_configured" as const,
@@ -99,10 +101,11 @@ export async function PUT(request: Request) {
         && websiteStatusRank[currentProject.status] > websiteStatusRank[incomingProject.status];
       return {
         ...body.workspace,
-        contacts: preserveRows(current.contacts, body.workspace.contacts),
-        leads: preserveRows(current.leads, body.workspace.leads),
+        contacts: preserveContactServerState(current.contacts, body.workspace.contacts),
+        leads: preserveLeadServerState(current.leads, body.workspace.leads),
         conversations: preserveRows(current.conversations, body.workspace.conversations),
-        appointments: preserveRows(current.appointments, body.workspace.appointments),
+        appointments: preserveRows(current.appointments, body.workspace.appointments).map((item) => current.appointments.find((saved) => saved.id === item.id && saved.provider === "google") || item),
+        automationLock: current.automationLock,
         websiteProject: currentProjectTime > incomingProjectTime || regressesPublishing
           ? currentProject
           : incomingProject,

@@ -2,34 +2,46 @@
   "version": 1,
   "workspaceId": "workspace_everonn_demo",
   "profile": {
-    "id": "business_northstar",
+    "id": "business_us_carpentry",
     "workspaceId": "workspace_everonn_demo",
-    "businessName": "Northstar Heating & Cooling",
-    "businessType": "HVAC service company",
-    "description": "A locally operated heating and cooling company helping residential customers with repairs, seasonal maintenance, and replacement estimates.",
-    "phone": "+1 (555) 014-2187",
-    "email": "hello@northstar.example",
+    "businessName": "US Carpentry Services",
+    "businessType": "Carpentry Services company",
+    "description": "Carpentry services are incredibly useful because they provide skilled, custom solutions for creating, repairing, and maintaining essential wooden structures and fixtures within a property. Professional carpenters possess the specialized expertise, tools, and precision required to handle everything from structural framing and custom cabinetry to detailed trim work and furniture repair. By hiring a professional carpentry service, property owners save significant time and avoid costly mistakes while ensuring that installations are structurally sound, safe, and built to code. Whether it is maximizing storage with tailored shelving, installing durable doors and windows, or enhancing a home's aesthetic appeal with elegant crown molding, these services directly increase a property’s functionality, comfort, and market value.",
+    "phone": "",
+    "email": "hellouhfh@gmail.com",
     "website": "",
-    "location": "Denver, Colorado",
-    "serviceArea": "Denver and nearby communities",
-    "hours": "Monday–Friday, 8:00 AM–6:00 PM; emergency requests captured after hours",
+    "location": "Hyderabad, Telangana",
+    "serviceArea": "safilguda, nerdmet, malkajgiri",
+    "hours": "",
     "services": [
       {
-        "id": "svc_repair",
-        "name": "Heating and cooling repair",
-        "description": "Diagnosis and repair requests for residential systems.",
+        "id": "svc_framing",
+        "name": "Structural framing",
+        "description": "Carpentry requests for structural wooden framing, as described in the business profile.",
         "active": true
       },
       {
-        "id": "svc_maintenance",
-        "name": "Seasonal maintenance",
-        "description": "Tune-up and preventative maintenance requests.",
+        "id": "svc_cabinetry",
+        "name": "Custom cabinetry and shelving",
+        "description": "Custom cabinets and tailored shelving for storage and wooden fixtures.",
         "active": true
       },
       {
-        "id": "svc_estimate",
-        "name": "Replacement estimates",
-        "description": "Requests for system replacement consultations.",
+        "id": "svc_trim",
+        "name": "Trim and crown molding",
+        "description": "Detailed trim work and crown molding installation requests.",
+        "active": true
+      },
+      {
+        "id": "svc_furniture",
+        "name": "Furniture repair",
+        "description": "Repair requests for wooden furniture and fixtures.",
+        "active": true
+      },
+      {
+        "id": "svc_doors_windows",
+        "name": "Door and window installation",
+        "description": "Carpentry installation requests for doors and windows.",
         "active": true
       }
     ],
@@ -39,14 +51,14 @@
         "category": "faq",
         "question": "Do you offer after-hours support?",
         "answer": "EverOnn captures urgent after-hours requests and alerts the team. Exact arrival times are confirmed by a person.",
-        "approved": true,
+        "approved": false,
         "updatedAt": "2026-09-29T08:30:00.000Z"
       },
       {
         "id": "kb_2",
         "category": "policy",
         "question": "Can the assistant quote a price?",
-        "answer": "No. Collect the equipment and issue details, then tell the customer the team will confirm pricing.",
+        "answer": "Collect the carpentry project and issue details. The team will confirm pricing; never invent or estimate a price.",
         "approved": true,
         "updatedAt": "2026-09-29T08:30:00.000Z"
       },
@@ -59,149 +71,661 @@
         "updatedAt": "2026-09-29T08:30:00.000Z"
       }
     ],
-    "greeting": "Thanks for calling Northstar Heating & Cooling. I’m Ava, the virtual receptionist. How can I help today?",
+    "greeting": "Thanks for contacting US Carpentry Services. I am Ava, the virtual receptionist. How can I help with your carpentry request today?",
     "assistantName": "Ava",
     "tone": "warm",
     "emergencyRules": "For fire, gas smell, medical danger, or immediate safety risk, tell the caller to contact local emergency services and request an urgent human callback.",
     "pricingRules": "Never invent or estimate prices. Capture the request and let the team provide a quote.",
     "policies": "Never promise arrival times or availability unless a connected calendar confirms the exact slot.",
-    "transferNumber": "+1 (555) 014-2188",
-    "timeZone": "America/Denver",
+    "transferNumber": "",
+    "timeZone": "Asia/Kolkata",
     "appointmentDurationMinutes": 60,
     "verified": true,
-    "updatedAt": "2026-09-29T08:30:00.000Z"
+    "updatedAt": "2026-10-01T14:05:14.672253Z"
   },
   "contacts": [
     {
-      "id": "contact_1",
+      "id": "contact_ed743439-7d83-4b12-9e91-5259b5de3957",
       "workspaceId": "workspace_everonn_demo",
-      "name": "Maria Lopez",
-      "phone": "+1 (555) 010-4412",
-      "email": "maria@example.com",
-      "lastContactAt": "2026-09-29T08:24:00.000Z"
+      "name": "AI caller",
+      "phone": "+1 387 47347",
+      "email": "hellouhfh@gmail.com",
+      "lastContactAt": "2026-10-01T10:58:27.549Z"
     },
     {
-      "id": "contact_2",
+      "id": "contact_3d1ac39c-9a17-478e-afa6-e1cd83c8ae62",
       "workspaceId": "workspace_everonn_demo",
-      "name": "Daniel Brooks",
-      "phone": "+1 (555) 010-7804",
+      "name": "AI caller",
+      "phone": "495649582",
       "email": "",
-      "lastContactAt": "2026-09-28T18:10:00.000Z"
-    },
-    {
-      "id": "contact_3",
-      "workspaceId": "workspace_everonn_demo",
-      "name": "Taylor Reed",
-      "phone": "+1 (555) 010-0931",
-      "email": "taylor@example.com",
-      "lastContactAt": "2026-09-28T15:35:00.000Z"
+      "lastContactAt": "2026-09-29T11:02:52.036Z"
     }
   ],
   "leads": [
     {
-      "id": "lead_1",
+      "id": "lead_eb9d5891-cab0-433d-bc9e-718af60122ca",
       "workspaceId": "workspace_everonn_demo",
-      "contactId": "contact_1",
-      "callerName": "Maria Lopez",
-      "callerPhone": "+1 (555) 010-4412",
-      "reason": "Furnace is making a loud rattling sound",
+      "contactId": "contact_ed743439-7d83-4b12-9e91-5259b5de3957",
+      "callerName": "AI caller",
+      "callerPhone": "+1 387 47347",
+      "reason": "i want you to schedule an appointment on 3rd october for carpenter service tester +1 387 47347 and hellouhfh@gmail.com Hyderabad, telangana nermedmet, dav school 4th gate door fitting and this is routine no iam fine thank you",
       "source": "phone",
-      "urgency": "high",
-      "status": "new",
-      "createdAt": "2026-09-29T08:24:00.000Z"
-    },
-    {
-      "id": "lead_2",
-      "workspaceId": "workspace_everonn_demo",
-      "contactId": "contact_2",
-      "callerName": "Daniel Brooks",
-      "callerPhone": "+1 (555) 010-7804",
-      "reason": "Seasonal maintenance request",
-      "source": "chat",
       "urgency": "normal",
       "status": "qualified",
-      "createdAt": "2026-09-28T18:10:00.000Z"
+      "createdAt": "2026-09-30T11:07:20.718Z",
+      "automation": {
+        "appointmentStatus": "confirmed",
+        "appointmentId": "appointment_db9c0914-b513-48c7-9823-ccca478a2dfb",
+        "googleEventId": "a44d824663425e2e44c840ee818a2d10daaeccad952061a34943",
+        "gmailStatus": "sent",
+        "gmailMessageId": "1a0f71d9b6191c12",
+        "processedAt": "2026-10-01T10:58:28.686Z"
+      }
     },
     {
-      "id": "lead_3",
+      "id": "lead_263efee3-487d-4d93-b846-f45d8bc78504",
       "workspaceId": "workspace_everonn_demo",
-      "contactId": "contact_3",
-      "callerName": "Taylor Reed",
-      "callerPhone": "+1 (555) 010-0931",
-      "reason": "Replacement estimate",
-      "source": "website",
-      "urgency": "low",
-      "status": "follow_up",
-      "createdAt": "2026-09-28T15:35:00.000Z"
+      "contactId": "contact_3d1ac39c-9a17-478e-afa6-e1cd83c8ae62",
+      "callerName": "AI caller",
+      "callerPhone": "495649582",
+      "reason": "book an apointment for tomorrow 4pm for heater repair very urgent john 495649582 H.no: 38-784348-646, flat no: 3, neredmet, malkajgiri, Hyderabad nothing it is not working",
+      "source": "phone",
+      "urgency": "high",
+      "status": "closed",
+      "createdAt": "2026-09-29T11:01:39.729Z",
+      "appointmentRequest": {
+        "serviceId": "svc_cabinetry",
+        "date": "2026-10-02",
+        "time": "22:12"
+      },
+      "captureStatus": "complete",
+      "updatedAt": "2026-10-01T14:40:36.236Z",
+      "automation": {
+        "appointmentStatus": "failed",
+        "appointmentId": "appointment_cfbc6c02-4f70-4a74-b225-7980dd45d1d9",
+        "gmailStatus": "sent",
+        "message": "This request already has a Google Calendar event with different details. Review the existing event before changing it.",
+        "processedAt": "2026-10-01T14:40:37.667Z",
+        "gmailAttemptedAt": "2026-10-01T14:40:37.684Z",
+        "gmailMessageId": "1a0f7e904852ab8e"
+      }
     }
   ],
   "conversations": [
     {
-      "id": "conv_1",
+      "id": "conv_a81745df-d58e-443d-8d7c-51d94c7d4a06",
       "workspaceId": "workspace_everonn_demo",
       "channel": "phone",
-      "status": "handoff",
-      "contactName": "Maria Lopez",
-      "contactPhone": "+1 (555) 010-4412",
-      "summary": "Caller reported a loud furnace noise and requested an urgent callback.",
-      "urgency": "high",
-      "createdAt": "2026-09-29T08:24:00.000Z",
-      "messages": []
-    },
-    {
-      "id": "conv_2",
-      "workspaceId": "workspace_everonn_demo",
-      "channel": "chat",
       "status": "completed",
-      "contactName": "Daniel Brooks",
-      "contactPhone": "+1 (555) 010-7804",
-      "summary": "Captured a seasonal maintenance request for next week.",
+      "contactName": "",
+      "contactPhone": "+1 387 47347",
+      "summary": "i want you to schedule an appointment on 3rd october for carpenter service tester +1 387 47347 and hellouhfh@gmail.com Hyderabad, telangana nermedmet, dav school 4th gate door fitting and this is routine no iam fine thank you",
       "urgency": "normal",
-      "createdAt": "2026-09-28T18:10:00.000Z",
-      "messages": []
+      "messages": [
+        {
+          "id": "welcome",
+          "role": "assistant",
+          "text": "Thanks for calling Northstar Heating & Cooling. I’m Ava, the virtual receptionist. How can I help today?",
+          "at": "2026-10-01T10:54:38.161Z"
+        },
+        {
+          "id": "aecfe802-1ba9-4d99-ac9f-9c8ac7621721",
+          "role": "caller",
+          "text": "i want you to schedule an appointment on 3rd october for carpenter service",
+          "at": "2026-10-01T10:55:21.516Z"
+        },
+        {
+          "id": "e1cd565b-e0cc-436e-8a55-361b44446883",
+          "role": "assistant",
+          "text": "I would be happy to help set up a request for October 3rd. \n\nTo get started, may I have your full name, please?",
+          "at": "2026-10-01T10:55:24.916Z"
+        },
+        {
+          "id": "32ccc90f-2a23-4b1e-a722-8179eceaaafe",
+          "role": "caller",
+          "text": "tester",
+          "at": "2026-10-01T10:55:38.856Z"
+        },
+        {
+          "id": "7bd8f495-daa6-42e9-8f4a-f7b24aa5bbfa",
+          "role": "assistant",
+          "text": "Thanks, Tester. What is the best phone number or email address to reach you at?",
+          "at": "2026-10-01T10:55:41.449Z"
+        },
+        {
+          "id": "3b2ff1f3-3d63-4fdd-a198-d9cfbe826ebe",
+          "role": "caller",
+          "text": "+1 387 47347 and hellouhfh@gmail.com",
+          "at": "2026-10-01T10:56:05.106Z"
+        },
+        {
+          "id": "ba7185a4-6e54-4c87-ba32-849784e7ea20",
+          "role": "assistant",
+          "text": "Thank you. Just to confirm, your email address is hellouhfh@gmail.com. \n\nCould you please share your service address or location so we can make sure you are within our service area?",
+          "at": "2026-10-01T10:56:08.907Z"
+        },
+        {
+          "id": "bce18ef4-622f-4357-9866-035afd75c25d",
+          "role": "caller",
+          "text": "Hyderabad, telangana",
+          "at": "2026-10-01T10:56:44.008Z"
+        },
+        {
+          "id": "7ac92701-4e83-4ea2-8458-2631344e0109",
+          "role": "assistant",
+          "text": "We currently service Safilguda, Neredmet, and Malkajgiri. Could you please specify which neighborhood or area you are located in?",
+          "at": "2026-10-01T10:56:48.042Z"
+        },
+        {
+          "id": "63076cb0-d232-4a7b-be0f-dd382093acd6",
+          "role": "caller",
+          "text": "nermedmet, dav school 4th gate",
+          "at": "2026-10-01T10:57:04.736Z"
+        },
+        {
+          "id": "eee17243-34ad-4e54-91c1-f822ae816ded",
+          "role": "assistant",
+          "text": "Thank you. Could you please describe the specific carpentry work you need done, and whether this is routine or urgent?",
+          "at": "2026-10-01T10:57:08.228Z"
+        },
+        {
+          "id": "ef19b2ff-f495-46fb-a09a-89ae0621ab3a",
+          "role": "caller",
+          "text": "door fitting and this is routine",
+          "at": "2026-10-01T10:57:51.319Z"
+        },
+        {
+          "id": "7d084fb6-5a40-4cef-826a-6dd8a6e02895",
+          "role": "assistant",
+          "text": "Thank you for providing those details. \n\nI have recorded your request for routine door fitting on October 3rd at DAV School 4th Gate, Neredmet. Our team will contact you at your phone number or email (hellouhfh@gmail.com) to confirm appointment availability and provide pricing details. \n\nIs there anything else I can assist you with today?",
+          "at": "2026-10-01T10:57:55.014Z"
+        },
+        {
+          "id": "504c83a8-7ec4-4c26-905b-01b5c8caa692",
+          "role": "caller",
+          "text": "no iam fine thank you",
+          "at": "2026-10-01T10:58:27.407Z"
+        },
+        {
+          "id": "06d11712-f88f-46ec-8bfa-de383ec48832",
+          "role": "assistant",
+          "text": "You're very welcome, Tester! Thank you for reaching out to US Carpentry Services. Have a wonderful day!",
+          "at": "2026-10-01T10:58:30.231Z"
+        }
+      ],
+      "createdAt": "2026-10-01T10:58:40.412Z"
     }
   ],
   "appointments": [
     {
-      "id": "appt_1",
+      "id": "appointment_cfbc6c02-4f70-4a74-b225-7980dd45d1d9",
       "workspaceId": "workspace_everonn_demo",
-      "contactName": "Daniel Brooks",
-      "contactPhone": "+1 (555) 010-7804",
-      "service": "Seasonal maintenance",
+      "leadId": "lead_263efee3-487d-4d93-b846-f45d8bc78504",
+      "contactName": "AI caller",
+      "contactPhone": "495649582",
+      "contactEmail": "",
+      "service": "Custom cabinetry and shelving",
       "date": "2026-10-02",
-      "time": "10:30",
+      "time": "22:12",
+      "timeZone": "Asia/Kolkata",
+      "startsAt": "2026-10-02T16:42:00.000Z",
+      "endsAt": "2026-10-02T17:42:00.000Z",
+      "requestDetails": "book an apointment for tomorrow 4pm for heater repair very urgent john 495649582 H.no: 38-784348-646, flat no: 3, neredmet, malkajgiri, Hyderabad nothing it is not working",
       "status": "requested",
-      "provider": "manual",
-      "createdAt": "2026-09-28T18:12:00.000Z"
+      "provider": "google",
+      "createdAt": "2026-10-01T14:40:36.267Z"
+    },
+    {
+      "id": "appointment_db9c0914-b513-48c7-9823-ccca478a2dfb",
+      "workspaceId": "workspace_everonn_demo",
+      "contactName": "AI caller",
+      "contactPhone": "+91894586555",
+      "contactEmail": "hellouhfh@gmail.com",
+      "leadId": "lead_eb9d5891-cab0-433d-bc9e-718af60122ca",
+      "service": "glass fitting service",
+      "date": "2026-10-03",
+      "time": "6:00 PM",
+      "status": "confirmed",
+      "provider": "google",
+      "createdAt": "2026-09-30T11:07:24.643Z",
+      "googleEventId": "a44d824663425e2e44c840ee818a2d10daaeccad952061a34943",
+      "googleEventUrl": "https://www.google.com/calendar/event?eid=YTQ0ZDgyNDY2MzQyNWUyZTQ0Yzg0MGVlODE4YTJkMTBkYWFlY2NhZDk1MjA2MWEzNDk0MyB0aW5pdGlhdGUucHJpbWVAbQ",
+      "timeZone": "America/Denver"
     }
   ],
-  "websiteProject": null,
+  "websiteProject": {
+    "id": "website_47f7aaae-bdbf-4346-ba7d-729758238254",
+    "workspaceId": "workspace_everonn_demo",
+    "privateToken": "3d9c618fc17241789a7eaa26757cdc1f8b66ddf7edb34b4181f3312ae6979f1b",
+    "publicSlug": "us-carpentry-services",
+    "concepts": [
+      "editorial",
+      "momentum",
+      "aura"
+    ],
+    "selectedConcept": "momentum",
+    "status": "published",
+    "spec": {
+      "schemaVersion": 1,
+      "seo": {
+        "title": "US Carpentry Services | Skilled Woodworking & Carpentry in Hyderabad",
+        "description": "Professional carpentry solutions across Safilguda, Neredmet, and Malkajgiri. Specializing in structural framing, custom cabinetry, trim, and woodwork repairs."
+      },
+      "brand": {
+        "tagline": "Precision woodwork tailored to your living space.",
+        "positioning": "Expert residential and commercial carpentry delivering structural integrity, tailored storage, and refined architectural trim."
+      },
+      "visualDirection": {
+        "primaryColor": "#2C221E",
+        "accentColor": "#C07A48",
+        "mood": "Artisanal, grounded, and dependable with natural timber tones and clean workshop aesthetics."
+      },
+      "mediaPlan": {
+        "heroQuery": "carpenter hand planing solid timber board on a workbench in a bright workshop",
+        "galleryQuery": "detailed close up of fitted wooden cabinetry joint with visible wood grain",
+        "heroAlt": "Professional carpenter using a hand plane on natural hardwood in a bright workshop.",
+        "storyAlt": "Close-up of precise interlocking wood joinery on finished interior cabinetry."
+      },
+      "media": {
+        "hero": {
+          "id": "pexels_5974403",
+          "url": "https://images.pexels.com/photos/5974403/pexels-photo-5974403.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+          "alt": "Professional carpenter using a hand plane on natural hardwood in a bright workshop.",
+          "photographer": "Ono  Kosuki",
+          "sourceUrl": "https://www.pexels.com/photo/crop-man-shaping-wood-with-hand-plane-in-workshop-5974403/"
+        },
+        "story": {
+          "id": "pexels_37098388",
+          "url": "https://images.pexels.com/photos/37098388/pexels-photo-37098388.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+          "alt": "Close-up of precise interlocking wood joinery on finished interior cabinetry.",
+          "photographer": "Engin Akyurt",
+          "sourceUrl": "https://www.pexels.com/photo/close-up-of-weathered-wooden-texture-37098388/"
+        },
+        "gallery": [
+          {
+            "id": "pexels_19955388",
+            "url": "https://images.pexels.com/photos/19955388/pexels-photo-19955388.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+            "alt": "Close-up of precise interlocking wood joinery on finished interior cabinetry.",
+            "photographer": "Francesco Ungaro",
+            "sourceUrl": "https://www.pexels.com/photo/close-up-od-wood-panels-on-a-wall-19955388/"
+          },
+          {
+            "id": "pexels_12932187",
+            "url": "https://images.pexels.com/photos/12932187/pexels-photo-12932187.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+            "alt": "Close-up of precise interlocking wood joinery on finished interior cabinetry.",
+            "photographer": "Atlantic Ambience",
+            "sourceUrl": "https://www.pexels.com/photo/hardwood-in-close-up-12932187/"
+          },
+          {
+            "id": "pexels_6757413",
+            "url": "https://images.pexels.com/photos/6757413/pexels-photo-6757413.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+            "alt": "Close-up of precise interlocking wood joinery on finished interior cabinetry.",
+            "photographer": "https://kaboompics.com/",
+            "sourceUrl": "https://www.pexels.com/photo/close-up-of-yellow-surface-6757413/"
+          },
+          {
+            "id": "pexels_8478334",
+            "url": "https://images.pexels.com/photos/8478334/pexels-photo-8478334.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+            "alt": "Close-up of precise interlocking wood joinery on finished interior cabinetry.",
+            "photographer": "Sergey  Meshkov",
+            "sourceUrl": "https://www.pexels.com/photo/red-and-silver-screwdriver-on-wood-with-a-nut-8478334/"
+          },
+          {
+            "id": "pexels_29539571",
+            "url": "https://images.pexels.com/photos/29539571/pexels-photo-29539571.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+            "alt": "Close-up of precise interlocking wood joinery on finished interior cabinetry.",
+            "photographer": "Alfo Medeiros",
+            "sourceUrl": "https://www.pexels.com/photo/abstract-wood-texture-with-curved-grain-pattern-29539571/"
+          },
+          {
+            "id": "pexels_11643074",
+            "url": "https://images.pexels.com/photos/11643074/pexels-photo-11643074.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+            "alt": "Close-up of precise interlocking wood joinery on finished interior cabinetry.",
+            "photographer": "adrian vieriu",
+            "sourceUrl": "https://www.pexels.com/photo/wooden-storage-cabinet-with-drawers-11643074/"
+          }
+        ],
+        "services": {
+          "svc_framing": {
+            "id": "pexels_8447774",
+            "url": "https://images.pexels.com/photos/8447774/pexels-photo-8447774.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+            "alt": "Timber stud framing assembled neatly during a residential interior renovation.",
+            "photographer": "Los Muertos Crew",
+            "sourceUrl": "https://www.pexels.com/photo/close-up-shot-of-a-carpenter-measuring-a-wood-plank-8447774/"
+          },
+          "svc_cabinetry": {
+            "id": "pexels_6580395",
+            "url": "https://images.pexels.com/photos/6580395/pexels-photo-6580395.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+            "alt": "Built-in custom wooden wall shelving and storage cabinetry in a clean living room.",
+            "photographer": "Max Vakhtbovych",
+            "sourceUrl": "https://www.pexels.com/photo/modern-wardrobe-storage-6580395/"
+          },
+          "svc_trim": {
+            "id": "pexels_15370354",
+            "url": "https://images.pexels.com/photos/15370354/pexels-photo-15370354.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+            "alt": "Close view of crisp white crown molding installed securely along a high ceiling line.",
+            "photographer": "Julio Souza",
+            "sourceUrl": "https://www.pexels.com/photo/ornamented-wall-in-museum-15370354/"
+          },
+          "svc_furniture": {
+            "id": "pexels_5710849",
+            "url": "https://images.pexels.com/photos/5710849/pexels-photo-5710849.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+            "alt": "Restoration of a timber chair frame using bar clamps on glued wood joints.",
+            "photographer": "Anna Shvets",
+            "sourceUrl": "https://www.pexels.com/photo/crop-woodworker-working-at-sawbench-5710849/"
+          },
+          "svc_doors_windows": {
+            "id": "pexels_13425281",
+            "url": "https://images.pexels.com/photos/13425281/pexels-photo-13425281.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+            "alt": "Woodworker carefully chiseling a hinge recess into an interior timber door frame.",
+            "photographer": "Malcolm Garret",
+            "sourceUrl": "https://www.pexels.com/photo/brown-wooden-door-beside-yellow-tree-13425281/"
+          }
+        }
+      },
+      "hero": {
+        "eyebrow": "Hyderabad Carpentry Specialists",
+        "headline": "Skilled Craftsmanship for Lasting Wooden Structures and Custom Fixtures",
+        "subheadline": "From solid structural framing to bespoke shelving and architectural moldings, we create and restore durable woodwork throughout Safilguda, Neredmet, and Malkajgiri.",
+        "primaryCta": "Request a Carpentry Quote",
+        "secondaryCta": "Explore Carpentry Services"
+      },
+      "servicesIntro": {
+        "eyebrow": "Our Core Services",
+        "title": "Comprehensive Woodworking Solutions Built for Everyday Living",
+        "copy": "Every home and workspace relies on sound woodwork. We bring specialized tools and technical precision to new structural installations, custom home storage, and detailed repairs."
+      },
+      "services": [
+        {
+          "id": "svc_framing",
+          "name": "Structural framing",
+          "slug": "structural-framing",
+          "summary": "Dependable structural timber framing for residential partitions, extensions, and load-bearing timber setups.",
+          "details": [
+            "Accurate layout, plumb lines, and square framing for load distribution.",
+            "Durable timber selection suited to interior partitions and additions.",
+            "Code-aligned assembly to establish a dependable foundation for walls and ceilings."
+          ],
+          "idealFor": "Property owners planning wall additions, room divisions, or foundational wood alterations.",
+          "ctaLabel": "Inquire About Framing",
+          "imageQuery": "carpenter measuring and assembling heavy timber wall stud framing on site",
+          "imageAlt": "Timber stud framing assembled neatly during a residential interior renovation.",
+          "pageHeadline": "Solid Structural Wooden Framing for Safe, Code-Compliant Spaces",
+          "pageIntro": "Sound framing provides the backbone for walls, ceilings, and interior divisions, guaranteeing stability and alignment for all subsequent finishing work.",
+          "pageSections": [
+            {
+              "title": "Precision Structural Alignment",
+              "copy": "Structural framing requires exact leveling and square tolerances. Proper execution keeps walls plumb, prevents structural sagging over time, and ensures drywall, doors, and cabinetry fit accurately during finishing stages."
+            },
+            {
+              "title": "Tailored Layouts for Interior Upgrades",
+              "copy": "Whether reconfiguring an existing room layout or building non-load-bearing room dividers, our timber framing adapts to structural specifications, providing a secure and durable core for your space."
+            }
+          ]
+        },
+        {
+          "id": "svc_cabinetry",
+          "name": "Custom cabinetry and shelving",
+          "slug": "custom-cabinetry-and-shelving",
+          "summary": "Tailored built-in cabinets and shelving designed to maximize storage capacity and elevate room functionality.",
+          "details": [
+            "Custom dimensions fitted flush against existing walls and alcoves.",
+            "Durable internal compartments and sturdy shelving designed for heavy weight.",
+            "Smooth hardware integration for hinged doors, soft-close drawers, and pulls."
+          ],
+          "idealFor": "Homeowners and offices needing dedicated storage solutions tailored to specific room dimensions.",
+          "ctaLabel": "Request Cabinetry Consultation",
+          "imageQuery": "custom wooden wall shelving unit and fitted cabinets in modern interior",
+          "imageAlt": "Built-in custom wooden wall shelving and storage cabinetry in a clean living room.",
+          "pageHeadline": "Bespoke Built-In Cabinets and Tailored Wooden Shelving",
+          "pageIntro": "Maximize unusable corners and vertical wall space with custom storage designed to match your specific lifestyle, storage needs, and room layout.",
+          "pageSections": [
+            {
+              "title": "Space-Optimized Storage Planning",
+              "copy": "Off-the-shelf furniture rarely matches a room's exact footprint. Custom cabinetry eliminates dead zones and awkward gaps, giving you tailored storage that functions seamlessly around your daily routines."
+            },
+            {
+              "title": "Durable Assembly and Seamless Finishes",
+              "copy": "We focus on robust joinery and solid shelving support so that storage units remain level and sag-free even when holding heavy books, kitchenware, or organizational items over years of use."
+            }
+          ]
+        },
+        {
+          "id": "svc_trim",
+          "name": "Trim and crown molding",
+          "slug": "trim-and-crown-molding",
+          "summary": "Refined finish carpentry including baseboards, door casings, and crown molding that frame interior spaces.",
+          "details": [
+            "Precision miter joints and tight seams around ceiling lines and corners.",
+            "Clean integration of baseboards, chair rails, and decorative trims.",
+            "Concealment of irregular drywall joints and transitions between surfaces."
+          ],
+          "idealFor": "Homeowners wanting to enhance interior architectural depth, elegance, and visual completion.",
+          "ctaLabel": "Discuss Trim Work",
+          "imageQuery": "detail of crown molding installation along ceiling and painted plaster wall",
+          "imageAlt": "Close view of crisp white crown molding installed securely along a high ceiling line.",
+          "pageHeadline": "Architectural Trim and Crown Molding Installation",
+          "pageIntro": "Detailed molding and baseboards introduce clean lines, framing your rooms with classic visual depth while covering transitional gaps between floors and ceilings.",
+          "pageSections": [
+            {
+              "title": "Flawless Miters and Tight Seams",
+              "copy": "Crown molding demands tight compound angle cuts and meticulous installation along uneven ceiling planes. Proper alignment yields continuous, seamless profiles that resist movement and separating corners."
+            },
+            {
+              "title": "Harmonious Interior Proportions",
+              "copy": "Baseboards, door trims, and wall panel moldings establish visual harmony throughout a home, transforming stark wall surfaces into thoughtfully detailed, architectural living spaces."
+            }
+          ]
+        },
+        {
+          "id": "svc_furniture",
+          "name": "Furniture repair",
+          "slug": "furniture-repair",
+          "summary": "Restorative carpentry for loose joints, broken timber members, and worn wooden furniture pieces.",
+          "details": [
+            "Structural reinforcement of wobbly chair legs, tables, and bed frames.",
+            "Repair and replacement of fractured dowels, tenons, and wood components.",
+            "Reseating loose drawer glides and worn cabinet hinges."
+          ],
+          "idealFor": "Owners seeking to repair, reinforce, and extend the functional lifespan of valued wooden pieces.",
+          "ctaLabel": "Inquire About Furniture Repair",
+          "imageQuery": "woodworker clamping and gluing a wooden chair joint in a workshop",
+          "imageAlt": "Restoration of a timber chair frame using bar clamps on glued wood joints.",
+          "pageHeadline": "Structural Wooden Furniture Repair and Reinforcement",
+          "pageIntro": "Solid wood furniture is designed to endure. Our repair solutions address weakened joints, cracked rails, and loose framework to restore day-to-day usability.",
+          "pageSections": [
+            {
+              "title": "Joint Reinforcement and Re-Gluing",
+              "copy": "Over time, temperature shifts and routine loads loosen factory glue joints and fasteners. We carefully disassemble failed joints, clean dried adhesive, and re-clamp the timber with high-strength structural glues."
+            },
+            {
+              "title": "Hardware and Component Replacement",
+              "copy": "When structural pieces split or screw holes strip out, we install matched timber splices, replace degraded dowels, and refit sturdy hardware to return your furniture to full stability."
+            }
+          ]
+        },
+        {
+          "id": "svc_doors_windows",
+          "name": "Door and window installation",
+          "slug": "door-and-window-installation",
+          "summary": "Accurate fitting and hanging of interior doors, exterior entryways, and wooden window units.",
+          "details": [
+            "Square framing and shim adjustment for smooth, stick-free swing and latching.",
+            "Proper mortising for hinges, locksets, and strike plates.",
+            "Weather-resistant fitments to minimize drafts and external ambient noise."
+          ],
+          "idealFor": "Property owners upgrading old sticking doors, drafting windows, or adding new entry points.",
+          "ctaLabel": "Request Installation Estimate",
+          "imageQuery": "carpenter using a chisel to mortise a door hinge into solid wooden door frame",
+          "imageAlt": "Woodworker carefully chiseling a hinge recess into an interior timber door frame.",
+          "pageHeadline": "Precise Door and Window Carpentry Installation",
+          "pageIntro": "Correct door and window installation protects privacy, ensures reliable latching, and prevents drafts with balanced, plumb, and square alignments.",
+          "pageSections": [
+            {
+              "title": "Smooth, Plumb Operation",
+              "copy": "A door or window that rubs or fails to latch indicates uneven jambs or poor hinge mortising. We level and secure the frame meticulously, ensuring every panel swings freely and closes securely."
+            },
+            {
+              "title": "Hardware Fitting and Perimeter Sealing",
+              "copy": "From precision-cut latch recesses to secure perimeter shimming, our installation process protects the timber framework, prevents premature hardware failure, and shields your home from drafts."
+            }
+          ]
+        }
+      ],
+      "benefits": [
+        {
+          "title": "Structural Safety and Code Compliance",
+          "copy": "Professional carpentry ensures framing, doors, and storage structures are secure, plumb, and able to withstand daily residential demands safely."
+        },
+        {
+          "title": "Maximized Usable Space",
+          "copy": "Tailored shelving and custom cabinetry turn awkward wall recesses and unused corners into organized, highly functional storage."
+        },
+        {
+          "title": "Prevention of Costly Mistakes",
+          "copy": "Correct timber cutting, joinery, and leveling prevent misaligned door jambs, sagging shelves, and unstable framework that require expensive rework."
+        },
+        {
+          "title": "Enhanced Property Value",
+          "copy": "Refined finish carpentry, elegant crown moldings, and durable solid timber additions noticeably improve the interior finish and market appeal of your property."
+        }
+      ],
+      "process": [
+        {
+          "title": "Project Intake and Review",
+          "copy": "Submit your carpentry requirements, whether it involves structural modifications, custom built-ins, or repair work, along with your project timeline."
+        },
+        {
+          "title": "Site Assessment and Measurement",
+          "copy": "Our team examines the target area, taking precise measurements of wall spans, floor levels, and structural attachment points."
+        },
+        {
+          "title": "Detailed Proposal and Planning",
+          "copy": "We confirm material needs, assembly approaches, and an exact price estimate before work begins, avoiding surprises or hidden guesswork."
+        },
+        {
+          "title": "Carpentry Execution and Clean Handover",
+          "copy": "Work is completed with specialized tooling, accurate joinery, and clean cleanup, leaving your property structurally sound and ready to enjoy."
+        }
+      ],
+      "about": {
+        "eyebrow": "About US Carpentry Services",
+        "title": "Dedicated Woodworking Serving Safilguda, Neredmet, and Malkajgiri",
+        "body": "At US Carpentry Services, we believe that durable woodwork transforms both the safety and comfort of your living spaces. Based in Hyderabad, Telangana, we serve local neighborhoods including Safilguda, Neredmet, and Malkajgiri with focused, dependable carpentry solutions. From foundational structural framing to detailed crown molding and responsive furniture repairs, our work centers on precision, structural integrity, and thoughtful storage design. Every piece of timber we cut, join, and fasten is handled with the care and specialized tools necessary to ensure lasting durability."
+      },
+      "faq": [
+        {
+          "question": "What neighborhoods do you serve?",
+          "answer": "We provide carpentry services across Safilguda, Neredmet, and Malkajgiri within Hyderabad, Telangana."
+        },
+        {
+          "question": "How do I receive a price quote for my carpentry project?",
+          "answer": "You can submit your project scope and issue details through our contact form, email, or digital assistant. Our team will review the specifications and confirm official pricing directly."
+        },
+        {
+          "question": "Do you repair existing wooden furniture?",
+          "answer": "Yes, we handle structural repairs for wooden furniture and fixtures, such as loose joints, broken framing members, and wobbly tables or chairs."
+        },
+        {
+          "question": "Can you install custom shelving in odd-shaped rooms?",
+          "answer": "Yes, our custom cabinetry and shelving services are designed specifically to fit exact wall dimensions, corners, and alcoves that standard furniture cannot accommodate."
+        },
+        {
+          "question": "What happens if I submit an urgent request outside standard hours?",
+          "answer": "Urgent after-hours inquiries are captured and routed directly to our team for prompt follow-up. Arrival times and scheduling are confirmed by a person."
+        }
+      ],
+      "contact": {
+        "eyebrow": "Get In Touch",
+        "title": "Tell Us About Your Carpentry Needs",
+        "copy": "Send us your project details, room dimensions, or repair requirements. We will review your inquiry and follow up promptly with details and next steps.",
+        "ctaLabel": "Submit Project Request"
+      }
+    },
+    "qa": {
+      "passed": true,
+      "checks": [
+        {
+          "key": "business-verified",
+          "passed": true,
+          "message": "The business profile is owner verified."
+        },
+        {
+          "key": "verified-services",
+          "passed": true,
+          "message": "Every active service is grounded in the approved profile."
+        },
+        {
+          "key": "no-invented-services",
+          "passed": true,
+          "message": "No unsupported services were introduced."
+        },
+        {
+          "key": "service-pages",
+          "passed": true,
+          "message": "Every service has a complete detail page and photography direction."
+        },
+        {
+          "key": "multi-page-content",
+          "passed": true,
+          "message": "Home, Services, About, Contact, and service-detail content are complete."
+        },
+        {
+          "key": "no-placeholders",
+          "passed": true,
+          "message": "No placeholder copy is present."
+        },
+        {
+          "key": "no-unsupported-claims",
+          "passed": true,
+          "message": "No unsupported credentials or performance claims are present."
+        },
+        {
+          "key": "complete-contact",
+          "passed": true,
+          "message": "The website has a real customer contact path."
+        },
+        {
+          "key": "faq-depth",
+          "passed": true,
+          "message": "At least four grounded customer questions are included."
+        },
+        {
+          "key": "three-concepts",
+          "passed": true,
+          "message": "Editorial, Momentum, and Aura concepts are available."
+        }
+      ],
+      "checkedAt": "2026-10-01T14:06:16.799Z"
+    },
+    "createdAt": "2026-10-01T14:06:16.799Z",
+    "updatedAt": "2026-10-02T05:23:20.794Z",
+    "generation": {
+      "provider": "gemini",
+      "model": "gemini-3.8-flash",
+      "generatedAt": "2026-10-01T14:06:16.800Z"
+    }
+  },
   "integrations": {
-    "googleCalendar": "disconnected",
-    "gmail": "disconnected",
-    "elevenLabs": "not_configured"
+    "googleCalendar": "connected",
+    "gmail": "connected",
+    "elevenLabs": "ready",
+    "gemini": "ready"
   },
   "team": [
     {
       "id": "member_owner",
-      "name": "Alex Morgan",
-      "email": "owner@northstar.example",
+      "name": "owner1",
+      "email": "tintiatekaushik@gmail.com",
       "role": "owner",
       "status": "active"
     },
     {
-      "id": "member_manager",
-      "name": "Jordan Lee",
-      "email": "ops@northstar.example",
+      "id": "member_62739dbb-b99e-42fa-8568-b9c21fb9ec4b",
+      "name": "manager1",
+      "email": "hellouhfh@gmail.com",
       "role": "manager",
       "status": "active"
-    },
-    {
-      "id": "member_invite",
-      "name": "Sam Rivera",
-      "email": "sam@northstar.example",
-      "role": "agent",
-      "status": "invited"
     }
   ]
 }

@@ -25,12 +25,38 @@ There is currently no database.
 | Icons | Lucide React |
 | Main business data | Primary workspace in `data/everonn.json`; self-registered customer workspaces in ignored `data/workspaces.json`; Netlify Blobs on Netlify |
 | Authentication | Scrypt password hashes and hashed opaque sessions in ignored `data/auth.json`; Netlify Blobs on Netlify |
+| Provider usage | Workspace-scoped request and conversation records in ignored `data/usage/`; dedicated `everonn-usage` Netlify Blob store on Netlify |
 | Provider credentials | Environment variables and encrypted `data/provider-connections.json` locally |
 | AI text and structured generation | Google Gemini REST API |
 | Website photography | Pexels REST API |
 | Live browser voice/chat | ElevenLabs Conversational AI |
 | Scheduling and notifications | Google Calendar and Gmail APIs through OAuth |
 | Tests | Node test runner through `tsx` |
+
+### Provider usage meter
+
+The owner/manager dashboard includes `/dashboard/usage`. It displays actual workspace usage by provider and feature, period selection in the business timezone, daily activity, pending/failed requests, and the latest 50 records. Gemini generation, website chat, dashboard call-assistant text, and appointment extraction each pass a server-resolved metering context. Demo marketing chat, browser speech synthesis, and local booking clarification make no provider calls and do not generate usage.
+
+| Module / route | Responsibility |
+| --- | --- |
+| `features/usage/types.ts` | Feature labels, request/conversation metrics, and opaque server session records |
+| `features/usage/gemini.ts` | Durable record before each `generateContent` attempt; record HTTP/network outcomes and returned `usageMetadata` before downstream QA |
+| `features/usage/elevenlabs.ts` | Meter credential setup; retrieve provider conversations, verify agent and opaque user identity, paginate discovery, and reconcile duration/credits/USD/speech analytics |
+| `lib/usage-store.ts` | Per-workspace individual records; atomic local writes; stable IDs and conditional Netlify Blob writes preserve final charges across repeated/stale updates |
+| `features/usage/summary.ts` | Business-timezone reporting periods, nullable provider totals, feature/provider breakdowns, and daily buckets |
+| `features/usage/client.ts` | Best-effort connect/disconnect notifications containing only opaque session and conversation identities |
+| `components/dashboard/usage-section.tsx` | Usage cards, feature breakdown, metric-selectable daily chart, recent activity, and explicit missing/pending states |
+| `GET /api/usage` | `usage:view` RBAC; authenticated actor's workspace only; uncached summaries without tracking credentials |
+| `POST /api/usage/sync` | Same-origin, owner/manager reconciliation of up to ten pending sessions per refresh |
+| `POST /api/usage/elevenlabs/session` | Opaque ticket valid for 24 hours; provider-verified callback reconciliation; no client-supplied charges |
+
+Gemini totals come directly from `usageMetadata` (input, output, thinking, cached, tool prompt, and provider total); cached input is not added twice. Retries and output rejected by QA remain recorded. Missing fields are null; an unknown charge is not reported as zero. ElevenLabs setup requests and actual conversations are separate records. Conversation duration, `metadata.cost` credits, `metadata.cost_fiat` USD, and TTS/ASR analytics are read from the provider; live text elapsed time is excluded from voice-minute totals. Agent-managed LLM activity remains within the ElevenLabs conversation charge and is not fabricated as a separate direct Gemini call.
+
+The browser SDK receives a unique server-issued `userId` for each issued session. Provider discovery can recover lost callbacks, and a stable provider conversation ID updates one charge record. The page polls recorded usage every 15 seconds and synchronizes ElevenLabs every minute while visible; callbacks and the Refresh usage button also sync. No scheduler or webhook is configured. Provider metadata reads are monitoring calls, excluded from feature request counters. Earlier calls and external-account usage are not reconstructed; Gemini prices, provider-account quotas, and subscription billing remain outside this meter. ElevenLabs read permissions are required for reconciliation.
+
+Local files live in `usage/` beside `EVERONN_DATA_FILE` (default `data/usage/`), configurable with `EVERONN_USAGE_DIR`. Netlify uses `everonn-usage` Blobs automatically. Records contain no prompts, transcripts, customer details, API keys, or session credentials from the provider. Business JSON and browser autosaves cannot overwrite usage. Local file persistence requires one writable application instance.
+
+Verification lives in `tests/usage.test.ts` and `scripts/smoke-usage.ts`. Run `npm run smoke:usage` after building to exercise API metering, lost-callback recovery, tenant isolation, and desktop/mobile reporting with disposable stores and mocked providers. Set `SMOKE_USAGE_ARTIFACTS=keep` to retain preview screenshots. The test uses port 3000 by default; its browser origin must match the build's `NEXT_PUBLIC_APP_URL` when using `SMOKE_USAGE_PORT`.
 
 Path alias: `@/something` means a file starting at the project root, configured in `tsconfig.json`.
 
@@ -55,10 +81,10 @@ Read these files in this order when learning the product:
 | --- | --- |
 | `app/` | Pages, layouts, public routes, preview routes, published sites, and API route handlers |
 | `components/` | Browser UI: dashboard, marketing UI, generated-site renderer, and assistants |
-| `features/everonn/` | Domain types, demo seed, new-customer starter workspace, browser workspace provider, and tenant repository foundation |
+| `features/everonn/` | Domain types, demo seed, starter workspace, browser workspace provider, request-ID lead upserts, and preservation of server-owned lead state |
 | `features/website-studio/` | Gemini prompt/schema, output normalization, QA, project creation, and Pexels selection |
 | `features/voice-agent/` | Receptionist prompt, contact extraction, Gemini replies, appointment extraction, and timezone conversion |
-| `features/integrations/` | Google OAuth, Calendar/Gmail clients, and lead automation orchestration |
+| `features/integrations/` | Google OAuth, Calendar/Gmail clients, a per-workspace automation queue, and a testable automation core with a durable workspace lease |
 | `features/auth/` | Authentication types, password hashing, session helpers, role capabilities, and workspace-scope guards |
 | `lib/` | Workspace/auth JSON persistence, provider readiness, and encrypted credential storage |
 | `data/` | Primary workspace JSON plus ignored customer-workspace, auth, and encrypted provider-connection files |
@@ -87,7 +113,7 @@ Read these files in this order when learning the product:
 - dashboard, login, join, and preview pages receive the product shell without marketing chrome;
 - published `/sites/*` pages are rendered without loading the private browser workspace.
 
-Only dashboard routes mount `WorkspaceProvider`. The dashboard page verifies the server session before rendering, so marketing, login, join, and public website pages do not request private workspace data.
+Only dashboard routes mount `WorkspaceProvider`. The dashboard waits for a successful private-workspace load and shows a retry error on load failure instead of displaying the demo seed as customer data. The dashboard page verifies the server session before rendering, so marketing, login, join, and public website pages do not request private workspace data.
 
 ## 6. Internal API call map
 
@@ -96,7 +122,7 @@ Only dashboard routes mount `WorkspaceProvider`. The dashboard page verifies the
 | Method and route | Called from | Work performed | Data changed |
 | --- | --- | --- | --- |
 | `GET /api/workspace` | `WorkspaceProvider`, smoke test | Reads JSON, adds live provider connection status, disables caching | None |
-| `PUT /api/workspace` | `WorkspaceProvider` after a 450 ms debounce | Validates workspace ID, preserves server-created leads/contacts/conversations/appointments, prevents publish-state regression | Whole workspace JSON |
+| `PUT /api/workspace` | `WorkspaceProvider` after a 450 ms debounce | Validates workspace ID, preserves server-owned request/automation fields and Google appointments during stale saves, prevents publish-state regression | Whole workspace JSON |
 | `HEAD /api/workspace` | Diagnostics | Reports persistence type in `X-EverOnn-Persistence` | None |
 
 The implementation is `app/api/workspace/route.ts`. All methods require a valid server session. Writes compare changed workspace sections and require the corresponding role capability before `lib/json-workspace-store.ts` saves them.
@@ -131,14 +157,18 @@ The shared instructions come from `buildReceptionistPrompt()` in `features/voice
 
 | Method and route | Called from | Work performed | Data changed |
 | --- | --- | --- | --- |
-| `POST /api/site-assistant/lead` | Dashboard agent and generated-site assistant | Validates access/details, upserts contact and lead, then runs Google automation | Contacts, leads, appointments, automation state |
-| `POST /api/integrations/google/automation` | Manual/server retry path | Re-runs automation for one existing lead after workspace check | Lead automation and possibly appointment |
+| `POST /api/site-assistant/lead` | Dashboard agent and generated-site assistant | Validates access/details, upserts progressive request details by requestId; finalize:false saves only, final submission runs automation | Contacts, leads, appointments, automation state |
+| `POST /api/integrations/google/automation` | Manual/server retry path | Re-runs automation for an existing lead; optionally validates and saves an explicit service/date/time choice before processing | Lead automation and possibly appointment |
 
 `features/integrations/lead-automation.ts` is the orchestrator. It can make three provider calls:
 
-1. Gemini extracts whether an appointment was requested, the service, and a complete local date/time.
-2. Google Calendar checks `primary` calendar availability and inserts a confirmed event only when free.
-3. Gmail sends the owner a lead notification when Gmail is connected and follow-up is enabled.
+1. Explicit `appointmentRequest` fields select an active service, date, and time without AI. For conversational scheduling, Gemini returns exact customer quotes for service/date/time; independent validation rejects invented timestamps, unsupported services, and ambiguous preferences. Ordinary callback messages need no booking extraction.
+2. Google Calendar first checks the deterministic event ID for recovery, then checks `primary` availability and inserts only when availability is verified. Missing/error freeBusy data fails safely. Disconnected or busy calendars retain the customer's chosen time as an unconfirmed request.
+3. Gmail sends one owner notification per completed request when connected and enabled. `gmailAttemptedAt` is persisted before the send. Sent, pending, and uncertain deliveries are never automatically sent again; ambiguous delivery requires checking Gmail Sent before a manual resend.
+
+`lead-automation.ts` queues work within each server process. `lead-automation-core.ts` obtains a five-minute durable workspace lease before provider calls; Netlify uses conditional Blob updates. A busy worker returns a saved-request/retry message. Local file writes are serialized within one process; local JSON is not a distributed database. Confirmed events are retained for human review when later request details change.
+
+The dashboard Appointments view shows the original service request, customer details, selected date/time/timezone, provider status, and Google event link. Operators can collect missing details with blank service/date/time controls. The website assistant offers the same explicit controls after contact capture and reports confirmation only from the lead API response.
 
 ### Website Studio
 
@@ -174,7 +204,7 @@ Publishing requires passing QA and selecting `editorial`, `momentum`, or `aura`.
 | ElevenLabs | Short-lived conversation token for WebRTC voice | `app/api/voice/session/route.ts`, `app/api/site-assistant/session/route.ts` |
 | ElevenLabs | Signed WebSocket URL for live text conversation | `app/api/site-assistant/session/route.ts` |
 | Google OAuth | Consent, code exchange, refresh, and revoke | `features/integrations/google-oauth.ts` |
-| Google Calendar | `freeBusy` check and event insert/get | `features/integrations/google.ts` |
+| Google Calendar | Verified `freeBusy`, deterministic event recovery, and event insert/get | `features/integrations/google.ts` |
 | Gmail | RFC 2822 message sent through `users/me/messages/send` | `features/integrations/google.ts` |
 
 Gemini model order, timeouts, and retries come from `lib/provider-config.ts`. Website generation tries configured models in order. Appointment extraction tries at most the first two.
@@ -186,7 +216,8 @@ Gemini model order, timeouts, and retries come from `lib/provider-config.ts`. We
 `EverOnnWorkspace` in `features/everonn/types.ts` contains:
 
 - one `BusinessProfile`;
-- contacts, leads, conversations, and appointments;
+- contacts, leads, conversations, and appointments; leads may include requestId, collecting/complete state, full customer request text (up to 12,000 characters), explicit appointmentRequest, and provider automation markers; appointments retain UTC start/end, booking timezone, and requestDetails;
+- an optional expiring automationLock used only by the server;
 - one generated `WebsiteProject`;
 - integration display state;
 - team members.
@@ -249,11 +280,11 @@ Runtime details that commonly cause confusion:
 - The preview UI accepts the special `/preview/demo` alias when a project exists; assistant API access still requires the project's real private token.
 - Marketing `components/everonn-chat.tsx` intentionally uses hardcoded product-demo replies. It is not the generated customer website assistant.
 - Marketing `components/lead-form.tsx` shows success locally but does not send or save the submission.
-- Billing values and “Manage plan” are UI placeholders.
+- Subscription billing is not integrated; the Billing screen states that invoices, plan charges, and metered usage are unavailable.
 - Team invitations create real accounts when accepted, but the owner must currently copy and send the invitation URL; email delivery is not connected.
 - New-customer registration is rate limited, but signup email verification and an external anti-bot challenge are not connected yet.
 - Self-service forgotten-password recovery and MFA are not implemented. Signed-in users can change their password in Settings.
-- “Add contact” currently has no creation workflow.
+- Contacts can be created from the dashboard with validated callback details and persisted through the workspace API.
 - In-memory API rate limits reset when the server process restarts and are not shared between instances.
 - Local file JSON is suitable for one writable server instance. Netlify uses strongly consistent Blob records for the primary workspace, additional workspaces, auth, and credentials.
 
@@ -269,3 +300,13 @@ When changing a feature:
 6. Run `npm run lint`, `npm test`, and `npm run build`.
 7. Update this file when routes, modules, providers, environment variables, or implementation status change.
 8. Update `PROJECT_DATA_FLOW.md` when a request path or stored-data flow changes.
+
+## Request regression checks
+
+`npm test` covers progressive capture, sent-email preservation, ambiguous Gmail delivery, competing workers, missing/invented times, timezone transitions, busy/disconnected/cancelled appointments, and event recovery. `npm run smoke:booking` (after a production build) starts a disposable local server with separate workspace/auth/credential files and all live providers disabled, then checks the actual dashboard and published assistant at desktop/mobile sizes. It never exercises a live Gmail send or Calendar insert.
+
+The primary US Carpentry workspace uses carpentry services documented in its saved description and Asia/Kolkata for its Hyderabad location. Identified Northstar profile details, sample customer records, sample appointment, and sample team members were removed; unsupported after-hours sample knowledge was unapproved. Existing real Google appointments retain their original booking timezone and show a review notice when it differs from the current business timezone. The private generated website was rebuilt from the corrected profile through Gemini/Pexels and remains unpublished.
+
+Both voice session routes use `features/voice-agent/session-context.ts`. The existing ElevenLabs template reads faq_notes rather than approved_instructions, so the full approved receptionist rules are supplied through both variables. Calendar/handoff/duration/language fields now match the remote template. Website and dashboard voice tools use the real lead endpoint result; booked=true requires a confirmed Calendar appointment. The configured provider key allows reading the remote agent but its prompt update request returned HTTP 401, so remote configuration was left unchanged and the supported existing dynamic-variable contract is used.
+
+Dashboard Inbox filters now select real subsets, and authorized operators can update lead status. Contacts can be added with callback validation and their details/call/email links can be opened. The notification icon opens Inbox. Billing shows its unconnected state without fictitious subscription prices, usage, or invoice dates. Customer Settings no longer exposes the demo-reset action. Latest customer phone/email/name corrections are extracted, and newer contact records survive stale browser autosaves.

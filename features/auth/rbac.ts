@@ -2,6 +2,7 @@ import type { WorkspaceRole } from "@/features/everonn/types";
 
 export type Capability =
   | "workspace:view"
+  | "usage:view"
   | "business:configure"
   | "knowledge:approve"
   | "inbox:operate"
@@ -12,8 +13,8 @@ export type Capability =
   | "billing:manage";
 
 const grants: Record<WorkspaceRole, ReadonlySet<Capability>> = {
-  owner: new Set(["workspace:view", "business:configure", "knowledge:approve", "inbox:operate", "calls:operate", "appointments:operate", "website:publish", "team:manage", "billing:manage"]),
-  manager: new Set(["workspace:view", "business:configure", "knowledge:approve", "inbox:operate", "calls:operate", "appointments:operate", "website:publish"]),
+  owner: new Set(["workspace:view", "usage:view", "business:configure", "knowledge:approve", "inbox:operate", "calls:operate", "appointments:operate", "website:publish", "team:manage", "billing:manage"]),
+  manager: new Set(["workspace:view", "usage:view", "business:configure", "knowledge:approve", "inbox:operate", "calls:operate", "appointments:operate", "website:publish"]),
   agent: new Set(["workspace:view", "inbox:operate", "calls:operate", "appointments:operate"]),
   viewer: new Set(["workspace:view"]),
 };

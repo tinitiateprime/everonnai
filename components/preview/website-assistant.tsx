@@ -5,6 +5,11 @@ import { Bot, CheckCircle2, LoaderCircle, MessageCircle, Mic, Phone, PhoneCall, 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BusinessProfile, TranscriptMessage } from "@/features/everonn/types";
 import { extractCallerDetails } from "@/features/voice-agent/engine";
+import { createLeadCaptureQueue } from "@/features/voice-agent/capture-client";
+import type { LeadCaptureInput } from "@/features/everonn/lead-capture";
+import { AppointmentFields } from "@/components/booking/appointment-fields";
+import { bookingToolResult } from "@/features/voice-agent/session-context";
+import { notifyElevenLabsUsage } from "@/features/usage/client";
 
 type Panel = "chat" | "voice" | null;
 type Status = "idle" | "connecting" | "live" | "gemini" | "ended" | "error";
@@ -23,10 +28,14 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [captured, setCaptured] = useState(false);
+  const [captureMessage, setCaptureMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [replying, setReplying] = useState(false);
   const sessionRef = useRef<AssistantSession | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const messagesRef = useRef<AssistantMessage[]>([]);
-  const capturedRef = useRef("");
+  const captureQueueRef = useRef<ReturnType<typeof createLeadCaptureQueue> | null>(null);
+  const captureInputRef = useRef<LeadCaptureInput | null>(null);
 
   const pushMessage = useCallback((role: AssistantMessage["role"], value: unknown) => {
     const text = clean(value, 1200);
@@ -39,39 +48,33 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
     return next;
   }, []);
 
-  const captureLead = useCallback((details: Record<string, unknown> = {}) => {
-    const callerName = clean(details.caller_name || details.name, 120) || "Website visitor";
-    const callerPhone = clean(details.caller_phone || details.phone, 40);
-    const callerEmail = clean(details.caller_email || details.email, 254).toLowerCase();
-    const reason = clean(details.reason || details.message, 300) || "AI website assistant conversation";
-    const signature = `${callerPhone.replace(/\D/g, "").slice(-15)}|${callerEmail}|${callerName.toLowerCase()}`;
-    if ((callerPhone || callerEmail) && signature !== capturedRef.current) {
-      capturedRef.current = signature;
+  const captureLead = useCallback(async (details: Record<string, unknown> = {}, finalize = true, asTool = false) => {
+    const previous = captureInputRef.current;
+    const callerName = clean(details.caller_name || details.name, 120) || previous?.callerName || "Website visitor";
+    const callerPhone = clean(details.caller_phone || details.phone, 40) || previous?.callerPhone || "";
+    const callerEmail = clean(details.caller_email || details.email, 254).toLowerCase() || previous?.callerEmail || "";
+    const customerText = messagesRef.current.filter((message) => message.role === "visitor").map((message) => message.text).join("\n");
+    const reason = customerText || clean(details.reason || details.message, 12000) || previous?.reason || "Customer callback request";
+    if (!callerPhone && !callerEmail) return "Ask for a callback number or email. Nothing has been saved yet.";
+    const input: LeadCaptureInput = { callerName, callerPhone, callerEmail, reason, urgency: details.urgency === "high" || details.urgency === "low" ? details.urgency : previous?.urgency || "normal", source: details.source === "phone" ? "phone" : details.source === "chat" ? "chat" : previous?.source || "chat", finalize, appointmentRequest: previous?.appointmentRequest };
+    captureInputRef.current = input;
+    captureQueueRef.current ||= createLeadCaptureQueue({ requestId: crypto.randomUUID(), previewToken, publicSlug });
+    try {
+      const data = await captureQueueRef.current(input);
+      if (!data) return "The request could not be saved.";
       setCaptured(true);
-      void fetch("/api/site-assistant/lead", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...(previewToken ? { previewToken } : { publicSlug }),
-          callerName,
-          callerPhone,
-          callerEmail,
-          reason,
-          urgency: details.urgency,
-          source: details.source,
-        }),
-      }).then((response) => {
-        if (!response.ok) {
-          if (capturedRef.current === signature) capturedRef.current = "";
-          setCaptured(false);
-        }
-      }).catch(() => {
-        if (capturedRef.current === signature) capturedRef.current = "";
-        setCaptured(false);
-      });
+      const message = data.appointment?.status === "confirmed"
+        ? `Confirmed: ${data.appointment.service}, ${data.appointment.date} at ${data.appointment.time} (${data.appointment.timeZone || profile.timeZone}).`
+        : finalize ? data.automationError || data.lead.automation?.message || "Your request was submitted to the team for follow-up."
+          : "Your contact details are saved. Continue with the service and preferred date and time.";
+      setCaptureMessage(message);
+      return asTool ? bookingToolResult(data, message) : message;
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Your request could not be saved. Please try again.";
+      setError(message);
+      throw cause;
     }
-    return "The visitor details are captured for a human follow-up. Do not claim a live transfer or confirmed booking.";
-  }, [previewToken, publicSlug]);
+  }, [previewToken, publicSlug, profile.timeZone]);
 
   const captureTranscript = useCallback((conversation: AssistantMessage[], source: "phone" | "chat") => {
     const transcript: TranscriptMessage[] = conversation.map((message) => ({
@@ -82,30 +85,31 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
     }));
     const details = extractCallerDetails(transcript);
     if (!details.callerPhone && !details.callerEmail) return;
-    const reason = transcript.filter((message) => message.role === "caller").map((message) => message.text).join(" ").slice(0, 300);
-    captureLead({ caller_name: details.callerName, caller_phone: details.callerPhone, caller_email: details.callerEmail, reason, urgency: details.urgency, source });
+    const reason = transcript.filter((message) => message.role === "caller").map((message) => message.text).join("\n");
+    void captureLead({ caller_name: details.callerName, caller_phone: details.callerPhone, caller_email: details.callerEmail, reason, urgency: details.urgency, source }, false).catch(() => undefined);
   }, [captureLead]);
 
   const clientTools = useMemo(() => ({
-    capture_lead: captureLead,
-    prepare_appointment: (details: Record<string, unknown> = {}) => {
-      captureLead({ ...details, reason: `Appointment request: ${clean(details.service || details.reason)}` });
-      return "The appointment request is recorded but is not a confirmed booking.";
-    },
-    request_human_handoff: captureLead,
-    check_availability: () => "Collect a preferred date and time. A person must confirm availability.",
-    book_appointment: () => "Do not confirm a booking. Record an unconfirmed appointment request for the team.",
+    capture_lead: (details: Record<string, unknown>) => captureLead(details, false, true),
+    prepare_appointment: (details: Record<string, unknown>) => captureLead(details, true, true),
+    request_human_handoff: (details: Record<string, unknown>) => captureLead(details, true, true),
+    check_availability: () => JSON.stringify({ available: null, message: "Collect the customer's exact preferred date and time. The booking submission checks the calendar; no slot is confirmed yet." }),
+    book_appointment: (details: Record<string, unknown>) => captureLead(details, true, true),
   }), [captureLead]);
 
   const endSession = useCallback(async () => {
     const session = sessionRef.current;
     sessionRef.current = null;
     if (session) await session.endSession().catch(() => undefined);
+    if (captureInputRef.current) await captureLead({}, true).catch(() => undefined);
     setStatus("idle");
     setActivity("");
-  }, []);
+  }, [captureLead]);
 
   useEffect(() => () => { if (sessionRef.current) void sessionRef.current.endSession().catch(() => undefined); }, []);
+  useEffect(() => () => {
+    if (captureQueueRef.current && captureInputRef.current) void captureQueueRef.current({ ...captureInputRef.current, finalize: true }).catch(() => undefined);
+  }, []);
   useEffect(() => { if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight; }, [messages, activity]);
 
   const start = useCallback(async (mode: Exclude<Panel, null>) => {
@@ -113,8 +117,10 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
     setPanel(mode);
     setMessages([]);
     messagesRef.current = [];
-    capturedRef.current = "";
+    captureQueueRef.current = createLeadCaptureQueue({ requestId: crypto.randomUUID(), previewToken, publicSlug });
+    captureInputRef.current = null;
     setCaptured(false);
+    setCaptureMessage("");
     setError("");
     setStatus("connecting");
     setActivity("Connecting securely…");
@@ -128,13 +134,16 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
         method: "POST",
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(previewToken ? { previewToken } : { publicSlug }),
+        body: JSON.stringify({ ...(previewToken ? { previewToken } : { publicSlug }), mode }),
       });
-      const data = await response.json() as { error?: string; conversationToken?: string; signedUrl?: string; dynamicVariables?: Record<string, string> };
+      const data = await response.json() as { error?: string; conversationToken?: string; signedUrl?: string; usageSessionId?: string; dynamicVariables?: Record<string, string> };
       if (!response.ok) throw new Error(data.error || "The live AI assistant could not connect.");
+      let providerConversationId: string | undefined;
       const callbacks = {
+        userId: data.usageSessionId,
         dynamicVariables: data.dynamicVariables,
         clientTools,
+        onConnect: ({ conversationId }: { conversationId: string }) => { providerConversationId = conversationId; void notifyElevenLabsUsage(data.usageSessionId, conversationId); },
         onMessage: ({ message, role, source }: { message: string; role: string; source?: string }) => {
           const assistant = role === "agent" || source === "ai";
           const conversation = pushMessage(assistant ? "assistant" : "visitor", message);
@@ -142,7 +151,7 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
         },
         onModeChange: ({ mode: current }: { mode: string }) => setActivity(current === "listening" ? "Listening…" : current === "speaking" ? "Speaking…" : ""),
         onError: (message: string) => { setError(clean(message) || "The AI conversation was interrupted."); setStatus("error"); },
-        onDisconnect: () => { setActivity(""); setStatus("ended"); sessionRef.current = null; },
+        onDisconnect: () => { void notifyElevenLabsUsage(data.usageSessionId, providerConversationId); setActivity(""); setStatus("ended"); sessionRef.current = null; if (captureInputRef.current) void captureLead({}, true).catch(() => undefined); },
       };
       const session = mode === "voice"
         ? await Conversation.startSession({ conversationToken: data.conversationToken!, connectionType: "webrtc", ...callbacks })
@@ -162,12 +171,12 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
         setActivity("");
       }
     }
-  }, [captureTranscript, clientTools, endSession, previewToken, profile.greeting, publicSlug, pushMessage]);
+  }, [captureLead, captureTranscript, clientTools, endSession, previewToken, profile.greeting, publicSlug, pushMessage]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     const value = draft.trim();
-    if (!value || (status !== "live" && status !== "gemini")) return;
+    if (!value || replying || (status !== "live" && status !== "gemini")) return;
     setDraft("");
     const conversation = pushMessage("visitor", value);
     captureTranscript(conversation, panel === "voice" ? "phone" : "chat");
@@ -176,6 +185,7 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
       return;
     }
     setActivity("Gemini is thinking…");
+    setReplying(true);
     setError("");
     try {
       const response = await fetch("/api/assistant/message", {
@@ -183,7 +193,7 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...(previewToken ? { previewToken } : { publicSlug }),
-          messages: [...messages, { id: crypto.randomUUID(), role: "visitor" as const, text: value }].map((message) => ({ role: message.role === "visitor" ? "caller" : "assistant", text: message.text })),
+          messages: conversation.map((message) => ({ role: message.role === "visitor" ? "caller" : "assistant", text: message.text })),
         }),
       });
       const data = await response.json() as { reply?: string; model?: string; error?: string };
@@ -193,14 +203,31 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
     } catch (replyError) {
       setError(replyError instanceof Error ? replyError.message : "Gemini could not answer this message.");
       setActivity("Gemini AI unavailable");
+    } finally {
+      setReplying(false);
     }
+  }
+
+  async function submitRequest(appointmentRequest?: LeadCaptureInput["appointmentRequest"]) {
+    setSubmitting(true);
+    try {
+      if (appointmentRequest && captureInputRef.current) captureInputRef.current = { ...captureInputRef.current, appointmentRequest };
+      const message = await captureLead({}, true);
+      pushMessage("assistant", message);
+    } catch { /* The capture error is displayed in the panel. */ }
+    finally { setSubmitting(false); }
   }
 
   const close = () => { void endSession(); setPanel(null); setError(""); };
   const connecting = status === "connecting";
 
   return <aside className={`client-assistant${panel ? " is-open" : ""}`} aria-label={`${profile.businessName} AI assistant`} data-ai-chat-ready="true" data-voice-agent-ready="true">
-    {panel && <section className="client-assistant-panel" role="dialog" aria-label={`${profile.businessName} AI ${panel}`}><header><span className="client-assistant-avatar"><Sparkles /></span><div><small>AI assistant</small><strong>{profile.assistantName} at {profile.businessName}</strong></div><button onClick={close} aria-label="Close assistant"><X /></button></header>{panel === "chat" ? <><div className="client-assistant-status"><i className={`status-${status}`} />{activity || "Ready to help"}</div><div className="client-assistant-messages" ref={transcriptRef}>{connecting && <div className="client-assistant-connecting"><LoaderCircle className="spin" /> Connecting securely…</div>}{messages.map((message) => <p className={message.role} key={message.id}>{message.text}</p>)}{error && <div className="client-assistant-error">{error}</div>}</div>{captured && <small className="client-captured"><CheckCircle2 /> Your callback details were added to the team inbox.</small>}<form onSubmit={submit}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ask about services, hours, or appointments" disabled={connecting} aria-label="Message the AI assistant" /><button aria-label="Send message" disabled={!draft.trim() || connecting}><Send /></button></form></> : <div className="client-assistant-voice"><div className={`client-voice-orb status-${status}`}><Mic /><i /><i /></div><small>{connecting ? "Connecting securely…" : activity || "Voice conversation ended"}</small><strong>{status === "live" ? `${profile.assistantName} is ready to help` : error || `Talk with ${profile.businessName}`}</strong>{status === "live" && <p>Ask about services, business hours, or request an appointment.</p>}{status === "live" ? <button onClick={() => void endSession()}><X /> End conversation</button> : !connecting && <button onClick={() => void start("voice")}>Try again</button>}</div>}<footer><span><Bot /> AI-powered assistance</span>{profile.phone && <a href={`tel:${profile.phone.replace(/[^+\d]/g, "")}`}><Phone /> Call business</a>}</footer></section>}
+    {panel && <section className="client-assistant-panel" role="dialog" aria-label={`${profile.businessName} AI ${panel}`}><header><span className="client-assistant-avatar"><Sparkles /></span><div><small>AI assistant</small><strong>{profile.assistantName} at {profile.businessName}</strong></div><button onClick={close} aria-label="Close assistant"><X /></button></header>{panel === "chat" ? <><div className="client-assistant-status"><i className={`status-${status}`} />{activity || "Ready to help"}</div><div className="client-assistant-messages" ref={transcriptRef}>{connecting && <div className="client-assistant-connecting"><LoaderCircle className="spin" /> Connecting securely…</div>}{messages.map((message) => <p className={message.role} key={message.id}>{message.text}</p>)}{error && <div className="client-assistant-error">{error}</div>}</div>{captured && <small className="client-captured"><CheckCircle2 /> {captureMessage}</small>}<form onSubmit={submit}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ask about services, hours, or appointments" disabled={connecting || replying || submitting} aria-label="Message the AI assistant" /><button aria-label="Send message" disabled={!draft.trim() || connecting || replying || submitting}><Send /></button></form></> : <div className="client-assistant-voice"><div className={`client-voice-orb status-${status}`}><Mic /><i /><i /></div><small>{connecting ? "Connecting securely…" : activity || "Voice conversation ended"}</small><strong>{status === "live" ? `${profile.assistantName} is ready to help` : error || `Talk with ${profile.businessName}`}</strong>{status === "live" && <p>Ask about services, business hours, or request an appointment.</p>}{status === "live" ? <button onClick={() => void endSession()}><X /> End conversation</button> : !connecting && <button onClick={() => void start("voice")}>Try again</button>}</div>}{captured && <div className="client-request-controls"><button type="button" onClick={() => void submitRequest()} disabled={submitting}>{submitting ? "Submitting..." : "Send request to team"}</button><details><summary>Choose an appointment date and time</summary><AppointmentFields profile={profile} onSubmit={async (request) => {
+      if (!captureInputRef.current) throw new Error("Share a callback number or email in the conversation first.");
+      captureInputRef.current = { ...captureInputRef.current, appointmentRequest: request };
+      const result = await captureLead({}, true);
+      pushMessage("assistant", result);
+    }} /></details></div>}<footer><span><Bot /> AI-powered assistance</span>{profile.phone && <a href={`tel:${profile.phone.replace(/[^+\d]/g, "")}`}><Phone /> Call business</a>}</footer></section>}
     <div className="client-assistant-actions"><button className="chat" onClick={() => panel === "chat" ? close() : void start("chat")} aria-label={`Chat with ${profile.businessName}`}><MessageCircle /><strong>Chat</strong></button><button className="voice" onClick={() => panel === "voice" ? close() : void start("voice")} aria-label={`Talk to ${profile.businessName} AI`}>{connecting && panel === "voice" ? <LoaderCircle className="spin" /> : panel === "voice" && status === "live" ? <Volume2 /> : <PhoneCall />}<strong>Talk to AI</strong></button></div>
   </aside>;
 }

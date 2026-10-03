@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
-import { buildReceptionistPrompt } from "@/features/voice-agent/engine";
+import { buildVoiceSessionVariables } from "@/features/voice-agent/session-context";
+import { getGoogleConnection } from "@/lib/provider-credentials";
 import { assertSameOrigin, authErrorDetails } from "@/features/auth/session";
 import { findWorkspaceJson } from "@/lib/json-workspace-store";
+import { meteredElevenLabsSetup } from "@/features/usage/elevenlabs";
+import { createUsageSession } from "@/lib/usage-store";
 
 export const dynamic = "force-dynamic";
 
-const elevenLabsApi = "https://api.elevenlabs.io/v1";
 const sessionBuckets = new Map<string, number[]>();
 
 function visitorKey(request: Request, projectId: string) {
@@ -22,23 +24,13 @@ function enforceRateLimit(key: string) {
   sessionBuckets.set(key, [...recent, now]);
 }
 
-async function elevenLabs(path: string, apiKey: string) {
-  const response = await fetch(`${elevenLabsApi}${path}`, {
-    headers: { "xi-api-key": apiKey },
-    signal: AbortSignal.timeout(20_000),
-    cache: "no-store",
-  });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(payload?.detail?.message || payload?.message || `ElevenLabs returned HTTP ${response.status}.`);
-  return payload as { token?: string; signed_url?: string };
-}
-
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
     const raw = await request.text();
     if (raw.length > 4_000) return NextResponse.json({ error: "Invalid assistant request." }, { status: 400 });
-    const input = raw ? JSON.parse(raw) as { previewToken?: string; publicSlug?: string } : {};
+    const input = raw ? JSON.parse(raw) as { previewToken?: string; publicSlug?: string; mode?: "voice" | "chat" } : {};
+    if (input.mode && input.mode !== "voice" && input.mode !== "chat") return NextResponse.json({ error: "Invalid assistant mode." }, { status: 400 });
     const workspace = await findWorkspaceJson((candidate) => Boolean(
       (input.previewToken && candidate.websiteProject?.privateToken === input.previewToken)
       || (input.publicSlug && candidate.websiteProject?.publicSlug === input.publicSlug && candidate.websiteProject.status === "published")
@@ -54,28 +46,20 @@ export async function POST(request: Request) {
     const agentId = String(process.env.ELEVENLABS_AGENT_ID || "").trim();
     if (!apiKey || !agentId) return NextResponse.json({ configured: false, error: "Live AI voice is not configured." }, { status: 503 });
     const encoded = encodeURIComponent(agentId);
+    const usage = { workspaceId: workspace.workspaceId, feature: input.mode === "chat" ? "elevenlabs_chat" as const : "website_voice" as const };
     const [token, signedUrl] = await Promise.all([
-      elevenLabs(`/convai/conversation/token?agent_id=${encoded}`, apiKey),
-      elevenLabs(`/convai/conversation/get-signed-url?agent_id=${encoded}`, apiKey),
+      meteredElevenLabsSetup(`/convai/conversation/token?agent_id=${encoded}`, apiKey, usage, agentId),
+      meteredElevenLabsSetup(`/convai/conversation/get-signed-url?agent_id=${encoded}`, apiKey, usage, agentId),
     ]);
+    const usageSessionId = await createUsageSession(usage, agentId);
     const profile = workspace.profile;
+    const googleConnection = await getGoogleConnection(workspace.workspaceId);
     return NextResponse.json({
       configured: true,
       conversationToken: token.token,
       signedUrl: signedUrl.signed_url,
-      dynamicVariables: {
-        business_name: profile.businessName,
-        business_type: profile.businessType,
-        assistant_name: profile.assistantName,
-        services: profile.services.filter((item) => item.active).map((item) => item.name).join(", "),
-        business_hours: profile.hours,
-        service_area: profile.serviceArea,
-        greeting: profile.greeting,
-        approved_instructions: buildReceptionistPrompt(profile),
-        pricing_rules: profile.pricingRules,
-        policies: profile.policies,
-        time_zone: profile.timeZone,
-      },
+      usageSessionId,
+      dynamicVariables: buildVoiceSessionVariables(profile, Boolean(googleConnection?.scope.some((scope) => scope.includes("calendar")))),
       assistant: { name: profile.assistantName, businessName: profile.businessName, greeting: profile.greeting },
       expiresAt: new Date(Date.now() + 14 * 60_000).toISOString(),
     }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });

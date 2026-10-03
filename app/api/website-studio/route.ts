@@ -37,7 +37,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "The profile does not belong to the selected workspace." }, { status: 403 });
     }
     normalizeWebsiteBusinessProfile(body.profile);
-    const generation = await generateWebsiteSpec(body.profile);
+    const generation = await generateWebsiteSpec(body.profile, { usage: { workspaceId: body.profile.workspaceId, feature: "website_generation" } });
     const project = createWebsiteProject(body.profile, generation.spec);
     const slugCollision = await findWorkspaceJson((workspace) => workspace.workspaceId !== body.profile!.workspaceId && workspace.websiteProject?.publicSlug === project.publicSlug);
     if (slugCollision) {

@@ -1,6 +1,8 @@
 import type { BusinessProfile, WebsiteServiceSpec, WebsiteSpec } from "@/features/everonn/types";
 import { buildWebsitePrompt, runWebsiteQa, websiteSlug } from "./generator";
 import { getGeminiWebsiteConfig } from "@/lib/provider-config";
+import { meteredGeminiRequest } from "@/features/usage/gemini";
+import type { UsageContext } from "@/features/usage/types";
 
 type GeminiConfig = ReturnType<typeof getGeminiWebsiteConfig>;
 type GenerationResult = {
@@ -210,8 +212,8 @@ function extractGeminiJson(payload: unknown) {
   return JSON.parse(cleaned) as unknown;
 }
 
-async function requestGemini(model: string, profile: BusinessProfile, config: GeminiConfig, fetchImpl: typeof fetch) {
-  const response = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(config.apiKey)}`, {
+async function requestGemini(model: string, profile: BusinessProfile, config: GeminiConfig, fetchImpl: typeof fetch, usage?: UsageContext) {
+  const { response, payload } = await meteredGeminiRequest(model, config.apiKey, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -220,8 +222,7 @@ async function requestGemini(model: string, profile: BusinessProfile, config: Ge
     }),
     signal: AbortSignal.timeout(config.timeoutMs),
     cache: "no-store",
-  });
-  const payload = await response.json().catch(() => null);
+  }, { fetchImpl, usage });
   if (!response.ok) {
     const message = (payload as { error?: { message?: string } } | null)?.error?.message;
     throw new Error(message || `Gemini returned HTTP ${response.status}.`);
@@ -231,14 +232,14 @@ async function requestGemini(model: string, profile: BusinessProfile, config: Ge
   return generated;
 }
 
-export async function generateWebsiteSpec(input: BusinessProfile, options: { config?: GeminiConfig; fetchImpl?: typeof fetch } = {}): Promise<GenerationResult> {
+export async function generateWebsiteSpec(input: BusinessProfile, options: { config?: GeminiConfig; fetchImpl?: typeof fetch; usage?: UsageContext } = {}): Promise<GenerationResult> {
   const config = options.config || getGeminiWebsiteConfig();
   if (!config.apiKey) throw new Error("Gemini website generation is required. Add GEMINI_API_KEY before generating a site.");
 
   let lastError = "Gemini generation was unavailable.";
   for (const [index, model] of config.models.entries()) {
     try {
-      const generated = await requestGemini(model, input, config, options.fetchImpl || fetch);
+      const generated = await requestGemini(model, input, config, options.fetchImpl || fetch, options.usage);
       const spec = normalizeGeneratedSpec(generated, input);
       const qa = runWebsiteQa(spec, input);
       if (!qa.passed) throw new Error("Generated content did not pass EverOnn grounding QA.");

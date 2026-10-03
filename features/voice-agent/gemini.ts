@@ -2,6 +2,9 @@ import "server-only";
 import type { BusinessProfile } from "@/features/everonn/types";
 import { getGeminiWebsiteConfig } from "@/lib/provider-config";
 import { buildReceptionistPrompt } from "./engine";
+import { bookingClarification } from "./appointment-validation";
+import { meteredGeminiRequest } from "@/features/usage/gemini";
+import type { UsageContext } from "@/features/usage/types";
 
 export type AiConversationMessage = { role: "assistant" | "caller"; text: string };
 
@@ -16,7 +19,10 @@ function extractReply(payload: unknown) {
   return reply.slice(0, 1800);
 }
 
-export async function generateAssistantReply(profile: BusinessProfile, input: AiConversationMessage[]) {
+export async function generateAssistantReply(profile: BusinessProfile, input: AiConversationMessage[], usage: UsageContext) {
+  const customerText = input.filter((item) => item.role === "caller").map((item) => clean(item.text, 1200)).join("\n");
+  const clarification = bookingClarification(profile, customerText);
+  if (clarification) return { reply: clarification, model: "request clarification" };
   const config = getGeminiWebsiteConfig();
   if (!config.apiKey) throw new Error("Gemini chat is not configured.");
   const messages = input
@@ -29,7 +35,7 @@ export async function generateAssistantReply(profile: BusinessProfile, input: Ai
   let lastError = "Gemini chat was unavailable.";
   for (const [index, model] of config.models.entries()) {
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(config.apiKey)}`, {
+      const { response, payload } = await meteredGeminiRequest(model, config.apiKey, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -39,8 +45,7 @@ export async function generateAssistantReply(profile: BusinessProfile, input: Ai
         }),
         signal: AbortSignal.timeout(Math.min(config.timeoutMs, 45_000)),
         cache: "no-store",
-      });
-      const payload = await response.json().catch(() => null);
+      }, { usage });
       if (!response.ok) {
         const providerMessage = (payload as { error?: { message?: string } } | null)?.error?.message;
         throw new Error(providerMessage || `Gemini returned HTTP ${response.status}.`);

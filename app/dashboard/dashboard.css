@@ -87,3 +87,50 @@
   .eo-editor-fields label.wide { grid-column: 1; }
   .eo-editor-list .eo-panel-heading { align-items: flex-start; flex-direction: column; }
 }
+.eo-empty { padding: 24px; color: #708193; }
+.eo-request-details { margin-top: 9px !important; white-space: pre-wrap; }
+.eo-schedule-request { margin-top: 12px; max-width: 440px; }
+.eo-schedule-request summary { cursor: pointer; color: #087d72; font-size: .8rem; }
+.eo-text-link { display: flex; gap: 5px; align-items: center; margin-top: 10px; color: #087d72; font-size: .75rem; }
+
+.eo-usage-controls { margin-bottom: 22px; display: flex; justify-content: space-between; align-items: end; gap: 18px; }
+.eo-usage-controls label { display: grid; gap: 6px; color: #385169; font-size: .74rem; font-weight: 750; }
+.eo-provider-usage select { min-height: 38px; padding: 8px 32px 8px 12px; border: 1px solid var(--eo-line); border-radius: 9px; color: var(--eo-ink); background: #fff; font-size: .76rem; }
+.eo-usage-controls p { margin: 0; color: var(--eo-muted); font-size: .73rem; text-align: right; }
+.eo-usage-controls small { display: block; margin-top: 5px; font-size: .67rem; }
+.eo-usage-notice { margin: 0 0 18px; padding: 14px 18px; border: 1px solid #ecd5a4; border-radius: 10px; background: #fff9ec; color: #795822; font-size: .78rem; }
+.eo-usage-notice small { display: block; margin-top: 5px; }
+.eo-usage-notice button { margin-left: 8px; text-decoration: underline; }
+.eo-usage-metrics strong { font-size: clamp(1.2rem, 2.4vw, 2rem); overflow-wrap: anywhere; }
+.eo-usage-metrics p { padding-top: 6px; }
+.eo-usage-provider-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+.eo-usage-provider .eo-panel-heading > svg { width: 27px; height: 27px; color: #0798a0; }
+.eo-usage-elevenlabs .eo-panel-heading > svg { color: #5673b7; }
+.eo-usage-provider dl { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 24px; margin: 0; padding: 22px; }
+.eo-usage-provider dt { color: var(--eo-muted); font-size: .7rem; }
+.eo-usage-provider dd { margin: 4px 0 0; font-weight: 800; font-size: 1.2rem; overflow-wrap: anywhere; }
+.eo-usage-provider > p { margin: 0; padding: 0 22px 20px; color: var(--eo-muted); font-size: .7rem; line-height: 1.6; }
+.eo-usage-chart-panel { margin-bottom: 20px; }
+.eo-usage-chart { display: flex; gap: 5px; min-height: 200px; padding: 24px 22px 16px; }
+.eo-usage-chart-day { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 8px; outline-offset: 3px; }
+.eo-usage-chart-day > div { height: 150px; display: flex; align-items: end; border-bottom: 1px solid var(--eo-line); background: linear-gradient(to top, #f4f8fb, #fff); }
+.eo-usage-chart-day i { display: block; width: 100%; border-radius: 5px 5px 0 0; background: linear-gradient(to top, #079d98, #41d4cf); }
+.eo-usage-chart-day:hover i, .eo-usage-chart-day:focus i { background: linear-gradient(to top, #496fcd, #7b9bef); }
+.eo-usage-chart-day small { min-height: 14px; color: var(--eo-muted); font-size: .59rem; text-align: center; white-space: nowrap; }
+.eo-usage-table td { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.eo-usage-model { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.eo-usage-recent { margin-top: 20px; }
+.eo-usage-recent .eo-panel-heading > small { color: var(--eo-muted); font-size: .68rem; }
+.eo-usage-footnote { margin-top: 20px; color: var(--eo-muted); font-size: .73rem; line-height: 1.7; }
+.eo-usage-footnote p { margin: 8px 0; }
+.eo-usage-spinning { animation: eo-usage-spin 1s linear infinite; }
+@keyframes eo-usage-spin { to { transform: rotate(360deg); } }
+@media (max-width: 760px) {
+  .eo-usage-provider-grid { grid-template-columns: 1fr; gap: 14px; }
+  .eo-usage-controls { flex-direction: column; align-items: start; }
+  .eo-usage-controls p { text-align: left; }
+  .eo-provider-usage .eo-panel-heading { align-items: start; flex-wrap: wrap; gap: 12px; }
+  .eo-usage-chart { gap: 3px; padding-right: 14px; padding-left: 14px; }
+  .eo-usage-chart-day small { font-size: .5rem; }
+}
+@media (prefers-reduced-motion: reduce) { .eo-usage-spinning { animation: none; } }

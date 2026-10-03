@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     const publicAllowed = Boolean(input.publicSlug && project?.publicSlug === input.publicSlug && project.status === "published");
     if (!workspaceAllowed && !previewAllowed && !publicAllowed) return NextResponse.json({ error: "AI assistant access denied." }, { status: 403 });
     enforceRateLimit(request, project?.id || workspace.workspaceId);
-    const result = await generateAssistantReply(workspace.profile, input.messages);
+    const result = await generateAssistantReply(workspace.profile, input.messages, { workspaceId: workspace.workspaceId, feature: workspaceAllowed ? "call_chat" : "website_chat" });
     return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
   } catch (error) {
     const details = authErrorDetails(error, 502);

@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+.appointment-request-form { display: grid; gap: 12px; padding: 16px 0; color: #30465b; }
+.appointment-request-form label { display: grid; gap: 5px; font-size: .8rem; font-weight: 650; }
+.appointment-request-form input, .appointment-request-form select { width: 100%; min-width: 0; padding: 10px; border: 1px solid #c6d4de; border-radius: 8px; background: #fff; color: #17344d; }
+.appointment-request-form small { font-size: .75rem; font-weight: 400; }
+.appointment-request-form button { padding: 12px; border: 0; border-radius: 8px; background: #07375d; color: #fff; font-weight: 650; }
+.appointment-request-form button:disabled { opacity: .5; cursor: not-allowed; }
+.appointment-request-form [role="alert"] { color: #a13c35; }
+
 :root {
   --ink: #03152f;
   --panel: #08213e;

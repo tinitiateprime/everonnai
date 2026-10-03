@@ -90,6 +90,14 @@
 .client-footer > div { display: flex; flex-direction: column; gap: 8px; }.client-footer > div > strong { margin-bottom: 7px; color: #fff; font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; }.client-footer > div:first-child strong { font-size: 1.05rem; letter-spacing: -.02em; text-transform: none; }.client-footer p { max-width: 330px; margin: 8px 0 0; color: #73879a; font-size: .78rem; }.client-footer a, .client-footer span { width: fit-content; color: #93a4b5; font-size: .76rem; }.client-footer a:hover { color: var(--client-accent); }.client-footer > small { grid-column: 1 / -1; padding-top: 25px; border-top: 1px solid rgb(255 255 255 / 9%); color: #617488; font-size: .68rem; }
 
 .client-assistant { gap: 12px; }
+.client-assistant-panel { overflow-y: auto; }
+.client-assistant-messages { min-height: 120px; }
+.client-request-controls { padding: 10px 14px; border-top: 1px solid #dbe5eb; font-size: .75rem; }
+.client-request-controls > button { width: 100%; padding: 10px; border-radius: 8px; background: #07375d; color: #fff; }
+.client-request-controls details { margin-top: 10px; }
+.client-request-controls summary { cursor: pointer; }
+.client-assistant-panel .appointment-request-form { grid-template-columns: 1fr; padding: 12px 0; }
+.client-assistant-panel .appointment-request-form button { display: block; color: #03152f; }
 .client-assistant-actions { display: flex; gap: 8px; }
 .client-assistant-actions button { min-height: 50px; padding: 0 16px; border: 0; border-radius: 999px; display: inline-flex; align-items: center; gap: 8px; font-weight: 850; box-shadow: 0 15px 40px rgb(3 21 47 / 28%); }
 .client-assistant-actions button.chat { background: #fff; color: #09213e; }.client-assistant-actions button.voice { background: linear-gradient(120deg, var(--client-accent), #6b8dff); color: #03152f; }.client-assistant-actions svg { width: 19px; }

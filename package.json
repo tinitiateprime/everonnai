@@ -9,6 +9,8 @@
     "lint": "eslint .",
     "test": "node --import tsx --test tests/*.test.ts",
     "smoke": "node scripts/smoke-product.mjs",
+    "smoke:booking": "node --import tsx scripts/smoke-booking.ts",
+    "smoke:usage": "node --import tsx scripts/smoke-usage.ts",
     "check": "npm run lint && npm test && npm run build"
   },
   "dependencies": {

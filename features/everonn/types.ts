@@ -71,12 +71,17 @@ export type Lead = {
   source: "phone" | "chat" | "website";
   urgency: Urgency;
   status: "new" | "qualified" | "follow_up" | "closed";
+  requestId?: string;
+  updatedAt?: string;
+  captureStatus?: "collecting" | "complete";
+  appointmentRequest?: { serviceId: string; date: string; time: string };
   automation?: {
-    appointmentStatus: "not_requested" | "needs_details" | "unavailable" | "confirmed" | "failed";
+    appointmentStatus: "not_requested" | "needs_details" | "unavailable" | "confirmed" | "cancelled" | "failed";
     appointmentId?: string;
     googleEventId?: string;
-    gmailStatus: "not_configured" | "pending" | "sent" | "failed";
+    gmailStatus: "not_configured" | "pending" | "sent" | "failed" | "delivery_unknown";
     gmailMessageId?: string;
+    gmailAttemptedAt?: string;
     message?: string;
     processedAt: string;
   };
@@ -110,6 +115,10 @@ export type Appointment = {
   contactEmail?: string;
   googleEventId?: string;
   googleEventUrl?: string;
+  startsAt?: string;
+  endsAt?: string;
+  timeZone?: string;
+  requestDetails?: string;
   createdAt: string;
 };
 
@@ -176,6 +185,7 @@ export type WebsiteProject = {
 };
 
 export type IntegrationState = {
+  gemini?: "not_configured" | "ready";
   googleCalendar: "disconnected" | "connected";
   gmail: "disconnected" | "connected";
   elevenLabs: "not_configured" | "ready";
@@ -200,4 +210,5 @@ export type EverOnnWorkspace = {
   websiteProject: WebsiteProject | null;
   integrations: IntegrationState;
   team: TeamMember[];
+  automationLock?: { token: string; expiresAt: string };
 };

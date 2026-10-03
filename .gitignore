@@ -7,6 +7,7 @@ data/*.tmp
 data/provider-connections.json
 data/auth.json
 data/workspaces.json
+data/usage/
 .env*
 !.env.example
 .vercel

@@ -99,5 +99,5 @@ test("Gmail messages are encoded without exposing credentials", () => {
   const raw = buildGmailRaw({ from: "team@example.com", to: "owner@example.com", subject: "EverOnn call summary", text: "A customer called." });
   const decoded = Buffer.from(raw, "base64url").toString("utf8");
   assert.match(decoded, /Subject: EverOnn call summary/);
-  assert.match(decoded, /A customer called/);
+  assert.match(Buffer.from(decoded.split("\r\n\r\n")[1].replace(/\r\n/g, ""), "base64").toString("utf8"), /A customer called/);
 });

@@ -30,6 +30,12 @@ export function localDateTimeToUtc(value: string, timeZone: string) {
   if (Object.keys(desired).some((key) => desired[key as keyof typeof desired] !== actual[key as keyof typeof actual])) {
     throw new Error("The requested local time does not exist in the business time zone.");
   }
+  for (const offset of [-120, -60, -30, 30, 60, 120]) {
+    const alternate = partsAt(new Date(candidate + offset * 60_000), timeZone);
+    if (Object.keys(desired).every((key) => desired[key as keyof typeof desired] === alternate[key as keyof typeof alternate])) {
+      throw new Error("The requested local time is ambiguous because the clocks change. Choose another time.");
+    }
+  }
   return date;
 }
 

@@ -15,6 +15,7 @@ import {
   CreditCard,
   ExternalLink,
   Globe2,
+  Gauge,
   Headphones,
   Inbox,
   LayoutDashboard,
@@ -38,10 +39,17 @@ import {
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useConversation } from "@elevenlabs/react";
 import { useEverOnnWorkspace } from "@/features/everonn/workspace-provider";
-import type { BusinessProfile, Contact, Lead, TeamMember, TranscriptMessage, WebsiteProject } from "@/features/everonn/types";
+import type { BusinessProfile, Lead, TeamMember, TranscriptMessage, WebsiteProject } from "@/features/everonn/types";
 import { hasCapability } from "@/features/auth/rbac";
 import type { AuthActor } from "@/features/auth/types";
 import { extractCallerDetails } from "@/features/voice-agent/engine";
+import { createLeadCaptureQueue } from "@/features/voice-agent/capture-client";
+import type { LeadCaptureInput } from "@/features/everonn/lead-capture";
+import { AppointmentFields } from "@/components/booking/appointment-fields";
+import { isSampleAppointment } from "@/features/everonn/sample-records";
+import { bookingToolResult } from "@/features/voice-agent/session-context";
+import { notifyElevenLabsUsage } from "@/features/usage/client";
+import { UsageSection } from "@/components/dashboard/usage-section";
 
 const sections = [
   ["overview", "Overview", LayoutDashboard],
@@ -52,6 +60,7 @@ const sections = [
   ["knowledge", "Knowledge", BookOpenCheck],
   ["ai-agent", "AI agent", Bot],
   ["website", "Website", Globe2],
+  ["usage", "Usage", Gauge],
   ["billing", "Billing", CreditCard],
   ["settings", "Settings", Settings],
 ] as const;
@@ -64,6 +73,7 @@ function canOpenSection(actor: AuthActor, section: SectionKey) {
   if (section === "ai-agent") return hasCapability(actor.role, "calls:operate");
   if (section === "website") return hasCapability(actor.role, "website:publish");
   if (section === "billing") return hasCapability(actor.role, "billing:manage");
+  if (section === "usage") return hasCapability(actor.role, "usage:view");
   return false;
 }
 
@@ -90,7 +100,7 @@ export function EverOnnDashboard({ initialSection, actor }: { initialSection: st
   const [mobileOpen, setMobileOpen] = useState(false);
   const requested = (sections.some(([key]) => key === initialSection) ? initialSection : "overview") as SectionKey;
   const active = canOpenSection(actor, requested) ? requested : "overview";
-  const { workspace } = useEverOnnWorkspace();
+  const { workspace, hydrated, persistenceReady } = useEverOnnWorkspace();
 
   function navigate(section: SectionKey) {
     router.push(section === "overview" ? "/dashboard" : `/dashboard/${section}`);
@@ -102,6 +112,9 @@ export function EverOnnDashboard({ initialSection, actor }: { initialSection: st
     router.replace("/login");
     router.refresh();
   }
+
+  if (!hydrated) return <main className="eo-content" role="status">Loading your workspace…</main>;
+  if (!persistenceReady) return <main className="eo-content"><p role="alert">Your workspace could not be loaded. Reload the page to retry.</p><button className="eo-primary-button" onClick={() => window.location.reload()}>Reload workspace</button></main>;
 
   return (
     <div className="eo-app">
@@ -124,7 +137,7 @@ export function EverOnnDashboard({ initialSection, actor }: { initialSection: st
         </nav>
         <div className="eo-sidebar-bottom">
           <span className="eo-live-dot" />
-          <div><strong>Customer front online</strong><small>Website, chat, and calls share one profile</small></div>
+          <div><strong>{workspace.websiteProject?.status === "published" ? "Customer website published" : "Customer website not published"}</strong><small>Website, chat, and calls share one profile</small></div>
         </div>
       </aside>
       {mobileOpen && <button className="eo-sidebar-scrim" onClick={() => setMobileOpen(false)} aria-label="Close navigation" />}
@@ -132,11 +145,11 @@ export function EverOnnDashboard({ initialSection, actor }: { initialSection: st
         <header className="eo-topbar">
           <button className="eo-mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu /></button>
           <div><span>{sections.find(([key]) => key === active)?.[1]}</span><small>One approved business profile across every channel</small></div>
-          <div className="eo-top-actions"><button className="eo-notifications" aria-label="Notifications"><Bell /><i /></button>{workspace.websiteProject && <Link href={`/preview/${workspace.websiteProject.privateToken}`} target="_blank">Customer view <ExternalLink /></Link>}<span className="eo-user-role">{actor.role}</span><span className="eo-avatar" title={actor.email}>{actor.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</span><button className="eo-signout" onClick={() => void signOut()} aria-label="Sign out" title="Sign out"><LogOut /></button></div>
+          <div className="eo-top-actions"><Link className="eo-notifications" href="/dashboard/inbox" aria-label="View customer inbox"><Bell /></Link>{workspace.websiteProject && <Link href={`/preview/${workspace.websiteProject.privateToken}`} target="_blank">Customer view <ExternalLink /></Link>}<span className="eo-user-role">{actor.role}</span><span className="eo-avatar" title={actor.email}>{actor.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</span><button className="eo-signout" onClick={() => void signOut()} aria-label="Sign out" title="Sign out"><LogOut /></button></div>
         </header>
         <main className="eo-content">
           {active === "overview" && <Overview actor={actor} />}
-          {active === "inbox" && <InboxSection />}
+          {active === "inbox" && <InboxSection actor={actor} />}
           {active === "contacts" && <ContactsSection actor={actor} />}
           {active === "calls" && <CallsSection actor={actor} />}
           {active === "appointments" && <AppointmentsSection actor={actor} />}
@@ -144,6 +157,7 @@ export function EverOnnDashboard({ initialSection, actor }: { initialSection: st
           {active === "ai-agent" && <AiAgentSection />}
           {active === "website" && <WebsiteSection />}
           {active === "billing" && <BillingSection />}
+          {active === "usage" && <UsageSection workspaceId={workspace.workspaceId} />}
           {active === "settings" && <SettingsSection actor={actor} />}
         </main>
       </div>
@@ -176,7 +190,7 @@ function Overview({ actor }: { actor: AuthActor }) {
       </section>
       <section className="eo-panel eo-channel-health">
         <div className="eo-panel-heading"><div><span>Customer front</span><h2>Channel readiness</h2></div></div>
-        {[["Website", workspace.websiteProject?.status === "published" ? "Live" : "Preview ready", Globe2], ["AI website chat", "Ready", MessageSquareText], ["AI phone", workspace.integrations.elevenLabs === "ready" ? "Live provider" : "Demo mode", Headphones], ["Google Calendar", workspace.integrations.googleCalendar === "connected" ? "Connected" : "Not connected", CalendarCheck]].map(([label, state, Icon]) => <div className="eo-health-row" key={String(label)}><span><Icon /></span><div><strong>{String(label)}</strong><small>{String(state)}</small></div><i className={String(state).includes("Not") ? "off" : ""} /></div>)}
+        {[["Website", workspace.websiteProject?.status === "published" ? "Live" : workspace.websiteProject ? "Private preview" : "Not generated", Globe2], ["AI website chat", workspace.integrations.gemini === "ready" || workspace.integrations.elevenLabs === "ready" ? "Provider configured" : "Not configured", MessageSquareText], ["AI phone", workspace.integrations.elevenLabs === "ready" ? "Voice provider configured" : "Not configured", Headphones], ["Google Calendar", workspace.integrations.googleCalendar === "connected" ? "Connected" : "Not connected", CalendarCheck]].map(([label, state, Icon]) => <div className="eo-health-row" key={String(label)}><span><Icon /></span><div><strong>{String(label)}</strong><small>{String(state)}</small></div><i className={String(state).includes("Not") ? "off" : ""} /></div>)}
         {hasCapability(actor.role, "business:configure") && <Link className="eo-secondary-button" href="/dashboard/settings">Manage connections</Link>}
       </section>
     </div>
@@ -186,8 +200,11 @@ function Overview({ actor }: { actor: AuthActor }) {
   </>;
 }
 
-function InboxSection() {
-  const { workspace } = useEverOnnWorkspace();
+function InboxSection({ actor }: { actor: AuthActor }) {
+  const { workspace, upsertLead } = useEverOnnWorkspace();
+  const [filter, setFilter] = useState<"all" | "new" | "follow_up">("all");
+  const needsFollowUp = (lead: Lead) => lead.status !== "closed" && (lead.status === "follow_up" || lead.urgency === "high" || ["needs_details", "unavailable", "failed"].includes(lead.automation?.appointmentStatus || "") || lead.automation?.gmailStatus === "delivery_unknown");
+  const leads = workspace.leads.filter((lead) => filter === "all" || (filter === "new" ? lead.status === "new" : needsFollowUp(lead)));
   const contactDetails = (lead: Lead) => {
     const contact = workspace.contacts.find((item) => item.id === lead.contactId);
     return [lead.callerPhone, contact?.email].filter(Boolean).join(" · ") || "No contact details";
@@ -197,17 +214,37 @@ function InboxSection() {
     const appointment = lead.automation.appointmentStatus === "confirmed" ? "Calendar confirmed"
       : lead.automation.appointmentStatus === "unavailable" ? "Calendar busy — follow-up required"
         : lead.automation.appointmentStatus === "needs_details" ? "Appointment needs a complete date and time"
+          : lead.automation.appointmentStatus === "cancelled" ? "Appointment request cancelled"
           : lead.automation.appointmentStatus === "failed" ? "Calendar automation needs attention" : "";
     const email = lead.automation.gmailStatus === "sent" ? "Email notification sent"
-      : lead.automation.gmailStatus === "failed" ? "Email notification failed" : "";
+      : lead.automation.gmailStatus === "delivery_unknown" ? "Email delivery unverified — check Gmail Sent"
+        : lead.automation.gmailStatus === "pending" ? "Email submission reserved — check Gmail Sent before resending"
+          : lead.automation.gmailStatus === "failed" ? "Email notification failed" : "";
     return [appointment, email].filter(Boolean).join(" · ");
   };
-  return <><PageHeading eyebrow="Unified conversations" title="Every opportunity, in one inbox." copy="Phone calls, website chats, and forms become organized customer conversations with clear next steps." /><section className="eo-panel"><div className="eo-toolbar"><div className="eo-filter active">All <b>{workspace.leads.length}</b></div><div className="eo-filter">New <b>{workspace.leads.filter((item) => item.status === "new").length}</b></div><div className="eo-filter">Needs follow-up</div></div><div className="eo-table-wrap"><table className="eo-table"><thead><tr><th>Customer</th><th>Channel</th><th>Request</th><th>Urgency</th><th>Status</th><th>Received</th></tr></thead><tbody>{workspace.leads.map((lead) => <tr key={lead.id}><td><strong>{lead.callerName}</strong><small>{contactDetails(lead)}</small></td><td><span className="eo-inline-channel"><ChannelIcon channel={lead.source} /> {lead.source}</span></td><td>{lead.reason}{automationDetails(lead) && <small>{automationDetails(lead)}</small>}</td><td><StatusPill tone={lead.urgency === "high" ? "danger" : "neutral"}>{lead.urgency}</StatusPill></td><td><StatusPill tone={lead.status === "new" ? "warning" : "good"}>{lead.status.replace("_", " ")}</StatusPill></td><td>{formatDate(lead.createdAt)}</td></tr>)}</tbody></table></div></section></>;
+  return <><PageHeading eyebrow="Unified conversations" title="Every opportunity, in one inbox." copy="Phone calls, website chats, and forms become organized customer conversations with clear next steps." /><section className="eo-panel"><div className="eo-toolbar"><button className={`eo-filter ${filter === "all" ? "active" : ""}`} onClick={() => setFilter("all")}>All <b>{workspace.leads.length}</b></button><button className={`eo-filter ${filter === "new" ? "active" : ""}`} onClick={() => setFilter("new")}>New <b>{workspace.leads.filter((item) => item.status === "new").length}</b></button><button className={`eo-filter ${filter === "follow_up" ? "active" : ""}`} onClick={() => setFilter("follow_up")}>Needs follow-up <b>{workspace.leads.filter(needsFollowUp).length}</b></button></div><div className="eo-table-wrap"><table className="eo-table"><thead><tr><th>Customer</th><th>Channel</th><th>Request</th><th>Urgency</th><th>Status</th><th>Received</th></tr></thead><tbody>{leads.map((lead) => <tr key={lead.id}><td><strong>{lead.callerName}</strong><small>{contactDetails(lead)}</small></td><td><span className="eo-inline-channel"><ChannelIcon channel={lead.source} /> {lead.source}</span></td><td>{lead.reason}{automationDetails(lead) && <small>{automationDetails(lead)}</small>}</td><td><StatusPill tone={lead.urgency === "high" ? "danger" : "neutral"}>{lead.urgency}</StatusPill></td><td>{hasCapability(actor.role, "inbox:operate") ? <select aria-label={`Status for ${lead.callerName}`} value={lead.status} onChange={(event) => upsertLead({ ...lead, status: event.target.value as Lead["status"] })}><option value="new">New</option><option value="qualified">Qualified</option><option value="follow_up">Follow up</option><option value="closed">Closed</option></select> : <StatusPill tone={lead.status === "new" ? "warning" : "good"}>{lead.status.replace("_", " ")}</StatusPill>}</td><td>{formatDate(lead.createdAt)}</td></tr>)}</tbody></table></div></section></>;
 }
 
 function ContactsSection({ actor }: { actor: AuthActor }) {
-  const { workspace } = useEverOnnWorkspace();
-  return <><PageHeading eyebrow="Customer context" title="Contacts that carry the conversation forward." copy="Keep callback details and recent activity connected to the inquiry instead of scattered across tools." action={hasCapability(actor.role, "inbox:operate") ? <button className="eo-primary-button"><Plus /> Add contact</button> : undefined} /><section className="eo-panel"><div className="eo-contact-grid">{workspace.contacts.map((contact) => <article key={contact.id}><span>{contact.name.split(" ").map((part) => part[0]).join("").slice(0, 2)}</span><div><h3>{contact.name}</h3><p>{contact.phone}</p><small>{contact.email || "Email not provided"}</small></div><button aria-label={`Open ${contact.name}`}><ChevronRight /></button></article>)}</div></section></>;
+  const { workspace, upsertContact, syncStatus } = useEverOnnWorkspace();
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState("");
+  function addContact(event: FormEvent) {
+    event.preventDefault();
+    if (!phone.trim() && !email.trim()) { setError("Provide a phone number or email address."); return; }
+    if (phone.trim() && !/^\d{7,15}$/.test(phone.replace(/\D/g, ""))) { setError("Enter a phone number with 7 to 15 digits."); return; }
+    upsertContact({ id: `contact_${crypto.randomUUID()}`, workspaceId: workspace.workspaceId, name: name.trim(), phone: phone.trim(), email: email.trim().toLowerCase(), lastContactAt: new Date().toISOString() });
+    setAdding(false); setName(""); setPhone(""); setEmail(""); setError("");
+  }
+  return <>
+    <PageHeading eyebrow="Customer context" title="Contacts that carry the conversation forward." copy="Keep callback details and recent activity connected to the inquiry instead of scattered across tools." action={hasCapability(actor.role, "inbox:operate") ? <button className="eo-primary-button" onClick={() => setAdding(!adding)}><Plus /> {adding ? "Close contact form" : "Add contact"}</button> : undefined} />
+    {adding && <section className="eo-panel eo-empty"><form className="eo-form-grid" onSubmit={addContact}><label>Contact name<input required value={name} onChange={(event) => setName(event.target.value)} /></label><label>Contact phone<input type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} /></label><label>Contact email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>{error && <p role="alert">{error}</p>}<button className="eo-primary-button">Save contact</button></form></section>}
+    <small role="status">{syncStatus === "saving" ? "Saving workspace changes..." : syncStatus === "error" ? "Workspace changes could not be saved. Reload to review persisted data." : ""}</small>
+    <section className="eo-panel"><div className="eo-contact-grid">{workspace.contacts.map((contact) => <article key={contact.id}><span>{contact.name.split(" ").map((part) => part[0]).join("").slice(0, 2)}</span><div><h3>{contact.name}</h3><p>{contact.phone}</p><small>{contact.email || "Email not provided"}</small><details><summary>Contact details</summary><p>Last contact: {formatDate(contact.lastContactAt)}</p>{contact.phone && <a href={`tel:${contact.phone.replace(/[^+\d]/g, "")}`}>Call contact</a>}{contact.email && <p><a href={`mailto:${contact.email}`}>Email contact</a></p>}</details></div></article>)}</div>{workspace.contacts.length === 0 && <p className="eo-empty">No customer contacts yet.</p>}</section>
+  </>;
 }
 
 function CallsSection({ actor }: { actor: AuthActor }) {
@@ -216,9 +253,52 @@ function CallsSection({ actor }: { actor: AuthActor }) {
 }
 
 function AppointmentsSection({ actor }: { actor: AuthActor }) {
-  const { workspace } = useEverOnnWorkspace();
+  const { workspace, sampleAppointments } = useEverOnnWorkspace();
   const connected = workspace.integrations.googleCalendar === "connected";
-  return <><PageHeading eyebrow="Booking & requests" title="Keep appointment intent attached to the customer." copy="The AI records requested times and confirms a booking only when a connected calendar accepts it." action={hasCapability(actor.role, "business:configure") ? <Link className={connected ? "eo-secondary-button" : "eo-primary-button"} href="/dashboard/settings"><CalendarCheck /> {connected ? "Manage Google Calendar" : "Connect Google Calendar"}</Link> : undefined} /><div className="eo-notice"><ShieldCheck /><div><strong>No invented availability</strong><p>Without a verified calendar result, EverOnn saves an unconfirmed request and asks the team to follow up.</p></div></div><section className="eo-panel"><div className="eo-appointment-grid">{workspace.appointments.map((appointment) => <article key={appointment.id}><div className="eo-date-block"><strong>{new Date(`${appointment.date}T00:00:00`).toLocaleDateString("en", { day: "2-digit" })}</strong><span>{new Date(`${appointment.date}T00:00:00`).toLocaleDateString("en", { month: "short" })}</span></div><div><h3>{appointment.service}</h3><p>{appointment.contactName} · {appointment.contactPhone}</p><small>{appointment.time} · {workspace.profile.timeZone}</small></div><StatusPill tone={appointment.status === "confirmed" ? "good" : "warning"}>{appointment.status}</StatusPill></article>)}</div></section></>;
+  const canOperate = hasCapability(actor.role, "appointments:operate");
+  const appointments = workspace.appointments.filter((appointment) => !isSampleAppointment(appointment));
+  const samples = sampleAppointments;
+  const unscheduled = workspace.leads.filter((lead) => lead.status !== "closed" && !workspace.appointments.some((appointment) => appointment.leadId === lead.id));
+  return <>
+    <PageHeading eyebrow="Service requests & bookings" title="Real service requests, with the customer's preferred time." copy="Review the original request, collect the service, date, and time, and confirm only after Google Calendar accepts the booking." action={hasCapability(actor.role, "business:configure") ? <Link className={connected ? "eo-secondary-button" : "eo-primary-button"} href="/dashboard/settings"><CalendarCheck /> {connected ? "Manage Google Calendar" : "Connect Google Calendar"}</Link> : undefined} />
+    <div className="eo-notice"><ShieldCheck /><div><strong>Choose the customer&apos;s exact date and time</strong><p>Times use {workspace.profile.timeZone}. Busy or disconnected calendars leave the request unconfirmed and require follow-up.</p></div></div>
+    <section className="eo-panel"><div className="eo-appointment-grid">
+      {appointments.length === 0 && <p className="eo-empty">No appointments yet. Customer service requests appear below as they are captured.</p>}
+      {[...appointments].sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)).map((appointment) => {
+        const lead = workspace.leads.find((item) => item.id === appointment.leadId);
+        return <article key={appointment.id}>
+          <div className="eo-date-block"><strong>{appointment.date.slice(8, 10)}</strong><span>{new Date(`${appointment.date}T12:00:00Z`).toLocaleDateString("en", { month: "short", timeZone: "UTC" })}</span></div>
+          <div><h3>{appointment.service}</h3><p>{appointment.contactName} | {appointment.contactPhone || appointment.contactEmail || "No contact details"}</p><small>{appointment.date} at {appointment.time} | {appointment.timeZone || workspace.profile.timeZone}</small>
+            {(appointment.requestDetails || lead?.reason) && <p className="eo-request-details">{appointment.requestDetails || lead?.reason}</p>}
+            {lead?.automation?.message && <small>{lead.automation.message}</small>}
+            {appointment.timeZone && appointment.timeZone !== workspace.profile.timeZone && <p className="eo-request-details">This event was booked using {appointment.timeZone}. The business now uses {workspace.profile.timeZone}; review the actual Calendar event before changing its time.</p>}
+            {!workspace.profile.services.some((service) => service.active && service.name.toLowerCase() === appointment.service.toLowerCase()) && <p className="eo-request-details">This booked service is outside the current approved service list. Review the customer request and existing event.</p>}
+            {appointment.googleEventUrl && <a className="eo-text-link" href={appointment.googleEventUrl} target="_blank" rel="noopener noreferrer">Open Google Calendar event <ExternalLink size={14} /></a>}
+            {canOperate && lead && appointment.status === "requested" && <ScheduleRequest lead={lead} />}
+          </div><StatusPill tone={appointment.status === "confirmed" ? "good" : appointment.status === "cancelled" ? "neutral" : "warning"}>{appointment.status}</StatusPill>
+        </article>;
+      })}
+    </div></section>
+    {samples.length > 0 && <details className="eo-panel eo-empty"><summary>Sample appointment from the original demo</summary><p>This example is separate from customer service requests and has no Calendar booking.</p>{samples.map((sample) => <p key={sample.id}>{sample.contactName} · {sample.service} · {sample.date} at {sample.time}</p>)}</details>}
+    {unscheduled.length > 0 && <section className="eo-panel"><div className="eo-panel-heading"><div><span>Customer service requests</span><h2>Requests without a booking</h2></div></div><div className="eo-list">{unscheduled.map((lead) => <article key={lead.id}><span className={`eo-source eo-source-${lead.source}`}><ChannelIcon channel={lead.source} /></span><div><strong>{lead.callerName}</strong><p>{lead.reason}</p><small>{lead.callerPhone || workspace.contacts.find((contact) => contact.id === lead.contactId)?.email} | {lead.captureStatus === "collecting" ? "Collecting request details" : "No time allocated"}</small>{lead.automation?.message && <p>{lead.automation.message}</p>}{canOperate && <ScheduleRequest lead={lead} />}</div></article>)}</div></section>}
+  </>;
+}
+
+function ScheduleRequest({ lead }: { lead: Lead }) {
+  const { workspace, upsertLead, addAppointment } = useEverOnnWorkspace();
+  const [notice, setNotice] = useState("");
+  async function submit(appointmentRequest: NonNullable<Lead["appointmentRequest"]>) {
+    const response = await fetch("/api/integrations/google/automation", {
+      method: "POST", headers: { "Content-Type": "application/json", "x-everonn-workspace": workspace.workspaceId },
+      body: JSON.stringify({ leadId: lead.id, appointmentRequest }),
+    });
+    const data = await response.json() as { lead?: Lead; appointment?: import("@/features/everonn/types").Appointment; error?: string };
+    if (!response.ok || !data.lead) throw new Error(data.error || "The request could not be submitted.");
+    upsertLead(data.lead);
+    if (data.appointment) addAppointment(data.appointment);
+    setNotice(data.lead.automation?.message || "Request saved for follow-up.");
+  }
+  return <details className="eo-schedule-request"><summary>Set the customer&apos;s preferred service, date, and time</summary><AppointmentFields profile={workspace.profile} onSubmit={submit} />{notice && <p role="status">{notice}</p>}</details>;
 }
 
 function KnowledgeSection() {
@@ -246,6 +326,18 @@ function KnowledgeSection() {
   }
   const saveLabel = syncStatus === "loading" ? "Loading JSON" : syncStatus === "saving" ? "Saving JSON" : syncStatus === "error" ? "JSON save failed" : "Saved to JSON";
   const saveIcon = syncStatus === "loading" || syncStatus === "saving" ? <RefreshCw className="spin" /> : syncStatus === "error" ? <CircleAlert /> : <CheckCircle2 />;
+  const activeServices = profile.services.filter((item) => item.active).length;
+  const approvedAnswers = profile.knowledge.filter((item) => item.approved).length;
+  const readinessChecks = [
+    { label: "Core business facts", ready: Boolean(profile.businessName.trim() && profile.businessType.trim() && profile.description.trim()) },
+    { label: "Customer contact method", ready: Boolean(profile.phone.trim() || profile.email.trim()) },
+    { label: "Location and service area", ready: Boolean(profile.location.trim() && profile.serviceArea.trim()) },
+    { label: "Business hours", ready: Boolean(profile.hours.trim()) },
+    { label: `${activeServices} active service${activeServices === 1 ? "" : "s"}`, ready: activeServices > 0 },
+    { label: `${approvedAnswers} approved answer${approvedAnswers === 1 ? "" : "s"}`, ready: approvedAnswers > 0 },
+    { label: "Safety, pricing, and handoff rules", ready: Boolean(profile.emergencyRules.trim() && profile.pricingRules.trim() && profile.policies.trim()) },
+  ];
+  const readiness = Math.round(readinessChecks.filter((item) => item.ready).length / readinessChecks.length * 100);
   return <>
     <PageHeading eyebrow="Approved business knowledge" title="Enter business facts once. Use them everywhere." copy="Voice and chat use saved changes immediately. Regenerate the website after changing services or knowledge so its pages, copy, and images are rebuilt." action={<span className={`eo-save-state ${syncStatus === "error" ? "is-error" : ""}`}>{saveIcon} {saveLabel}</span>} />
     <div className="eo-notice"><Sparkles /><div><strong>One source of truth</strong><p>Everything below is saved to your JSON workspace. Voice, Gemini chat, and the next website generation use this profile—not the previous default business information.</p></div></div>
@@ -264,8 +356,8 @@ function KnowledgeSection() {
         </div>
       </section>
       <aside className="eo-panel eo-knowledge-score">
-        <span>Knowledge readiness</span><div className="eo-score-ring"><strong>{profile.verified ? "92" : "68"}</strong><small>%</small></div>
-        <ul><li><Check /> Core business facts</li><li><Check /> {profile.services.filter((item) => item.active).length} active services</li><li><Check /> Customer handoff rules</li><li className={profile.knowledge.filter((item) => item.approved).length >= 5 ? "" : "muted"}><Check /> Five or more approved answers</li></ul>
+        <span>Knowledge readiness</span><div className="eo-score-ring"><strong>{readiness}</strong><small>%</small></div>
+        <ul>{readinessChecks.map((item) => <li className={item.ready ? "" : "muted"} key={item.label}>{item.ready ? <Check /> : <CircleAlert />} {item.label}</li>)}</ul>
       </aside>
     </div>
     <section className="eo-panel eo-editor-list">
@@ -319,15 +411,41 @@ function AiAgentSection() {
   const [startingVoice, setStartingVoice] = useState(false);
   const [replying, setReplying] = useState(false);
   const [voiceError, setVoiceError] = useState("");
+  const captureQueue = useRef<ReturnType<typeof createLeadCaptureQueue> | null>(null);
+  const captureInput = useRef<LeadCaptureInput | null>(null);
   const lastCaptureSignature = useRef("");
+  const usageSession = useRef<{ id?: string; conversationId?: string }>({});
+  const [captureBusy, setCaptureBusy] = useState(false);
+  const [captureNotice, setCaptureNotice] = useState("");
+  async function finishCapture() {
+    if (!captureInput.current || !captureQueue.current) return null;
+    const data = await captureQueue.current({ ...captureInput.current, finalize: true });
+    if (data) {
+      upsertContact(data.contact);
+      upsertLead(data.lead);
+      setCaptureNotice(data.automationError || data.lead.automation?.message || "Customer request submitted to the team.");
+    }
+    return data;
+  }
   const liveVoice = useConversation({
-    onConnect() {
+    clientTools: {
+      capture_lead: async () => bookingToolResult(captureInput.current && captureQueue.current ? await captureQueue.current({ ...captureInput.current, finalize: false }) : null, "Continue collecting the customer's actual request and callback details. No appointment is confirmed."),
+      prepare_appointment: async () => bookingToolResult(await finishCapture()),
+      book_appointment: async () => bookingToolResult(await finishCapture()),
+      request_human_handoff: async () => bookingToolResult(await finishCapture(), "The callback request was saved; no live transfer was performed."),
+      check_availability: () => JSON.stringify({ available: null, message: "Collect the exact preferred date and time. The booking submission checks the calendar." }),
+    },
+    onConnect({ conversationId }) {
+      usageSession.current.conversationId = conversationId;
+      void notifyElevenLabsUsage(usageSession.current.id, conversationId);
       setIntegration("elevenLabs", "ready");
       setStartingVoice(false);
       setVoiceError("");
     },
     onDisconnect() {
+      void notifyElevenLabsUsage(usageSession.current.id, usageSession.current.conversationId);
       setStartingVoice(false);
+      void finishCapture().catch((cause) => setVoiceError((cause as Error).message));
     },
     onError(message) {
       setStartingVoice(false);
@@ -347,23 +465,18 @@ function AiAgentSection() {
   useEffect(() => {
     const details = extractCallerDetails(messages);
     if (!details.callerPhone && !details.callerEmail) return;
-    const phoneKey = details.callerPhone.replace(/\D/g, "").slice(-15);
-    const reason = messages.filter((item) => item.role === "caller").map((item) => item.text).join(" ").slice(0, 300);
-    const signature = `${phoneKey}|${details.callerEmail}|${details.callerName}|${details.urgency}|${reason}`;
-    if (signature === lastCaptureSignature.current) return;
+    const reason = messages.filter((item) => item.role === "caller").map((item) => item.text).join("\n");
+    captureQueue.current ||= createLeadCaptureQueue({ requestId: crypto.randomUUID(), workspaceId: workspace.workspaceId });
+    captureInput.current = { callerName: details.callerName || "AI caller", callerPhone: details.callerPhone, callerEmail: details.callerEmail, reason, urgency: details.urgency, source: "phone", finalize: false };
+    const signature = JSON.stringify(captureInput.current);
+    if (lastCaptureSignature.current === signature) return;
     lastCaptureSignature.current = signature;
-    void fetch("/api/site-assistant/lead", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-everonn-workspace": workspace.workspaceId },
-      body: JSON.stringify({ callerName: details.callerName || "AI caller", callerPhone: details.callerPhone, callerEmail: details.callerEmail, reason, urgency: details.urgency, source: "phone" }),
-    }).then(async (response) => {
-      const data = await response.json() as { lead?: Lead; contact?: Contact };
-      if (!response.ok || !data.lead || !data.contact) throw new Error("Lead capture failed.");
+    void captureQueue.current(captureInput.current).then((data) => {
+      if (!data) return;
       upsertContact(data.contact);
       upsertLead(data.lead);
-    }).catch(() => {
-      lastCaptureSignature.current = "";
-      setVoiceError("The conversation is active, but the contact details could not be saved. Please repeat the phone number or email.");
+    }).catch((cause) => {
+      setVoiceError(cause instanceof Error ? cause.message : "The customer details could not be saved. Please try again.");
     });
   }, [messages, upsertContact, upsertLead, workspace.workspaceId]);
 
@@ -378,6 +491,8 @@ function AiAgentSection() {
     event.preventDefault();
     const value = input.trim();
     if (!value || replying) return;
+    setSaved(false);
+    setCaptureNotice("");
     const caller: TranscriptMessage = { id: crypto.randomUUID(), role: "caller", text: value, at: new Date().toISOString() };
     if (live) {
       setMessages((current) => [...current, caller]);
@@ -418,9 +533,10 @@ function AiAgentSection() {
         headers: { "Content-Type": "application/json", "x-everonn-workspace": workspace.workspaceId },
         body: JSON.stringify({}),
       });
-      const data = await response.json() as { conversationToken?: string; dynamicVariables?: Record<string, string>; error?: string };
+      const data = await response.json() as { conversationToken?: string; dynamicVariables?: Record<string, string>; usageSessionId?: string; error?: string };
       if (!response.ok || !data.conversationToken) throw new Error(data.error || "Unable to create the ElevenLabs session.");
-      liveVoice.startSession({ conversationToken: data.conversationToken, connectionType: "webrtc", dynamicVariables: data.dynamicVariables });
+      usageSession.current = { id: data.usageSessionId };
+      await liveVoice.startSession({ conversationToken: data.conversationToken, connectionType: "webrtc", dynamicVariables: data.dynamicVariables, userId: data.usageSessionId });
     } catch (error) {
       setStartingVoice(false);
       setVoiceError(error instanceof Error ? error.message : "Microphone access or ElevenLabs setup failed.");
@@ -429,24 +545,38 @@ function AiAgentSection() {
 
   function resetConversation() {
     if (live) liveVoice.endSession();
+    if (captureInput.current) void finishCapture().catch((cause) => setVoiceError((cause as Error).message));
+    captureQueue.current = null;
+    captureInput.current = null;
     lastCaptureSignature.current = "";
     setMessages([{ id: crypto.randomUUID(), role: "assistant", text: profile.greeting, at: new Date().toISOString() }]);
     setSaved(false);
     setVoiceError("");
+    setCaptureNotice("");
   }
 
-  function saveCall() {
+  async function saveCall() {
+    if (captureBusy) return;
+    setCaptureBusy(true);
+    try {
+      await finishCapture();
     const details = extractCallerDetails(messages);
     const callerText = messages.filter((item) => item.role === "caller").map((item) => item.text).join(" ");
     const now = new Date().toISOString();
     const conversationId = `conv_${crypto.randomUUID()}`;
     addConversation({ id: conversationId, workspaceId: workspace.workspaceId, channel: "phone", status: details.urgency === "high" ? "handoff" : "completed", contactName: details.callerName, contactPhone: details.callerPhone, summary: callerText.slice(0, 300) || "Test call completed", urgency: details.urgency, messages, createdAt: now });
     setSaved(true);
+    } catch (cause) {
+      setVoiceError(cause instanceof Error ? cause.message : "The request could not be submitted. Try again.");
+    } finally {
+      setCaptureBusy(false);
+    }
   }
 
   return <>
     <PageHeading eyebrow="AI phone front desk" title="Test the receptionist against approved facts." copy="Start a live ElevenLabs voice conversation or a Gemini-powered text conversation. Both use the approved business profile and handoff rules." />
     {voiceError && <div className="eo-error"><CircleAlert /> {voiceError}</div>}
+    {captureNotice && <div className="eo-notice" role="status"><CheckCircle2 /> {captureNotice}</div>}
     <div className="eo-agent-grid">
       <section className="eo-panel eo-agent-profile">
         <div className={`eo-agent-avatar ${liveVoice.isSpeaking ? "is-speaking" : ""}`}><Bot /></div>
@@ -471,7 +601,7 @@ function AiAgentSection() {
         </header>
         <div className="eo-transcript">{messages.map((message) => <div className={message.role} key={message.id}><span>{message.role === "assistant" ? profile.assistantName : "Caller"}</span><p>{message.text}</p></div>)}</div>
         <form onSubmit={submit}><input value={input} onChange={(event) => setInput(event.target.value)} placeholder={live ? "Send a text message into the live call…" : "Ask Gemini using your approved business knowledge…"} disabled={replying} /><button aria-label="Send" disabled={replying || !input.trim()}>{replying ? <RefreshCw className="spin" /> : <Send />}</button></form>
-        <footer><small>{live ? "Live transcript is captured for the inbox summary." : "Gemini replies are grounded by the approved profile."}</small><button className="eo-primary-button" onClick={saveCall} disabled={saved || messages.length < 3}>{saved ? <><Check /> Saved to inbox</> : "Finish & save summary"}</button></footer>
+        <footer><small>{live ? "Live transcript is captured for the inbox summary." : "Gemini replies are grounded by the approved profile."}</small><button className="eo-primary-button" onClick={saveCall} disabled={saved || captureBusy || replying || messages.length < 3}>{saved ? <><Check /> Saved to inbox</> : captureBusy ? "Submitting request..." : "Finish & save summary"}</button></footer>
       </section>
     </div>
   </>;
@@ -559,14 +689,14 @@ function WebsiteProjectView({ project, advance }: { project: WebsiteProject; adv
 }
 
 function BillingSection() {
-  return <><PageHeading eyebrow="Plan & usage" title="Simple pricing tied to customer response." copy="The current workspace is using the Front Desk pilot configuration." /><section className="eo-panel eo-billing"><div><span>Current plan</span><h2>Front Desk</h2><p>Website, AI phone answering, AI website chat, lead inbox, and included usage.</p></div><strong><sup>$</sup>79<small>/month</small></strong><button className="eo-secondary-button">Manage plan</button></section><div className="eo-billing-grid"><section className="eo-panel"><span>This billing period</span><h2>Usage</h2><div className="eo-usage"><div><p>Voice minutes</p><span>38 / 120</span></div><i><b style={{ width: "32%" }} /></i><div><p>AI conversations</p><span>47 / 250</span></div><i><b style={{ width: "19%" }} /></i></div></section><section className="eo-panel"><span>Next invoice</span><h2>October 29, 2026</h2><p>Payment and provider billing adapters are ready to connect to the production billing system.</p></section></div></>;
+  return <><PageHeading eyebrow="Billing" title="Billing integration pending." copy="This workspace has no connected subscription billing provider." /><section className="eo-panel eo-empty"><h2>Subscription billing is unavailable</h2><p>Invoices, plan charges, and metered usage are not available in EverOnn yet. Costs for connected AI providers are managed in their own accounts.</p></section></>;
 }
 
 const roleDescriptions = { owner: "Full workspace, team, billing, and publishing control", manager: "Configure business channels and handle customers", agent: "Operate inbox, calls, contacts, and appointments", viewer: "Read-only workspace access" } as const;
 
 function SettingsSection({ actor }: { actor: AuthActor }) {
   const router = useRouter();
-  const { workspace, setIntegration, updateTeamMember, resetDemo } = useEverOnnWorkspace();
+  const { workspace, setIntegration, updateTeamMember } = useEverOnnWorkspace();
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [inviteRole, setInviteRole] = useState<TeamMember["role"]>("agent");
@@ -662,6 +792,5 @@ function SettingsSection({ actor }: { actor: AuthActor }) {
     </div>
     <section className="eo-panel eo-security-panel"><div className="eo-panel-heading"><div><span>Your account</span><h2>Change password</h2></div><StatusPill tone="good">{actor.role}</StatusPill></div><form className="eo-password-form" onSubmit={changePassword}><input type="password" value={passwords.current} onChange={(event) => setPasswords((current) => ({ ...current, current: event.target.value }))} placeholder="Current password" autoComplete="current-password" required /><input type="password" value={passwords.next} onChange={(event) => setPasswords((current) => ({ ...current, next: event.target.value }))} placeholder="New strong password" autoComplete="new-password" minLength={12} required /><input type="password" value={passwords.confirm} onChange={(event) => setPasswords((current) => ({ ...current, confirm: event.target.value }))} placeholder="Confirm new password" autoComplete="new-password" minLength={12} required /><button className="eo-primary-button"><ShieldCheck /> Change password</button></form>{passwordMessage && <p className="eo-form-message">{passwordMessage}</p>}</section>
     {canManageTeam && <section className="eo-panel eo-team-panel"><div className="eo-panel-heading"><div><span>Workspace team</span><h2>Members and secure invitations</h2></div></div><div className="eo-table-wrap"><table className="eo-table"><thead><tr><th>Member</th><th>Role</th><th>Status</th><th>Access</th></tr></thead><tbody>{workspace.team.map((member) => <tr key={member.id}><td><strong>{member.name}</strong><small>{member.email}</small></td><td><select value={member.role} disabled={member.id === actor.memberId} onChange={(event) => updateTeamMember({ ...member, role: event.target.value as TeamMember["role"] })}><option value="owner" disabled={member.status === "invited"}>Owner</option><option value="manager">Manager</option><option value="agent">Agent</option><option value="viewer">Viewer</option></select></td><td><StatusPill tone={member.status === "active" ? "good" : "warning"}>{member.status}</StatusPill></td><td>{roleDescriptions[member.role]}</td></tr>)}</tbody></table></div><form className="eo-invite-form" onSubmit={invite}><input required value={inviteName} onChange={(event) => setInviteName(event.target.value)} placeholder="Teammate name" /><input type="email" required value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="teammate@business.com" /><select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as TeamMember["role"])}><option value="manager">Manager</option><option value="agent">Agent</option><option value="viewer">Viewer</option></select><button className="eo-primary-button"><Users /> Create invite</button></form>{inviteError && <div className="eo-error"><CircleAlert /> {inviteError}</div>}{inviteUrl && <div className="eo-invite-link"><strong>Secure invitation link</strong><input readOnly value={inviteUrl} onFocus={(event) => event.currentTarget.select()} /><small>Send this link privately. It expires in seven days and can be used once.</small></div>}</section>}
-    {canManageTeam && <section className="eo-danger-zone"><div><strong>Reset JSON workspace</strong><p>Restore the original demo business, conversations, and configuration in the JSON file.</p></div><button onClick={resetDemo}>Reset demo</button></section>}
   </>;
 }

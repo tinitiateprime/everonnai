@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createDemoWorkspace } from "./demo-data";
+import { customerWorkspaceView, isSampleAppointment } from "./sample-records";
 import type {
   Appointment,
   BusinessProfile,
@@ -19,7 +20,9 @@ export type WorkspaceSyncStatus = "loading" | "saving" | "saved" | "error";
 
 type WorkspaceContextValue = {
   workspace: EverOnnWorkspace;
+  sampleAppointments: Appointment[];
   hydrated: boolean;
+  persistenceReady: boolean;
   syncStatus: WorkspaceSyncStatus;
   updateProfile: (patch: Partial<BusinessProfile>) => void;
   setWebsiteProject: (project: WebsiteProject | null) => void;
@@ -126,8 +129,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   }, [hydrated, persistenceReady, router, syncStatus]);
 
   const value = useMemo<WorkspaceContextValue>(() => ({
-    workspace,
+    workspace: customerWorkspaceView(workspace),
+    sampleAppointments: workspace.appointments.filter(isSampleAppointment),
     hydrated,
+    persistenceReady,
     syncStatus,
     updateProfile(patch) {
       setWorkspace((current) => ({
@@ -180,7 +185,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       }));
     },
     addAppointment(appointment) {
-      setWorkspace((current) => ({ ...current, appointments: [appointment, ...current.appointments] }));
+      setWorkspace((current) => ({ ...current, appointments: [appointment, ...current.appointments.filter((item) => item.id !== appointment.id)] }));
     },
     setIntegration(key, next) {
       setWorkspace((current) => ({ ...current, integrations: { ...current.integrations, [key]: next } }));
@@ -210,7 +215,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         };
       });
     },
-  }), [hydrated, syncStatus, workspace]);
+  }), [hydrated, persistenceReady, syncStatus, workspace]);
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }

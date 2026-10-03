@@ -1,6 +1,6 @@
 # Provider usage deployment and recovery
 
-The Supabase usage schema is applied and Amplify deployment 12 is live (2026-10-04). The deployed worker successfully reads/writes Supabase, and webhook HMAC verification is configured. Supabase Cron has been configured but remains disabled until the new single-use job signature code is deployed. ElevenLabs webhook attachment needs `convai_write` permission on the API key. Google billing export is not connected. The application's separate business/auth stores still need durable hosting persistence. A checked-in template, environment name, or passing mock test is not evidence that a scheduler or provider delivery is active.
+Usage metering and signed jobs were activated in Amplify deployment 13 (2026-10-04). The deployed worker successfully reads/writes Supabase, webhook HMAC verification is configured, and Supabase Cron is enabled. A real scheduled invocation returned HTTP 200; the deployed nonce check accepted one concurrent request and rejected its replay with 409. ElevenLabs webhook attachment still needs `convai_write` permission on the API key. Google billing export is not connected. The application's separate business/auth stores still need durable hosting persistence. A scheduled run is evidence of worker execution, not a claim that a real provider post-call webhook has arrived.
 
 ## Local operation
 
@@ -47,6 +47,10 @@ On 2026-10-03, the supplied PostgreSQL connection was verified against the same 
 
 The production origin is `https://main.d2b3qy6tcyxz0p.amplifyapp.com`, with Amplify app ID `d2b3qy6tcyxz0p`, branch `main`, region `us-east-1`. Use that origin without a trailing slash in production; keep localhost for local development. On 2026-10-04 the actual Amplify environment was corrected and deployments 11/12 succeeded. Deployment 12 includes the provider-generated webhook secret and a rotated scheduler secret. Live checks passed: `/api/usage` and unauthenticated jobs return 401, an authorized job returns 200 with no reconciliation error, unsigned webhooks return 401, and a signed non-usage probe returns 200 without creating usage or a verified-delivery receipt.
 
+Deployment 13 published GitHub commit `8e516969b2bce71be247e951c1936ec26e6af333`, adding the single-use signed jobs. Its build/deployment succeeded and live concurrent verification passed (200/409). Supabase job 1 was enabled after verifying that deployed endpoint; its first automatic request at 2026-10-03 20:04 UTC (2026-10-04 01:34 IST) completed with HTTP 200 and no timeout/transport error.
+
+Three consecutive scheduled requests at 20:04, 20:05 and 20:06 UTC returned HTTP 200. The stored heartbeat finished at 20:06:05 UTC with no error. Real checks also verified denied browser schema access, denied service-role execution of the scheduler function, and absence of the permanent credential in the Cron command and its queued requests.
+
 The current scheduler uses Supabase Cron, described below. [infrastructure/usage-amplify.json](infrastructure/usage-amplify.json) remains an optional AWS alternative. Do not enable both. The supplied IAM user can update/redeploy Amplify but AWS denied `cloudformation:CreateUploadBucket` while uploading the template, and IAM inspection also lacked permission. No stack, Lambda or EventBridge schedule was created. Console sign-in worked; CLI sign-in's 400 error was not needed to deploy the application.
 
 The stack creates an EventBridge schedule, a Lambda that calls the authenticated usage job once a minute, and its log group/role. The Lambda has only log permissions and no provider or database keys. Its secret matches the app's `USAGE_CRON_SECRET`. Storage is the existing Supabase project; no usage bucket or SSR storage role is created.
@@ -89,6 +93,8 @@ npm run usage:scheduler -- --disable
 ```
 
 `--apply` configures exactly one job, `everonn_usage_worker_v1`, paused until `--enable` verifies a signed request against the deployed app. Reconfiguration pauses it again. `--install-extensions` explicitly enables missing `pg_cron`/`pg_net`; it refuses occupied unrecognized extension schemas. Both extensions were previously absent and were installed on 2026-10-04. Existing Vault and pgcrypto extensions are prerequisites and are not replaced. Never disable/drop these shared extensions to stop this one job.
+
+The production job is currently enabled and has been observed invoking the Amplify endpoint successfully. These commands are for status/recovery; do not run `--apply` routinely, because reconfiguration pauses the active job. After changing its credential, update Amplify and redeploy, reconfigure Vault with the new matching value, then verify/enable again.
 
 The scheduler migration adds only `everonn_usage.worker_requests` and an invoker function, denied to browser/service API roles. It also adds one encrypted, namespaced Vault configuration and one Cron job. Cron/HTTP extension objects live in their provider-managed `cron`/`net` schemas; scheduling therefore adds metadata outside the usage schema while leaving existing application tables and Data API exposure unchanged. Setup checks collisions, browser access and before/after metadata for `public`/`agentic_that`, other jobs and other Vault entries inside a transaction. The real configuration check confirmed existing metadata remained unchanged.
 
@@ -181,6 +187,8 @@ npm run smoke:booking
 ```
 
 Smoke tests use disposable stores and mocked provider responses. Usage smoke checks real API routes, unattended job authentication/recovery, signed duplicate webhooks, exact fixture values, tenant isolation, numeric charts and mobile layout. Set `SMOKE_USAGE_ARTIFACTS=keep` to retain screenshots. Port 3000 is the default and must match the build's public app origin.
+
+On 2026-10-04 all 84 tests, lint, production build and usage smoke passed for the signed-scheduler change. Smoke verification includes simultaneous signed requests: one succeeds and the other returns 409. PostgreSQL-engine tests use real pgcrypto signatures with the Node verifier and retain unrelated fixture jobs, Vault entries, application data and privileges. Live deployed verification is recorded separately above.
 
 The read-only real ElevenLabs check confirmed a completed configured-agent record with integer credits, float USD cost and integer duration. Its absent historical userId demonstrates why old history needs explicit attribution. The isolated tests create no real voice session, provider configuration, AWS resource or Google billing connection. Separately authorized production setup changed Amplify variables/deployments, created the ElevenLabs webhook and configured Supabase Cron as described above; no paid AI response or voice call was generated for setup.
 

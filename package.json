@@ -16,6 +16,7 @@
     "usage:db:migrate": "node --import tsx scripts/migrate-usage-database.ts",
     "usage:db:check": "node --import tsx scripts/check-usage-database.ts",
     "usage:db:import-local": "node --import tsx scripts/migrate-local-usage.ts",
+    "usage:scheduler": "node --import tsx scripts/configure-usage-scheduler.ts",
     "check": "npm run lint && npm test && npm run build"
   },
   "dependencies": {

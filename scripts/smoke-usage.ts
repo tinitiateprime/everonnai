@@ -9,6 +9,7 @@ import { chromium } from "playwright-core";
 import { createDemoWorkspace } from "../features/everonn/demo-data";
 import { createWebsiteProject, generateDeterministicWebsiteSpec } from "../features/website-studio/generator";
 import type { UsageSummary } from "../features/usage/summary";
+import { usageJobSignedHeaders } from "../features/usage/job-auth";
 
 // Runs against a production build with disposable stores and mocked server-side
 // providers. No real provider calls, bills, business records, or secrets are used.
@@ -108,6 +109,9 @@ globalThis.fetch = async (input, init) => {
     const job = await context.request.post(`${baseURL}/api/usage/jobs`, { headers: { authorization: `Bearer ${environment.USAGE_CRON_SECRET}` } });
     assert.equal(job.status(), 200, await job.text());
     assert.equal((await job.json()).checked, 3, "recovery must run without the Usage page or connection callbacks");
+    const signedJobHeaders = usageJobSignedHeaders(environment.USAGE_CRON_SECRET!);
+    const signedJobs = await Promise.all([0, 1].map(() => context.request.post(`${baseURL}/api/usage/jobs`, { headers: signedJobHeaders, data: {} })));
+    assert.deepEqual(signedJobs.map(response => response.status()).sort(), [200, 409], "a signed scheduler nonce must be consumed atomically across simultaneous requests");
     const webhook = JSON.stringify({ type: "post_call_transcription", data: { agent_id: "fixture-agent", conversation_id: `conv_${voiceTicket.slice(-16)}`, user_id: voiceTicket, metadata: { start_time_unix_secs: Math.floor(Date.now() / 1000), call_duration_secs: 60, cost: 250, cost_fiat: 0.05 } } });
     assert.equal((await context.request.post(`${baseURL}/api/usage/elevenlabs/webhook`, { data: webhook, headers: { "elevenlabs-signature": "invalid" } })).status(), 401);
     const timestamp = Math.floor(Date.now() / 1000);

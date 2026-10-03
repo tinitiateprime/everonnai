@@ -4,6 +4,7 @@ import { mkdir, readFile, readdir, rename, writeFile, unlink } from "node:fs/pro
 import path from "node:path";
 import type { GeminiBillingReport, UsageContext, UsageEvent, UsageSession, UsageWorkerState } from "@/features/usage/types";
 import { usageSupabase, usageSupabaseConfigured } from "./usage-supabase";
+import { usageJobNoncePattern } from "@/features/usage/job-auth";
 
 const root = () => path.resolve(/*turbopackIgnore: true*/ process.env.EVERONN_USAGE_DIR || path.join(path.dirname(process.env.EVERONN_DATA_FILE || path.join(process.cwd(), "data", "everonn.json")), "usage"));
 const blobs = () => process.env.NETLIFY === "true" || Boolean(process.env.NETLIFY_BLOBS_CONTEXT);
@@ -182,6 +183,19 @@ export async function removeUsageOutbox(event: UsageEvent) {
 }
 export const readUsageWorkerState = () => read<UsageWorkerState>("system/worker");
 export const saveUsageWorkerState = (state: UsageWorkerState) => write("system/worker", state);
+
+export async function claimUsageJobNonce(nonce: string) {
+  if (!usageJobNoncePattern.test(nonce)) throw new Error("Invalid usage job identity.");
+  assertStorage();
+  const key = `system/job-auth/${nonce}`;
+  const value = { acceptedAt: new Date().toISOString() };
+  if (usageSupabaseConfigured()) return usageSupabase().write(key, value, { new: true });
+  if (blobs()) return (await store().setJSON(key, value, { onlyIfNew: true })).modified;
+  const file = path.join(root(), `${key}.json`);
+  await mkdir(path.dirname(file), { recursive: true });
+  try { await writeFile(file, `${JSON.stringify(value)}\n`, { flag: "wx" }); return true; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") return false; throw error; }
+}
 export const usageStorageKind = () => usageSupabaseConfigured() ? "supabase" : blobs() ? "netlify-blobs" : "local-files";
 export const readGeminiBilling = (workspaceId: string) => read<GeminiBillingReport>(`billing/${scope(workspaceId)}/gemini`);
 export const saveGeminiBilling = (report: GeminiBillingReport) => upsert(`billing/${scope(report.workspaceId)}/gemini`, report, (previous, next) => previous && previous.refreshedAt > next.refreshedAt ? previous : next);

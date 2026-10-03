@@ -14,7 +14,7 @@ For request-by-request diagrams, read [PROJECT_DATA_FLOW.md](PROJECT_DATA_FLOW.m
 
 EverOnn is a Next.js application with JSON-backed workspace and authentication stores, Gemini for generation and text reasoning, Pexels for website images, ElevenLabs for live voice/chat, and Google OAuth for Calendar booking and Gmail notifications.
 
-There is currently no database.
+Provider usage is persisted in the existing Supabase project's dedicated `everonn_usage` PostgreSQL schema. Business and authentication persistence remains JSON/Netlify Blobs.
 
 ## 2. Main technology
 
@@ -25,7 +25,7 @@ There is currently no database.
 | Icons | Lucide React |
 | Main business data | Primary workspace in `data/everonn.json`; self-registered customer workspaces in ignored `data/workspaces.json`; Netlify Blobs on Netlify |
 | Authentication | Scrypt password hashes and hashed opaque sessions in ignored `data/auth.json`; Netlify Blobs on Netlify |
-| Provider usage | Workspace-scoped request and conversation records in ignored `data/usage/`; dedicated `everonn-usage` Netlify Blob store on Netlify |
+| Provider usage | Dedicated `everonn_usage` schema in the existing Supabase project when configured, Netlify Blobs, or ignored local `data/usage/` for a writable single server |
 | Provider credentials | Environment variables and encrypted `data/provider-connections.json` locally |
 | AI text and structured generation | Google Gemini REST API |
 | Website photography | Pexels REST API |
@@ -35,28 +35,46 @@ There is currently no database.
 
 ### Provider usage meter
 
-The owner/manager dashboard includes `/dashboard/usage`. It displays actual workspace usage by provider and feature, period selection in the business timezone, daily activity, pending/failed requests, and the latest 50 records. Gemini generation, website chat, dashboard call-assistant text, and appointment extraction each pass a server-resolved metering context. Demo marketing chat, browser speech synthesis, and local booking clarification make no provider calls and do not generate usage.
+The owner/manager `/dashboard/usage` shows workspace-scoped Gemini requests/tokens, ElevenLabs voice/chat conversations, reported credits/USD, and estimated Gemini token costs. All chargeable attempts, including retries and output rejected by QA, remain in the ledger. Provider metadata reads do not count as feature consumption. Local clarification, marketing demos, and browser speech synthesis make no provider calls.
 
 | Module / route | Responsibility |
 | --- | --- |
-| `features/usage/types.ts` | Feature labels, request/conversation metrics, and opaque server session records |
-| `features/usage/gemini.ts` | Durable record before each `generateContent` attempt; record HTTP/network outcomes and returned `usageMetadata` before downstream QA |
-| `features/usage/elevenlabs.ts` | Meter credential setup; retrieve provider conversations, verify agent and opaque user identity, paginate discovery, and reconcile duration/credits/USD/speech analytics |
-| `lib/usage-store.ts` | Per-workspace individual records; atomic local writes; stable IDs and conditional Netlify Blob writes preserve final charges across repeated/stale updates |
-| `features/usage/summary.ts` | Business-timezone reporting periods, nullable provider totals, feature/provider breakdowns, and daily buckets |
-| `features/usage/client.ts` | Best-effort connect/disconnect notifications containing only opaque session and conversation identities |
-| `components/dashboard/usage-section.tsx` | Usage cards, feature breakdown, metric-selectable daily chart, recent activity, and explicit missing/pending states |
-| `GET /api/usage` | `usage:view` RBAC; authenticated actor's workspace only; uncached summaries without tracking credentials |
-| `POST /api/usage/sync` | Same-origin, owner/manager reconciliation of up to ten pending sessions per refresh |
-| `POST /api/usage/elevenlabs/session` | Opaque ticket valid for 24 hours; provider-verified callback reconciliation; no client-supplied charges |
+| `features/usage/gemini.ts` | Durable pending record before the provider request; actual `usageMetadata`, HTTP result, and optional provider response ID |
+| `features/usage/delivery.ts` | Three write attempts, normalized response journal, replay, and a process-memory fallback during complete storage outages |
+| `features/usage/elevenlabs.ts` | Credential setup metrics; verified agent/user identity; paginated discovery; adaptive retries with no 24-hour cutoff |
+| `features/usage/webhook.ts` | Raw-body HMAC/timestamp verification, workspace attribution, transcript stripping, durable acceptance, and duplicate-safe delivery |
+| `features/usage/worker.ts`, `instrumentation.ts` | Bounded unattended reconciliation, journal recovery, billing synchronization, heartbeat; Node timers only for continuously running servers |
+| `features/usage/pricing.ts` | Dated standard text rates, cached input and thinking, long-context tiers; USD estimates kept separate from provider bills |
+| `features/usage/billing.ts` | Optional read-only BigQuery billing export for an explicitly assigned, workspace-dedicated Google project; currencies/credits retained |
+| `features/usage/import*.ts`, `scripts/import-usage.ts` | Administrative, explicitly attributed history import; dry run by default; stable provider IDs repair existing requests without double-counting |
+| `lib/usage-store.ts`, `lib/usage-supabase.ts`, `lib/usage-postgres.ts` | Event/session/journal/billing namespaces and provider claims; private PostgreSQL or optional Data API; UUID conditional updates across instances |
+| `lib/supabase-ca.ts` | Public provider CA for database certificate/hostname verification; contains no application credential |
+| `supabase/migrations/202610030001_everonn_usage.sql`, `scripts/*usage-database.ts` | Isolated schema migration, security checks, connection/probe verification; no AgenticThat migrations or runtime DDL |
+| `scripts/migrate-local-usage.ts` | Dry-run/explicit-apply transfer of existing local usage; ownership guards and deduplication retained |
+| `features/usage/summary.ts`, `features/usage/health.ts` | Timezone totals, missing-metric counts, chart coverage, background heartbeat, verified webhook receipt, queued-write counts |
+| `GET /api/usage` | Actor-resolved workspace and `usage:view` RBAC; no opaque tracking identities or provider credentials in responses |
+| `POST /api/usage/sync` | Same-origin owner/manager refresh, including journal recovery and up to ten eligible sessions |
+| `POST /api/usage/elevenlabs/session` | Opaque callback ticket; actual provider identity must match; no client-supplied charges |
+| `POST /api/usage/elevenlabs/webhook` | Signed provider callback; 2 MB streaming body limit; failures return retryable 503 |
+| `POST /api/usage/jobs` | Server bearer credential of at least 32 characters; all-workspace bounded worker without browser sessions |
+| `infrastructure/usage-amplify.json`, `amplify.yml` | EventBridge/Lambda schedule and logs only; server environment preparation includes Supabase credentials |
+| `scripts/write-amplify-env.mjs` | Validates live origin/storage settings before deployment, preserves literal-dollar secrets in SSR configuration, and forces durable storage/external scheduling |
 
-Gemini totals come directly from `usageMetadata` (input, output, thinking, cached, tool prompt, and provider total); cached input is not added twice. Retries and output rejected by QA remain recorded. Missing fields are null; an unknown charge is not reported as zero. ElevenLabs setup requests and actual conversations are separate records. Conversation duration, `metadata.cost` credits, `metadata.cost_fiat` USD, and TTS/ASR analytics are read from the provider; live text elapsed time is excluded from voice-minute totals. Agent-managed LLM activity remains within the ElevenLabs conversation charge and is not fabricated as a separate direct Gemini call.
+Gemini totals are measured; cached input is already part of prompt tokens. Gemini USD is a labelled estimate based on verified model rates, including thinking output and cache discounts. The default `list-price` mode does not infer that an API key is paid. Unknown models or incomplete counts remain unpriced. Actual Google charges require a separate billing export connection; they are reported project totals, not invented feature-level invoice amounts. Agent-managed LLM charges remain in ElevenLabs provider conversation billing.
 
-The browser SDK receives a unique server-issued `userId` for each issued session. Provider discovery can recover lost callbacks, and a stable provider conversation ID updates one charge record. The page polls recorded usage every 15 seconds and synchronizes ElevenLabs every minute while visible; callbacks and the Refresh usage button also sync. No scheduler or webhook is configured. Provider metadata reads are monitoring calls, excluded from feature request counters. Earlier calls and external-account usage are not reconstructed; Gemini prices, provider-account quotas, and subscription billing remain outside this meter. ElevenLabs read permissions are required for reconciliation.
+ElevenLabs setup requests are separate from conversations. The SDK receives an opaque server-issued `userId`. Normal callbacks, discovery and signed webhooks verify agent/user attribution. Unused tickets continue discovery with slower intervals after one hour/day; errors back off up to one hour. Complete conversation charges are stable-ID updates. Administrative legacy imports can assign selected provider-verified conversations without a former userId; this exception is restricted to server-created import sessions and never accepted from browser metrics. Global provider claims prevent assigning a response/conversation to multiple workspaces or features.
 
-Local files live in `usage/` beside `EVERONN_DATA_FILE` (default `data/usage/`), configurable with `EVERONN_USAGE_DIR`. Netlify uses `everonn-usage` Blobs automatically. Records contain no prompts, transcripts, customer details, API keys, or session credentials from the provider. Business JSON and browser autosaves cannot overwrite usage. Local file persistence requires one writable application instance.
+Historical imports are explicitly marked so they cannot invent zero-usage days before live tracking. Delayed webhooks retain newer direct provider metrics and request an authoritative recheck, even for a previously complete ticket.
 
-Verification lives in `tests/usage.test.ts` and `scripts/smoke-usage.ts`. Run `npm run smoke:usage` after building to exercise API metering, lost-callback recovery, tenant isolation, and desktop/mobile reporting with disposable stores and mocked providers. Set `SMOKE_USAGE_ARTIFACTS=keep` to retain preview screenshots. The test uses port 3000 by default; its browser origin must match the build's `NEXT_PUBLIC_APP_URL` when using `SMOKE_USAGE_PORT`.
+The UI includes a numeric chart scale and recorded values, untracked-day shading, missing-metric indicators, separately labelled estimated/reported costs, and synchronization health. The page still refreshes every 15 seconds and offers manual synchronization; background jobs and webhooks allow recovery without an open page.
+
+Storage priority is configured Supabase, Netlify Blobs, then ignored local JSON under `EVERONN_USAGE_DIR` or `usage/` beside the primary data file. Supabase uses only `everonn_usage`, with indexed JSONB records, generated workspace/type columns, keyset pagination and atomic UUID compare-and-set updates. `SUPABASE_DB_URL` selects private PostgreSQL access with TLS, prepared statements/pipelining disabled and a two-connection instance limit. Otherwise server-only URL/secret credentials use the explicit usage schema over the Data API. Other schema names/public keys are rejected; partial/broken configuration never silently falls back. Local files require one writable process. AWS/serverless runtimes and `USAGE_REQUIRE_DURABLE_STORAGE=true` reject unsafe file fallback before a chargeable call. Records contain no prompts, transcripts, provider keys, or customer details. Database/billing credentials remain in server environment variables.
+
+Implemented deployment support is distinct from an active connection: apply the dedicated Supabase migration, configure the Amplify environment, deploy the scheduler and enable it. Private PostgreSQL access leaves the existing project's Data API settings alone; the optional Data API path requires adding the usage schema without removing existing exposed entries. The schema grants no access to browser roles, enables RLS and uses an invoker write function. An unrecognized occupied usage schema stops the migration transaction. ElevenLabs needs the live HTTPS webhook URL and its provider-generated secret. BigQuery needs its own export/read credentials. A local build does not configure these external connections. Existing workspace/auth/Google-connection persistence outside Netlify is still file-backed; Supabase support here is for the usage ledger.
+
+On 2026-10-03 the dedicated schema was applied to the supplied existing Supabase project. A certificate-verified connection, permission checks and real create/read/conditional-update/delete probe passed. The existing project object/privilege metadata fingerprint stayed unchanged; one local usage event was transferred. The local worker subsequently completed successfully against Supabase. Amplify redeployment and its external scheduler/webhook/billing configuration remain separate from this verified database connection.
+
+Verification is in `tests/usage.test.ts`, `tests/usage-reliability.test.ts`, `tests/usage-supabase.test.ts`, `tests/amplify-env.test.ts` and `scripts/smoke-usage.ts`. Tests cover recovery, signed/duplicate webhooks, old-session discovery, imports, billing scope/currencies and mobile chart behavior. Real PostgreSQL-engine tests verify the SQL migration, unchanged sample `public`/`agentic_that` objects/data/privileges, browser-role denial, conditional writes and pagination. Mocked HTTP tests verify Data API profiles, row caps and sanitized errors. Amplify tests verify rejection of missing storage and round-trip secret preservation through Next.js environment loading without build-role credentials. Smoke stores override all Supabase variables to protect the shared project. Browser/provider responses are mocked; a separate read-only check confirmed real ElevenLabs metric fields and read permissions. See [USAGE_OPERATIONS.md](USAGE_OPERATIONS.md) for deployment and provider limits.
 
 Path alias: `@/something` means a file starting at the project root, configured in `tsconfig.json`.
 
@@ -243,7 +261,12 @@ Secrets never belong in workspace JSON files.
 | `GEMINI_WEBSITE_MODEL(S)` | Ordered Gemini model selection |
 | `GEMINI_WEBSITE_TIMEOUT_MS`, `GEMINI_WEBSITE_RETRY_DELAY_MS` | Gemini timeout/retry behavior |
 | `PEXELS_API_KEY` | Generated-site images |
-| `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID` | Live voice and live generated-site chat |
+| `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID`, `ELEVENLABS_WEBHOOK_SECRET` | Live voice/chat, conversation reads, signed post-call delivery |
+| `SUPABASE_DB_URL`, `SUPABASE_USAGE_SCHEMA` | Private PostgreSQL usage persistence in the fixed `everonn_usage` schema |
+| `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (legacy `SUPABASE_SERVICE_ROLE_KEY`) | Optional server-only Data API fallback when no DB connection string is configured |
+| `USAGE_CRON_SECRET`, `USAGE_BACKGROUND_MODE`, `USAGE_REQUIRE_DURABLE_STORAGE` | Authenticated scheduled worker, local timer mode, storage enforcement |
+| `GEMINI_BILLING_TIER` | Explicit paid/free or labelled list-price estimate |
+| `GEMINI_BILLING_*` export variables | Dedicated project/table/service/workspace/timezone and read-only service-account credential for actual Google charges |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | Google OAuth |
 | `CREDENTIAL_ENCRYPTION_KEY` | Token encryption and signed OAuth state; minimum 32 characters |
 | `PHONE_FRONT_DESK_FOLLOW_UP_ENABLED` | Gmail owner notification switch; defaults to enabled |

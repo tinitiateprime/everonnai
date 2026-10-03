@@ -104,6 +104,10 @@
 .eo-usage-metrics strong { font-size: clamp(1.2rem, 2.4vw, 2rem); overflow-wrap: anywhere; }
 .eo-usage-metrics p { padding-top: 6px; }
 .eo-usage-provider-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+.eo-usage-billing { margin-bottom: 20px; }
+.eo-usage-billing > div:last-child { padding: 16px 22px; }
+.eo-usage-billing strong { font-size: 1.5rem; }
+.eo-usage-billing p { font-size: .73rem; color: var(--eo-muted); line-height: 1.6; margin: 6px 0; }
 .eo-usage-provider .eo-panel-heading > svg { width: 27px; height: 27px; color: #0798a0; }
 .eo-usage-elevenlabs .eo-panel-heading > svg { color: #5673b7; }
 .eo-usage-provider dl { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 24px; margin: 0; padding: 22px; }
@@ -111,10 +115,21 @@
 .eo-usage-provider dd { margin: 4px 0 0; font-weight: 800; font-size: 1.2rem; overflow-wrap: anywhere; }
 .eo-usage-provider > p { margin: 0; padding: 0 22px 20px; color: var(--eo-muted); font-size: .7rem; line-height: 1.6; }
 .eo-usage-chart-panel { margin-bottom: 20px; }
-.eo-usage-chart { display: flex; gap: 5px; min-height: 200px; padding: 24px 22px 16px; }
+.eo-usage-chart-layout { display: flex; gap: 12px; padding: 24px 22px 16px; }
+.eo-usage-chart { display: flex; flex: 1; gap: 5px; min-width: 0; min-height: 180px; background: repeating-linear-gradient(to top, transparent 0, transparent 36.5px, #e7eef3 37px, transparent 37.5px) left top / 100% 150px no-repeat; }
+.eo-usage-chart-axis { height: 150px; display: flex; flex-direction: column; justify-content: space-between; min-width: 36px; text-align: right; color: var(--eo-muted); font-size: .66rem; font-variant-numeric: tabular-nums; }
+.eo-usage-chart-axis span { transform: translateY(-50%); }
+.eo-usage-chart-caption, .eo-usage-chart-legend { padding: 0 22px; color: var(--eo-muted); font-size: .7rem; line-height: 1.6; }
+.eo-usage-chart-caption { margin: 16px 0 0; }
+.eo-usage-chart-legend { margin: 0 0 18px; }
+.eo-usage-health { padding: 15px 18px; margin-bottom: 20px; border: 1px solid var(--eo-line); border-radius: 12px; background: #fff; }
+.eo-usage-health p, .eo-usage-health small { color: var(--eo-muted); font-size: .73rem; line-height: 1.6; }
+.eo-usage-health p { margin: 8px 0 2px; }
 .eo-usage-chart-day { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 8px; outline-offset: 3px; }
-.eo-usage-chart-day > div { height: 150px; display: flex; align-items: end; border-bottom: 1px solid var(--eo-line); background: linear-gradient(to top, #f4f8fb, #fff); }
-.eo-usage-chart-day i { display: block; width: 100%; border-radius: 5px 5px 0 0; background: linear-gradient(to top, #079d98, #41d4cf); }
+.eo-usage-chart-day > div { position: relative; height: 150px; display: flex; align-items: end; justify-content: center; border-bottom: 1px solid var(--eo-line); }
+.eo-usage-chart-day i { display: block; width: 75%; max-width: 86px; border-radius: 5px 5px 0 0; background: linear-gradient(to top, #079d98, #41d4cf); }
+.eo-usage-chart-day b { position: absolute; padding-bottom: 5px; font-size: .65rem; font-weight: 750; color: #385169; font-variant-numeric: tabular-nums; }
+.eo-usage-chart-unknown > div { background: repeating-linear-gradient(135deg, transparent, transparent 7px, #eef2f6 7px, #eef2f6 8px); }
 .eo-usage-chart-day:hover i, .eo-usage-chart-day:focus i { background: linear-gradient(to top, #496fcd, #7b9bef); }
 .eo-usage-chart-day small { min-height: 14px; color: var(--eo-muted); font-size: .59rem; text-align: center; white-space: nowrap; }
 .eo-usage-table td { font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -130,7 +145,10 @@
   .eo-usage-controls { flex-direction: column; align-items: start; }
   .eo-usage-controls p { text-align: left; }
   .eo-provider-usage .eo-panel-heading { align-items: start; flex-wrap: wrap; gap: 12px; }
-  .eo-usage-chart { gap: 3px; padding-right: 14px; padding-left: 14px; }
+  .eo-usage-chart-layout { overflow-x: auto; padding-right: 14px; padding-left: 14px; }
+  .eo-usage-chart { gap: 3px; }
+  .eo-usage-chart-day { min-width: 22px; }
+  .eo-usage-chart-day b { font-size: .53rem; }
   .eo-usage-chart-day small { font-size: .5rem; }
 }
 @media (prefers-reduced-motion: reduce) { .eo-usage-spinning { animation: none; } }

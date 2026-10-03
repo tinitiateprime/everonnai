@@ -38,8 +38,11 @@ export function usageTotals(events: UsageEvent[]) {
     toolTokens: sumReported(gemini, (event) => event.tokens?.tools),
     totalTokens: sumReported(gemini, (event) => event.tokens?.total),
     unreportedTokenRequests: gemini.filter((event) => event.tokens?.total == null).length,
+    estimatedGeminiCostUsd: sumReported(gemini, (event) => event.estimatedCost?.usd),
+    unpricedGeminiRequests: gemini.filter((event) => event.estimatedCost?.usd == null).length,
     durationSeconds: sumReported(conversations, (event) => event.voice?.durationSeconds),
     voiceSeconds: sumReported(voice, (event) => event.voice?.durationSeconds),
+    unreportedVoiceConversations: voice.filter((event) => event.voice?.durationSeconds == null).length,
     credits: sumReported(conversations, (event) => event.voice?.credits),
     costUsd: sumReported(conversations, (event) => event.voice?.costUsd),
     unreportedCreditConversations: conversations.filter((event) => event.voice?.credits == null).length,
@@ -54,7 +57,7 @@ export type UsageSummary = ReturnType<typeof summarizeUsage>;
 
 function recentRecords(events: UsageEvent[]) {
   return [...events].sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 50)
-    .map(({ id, provider, feature, kind, operation, model, status, startedAt, recordedAt, latencyMs, httpStatus, tokens, voice }) => ({ id, provider, feature, kind, operation, model, status, startedAt, recordedAt, latencyMs, httpStatus, tokens, voice }));
+    .map(({ id, provider, feature, kind, operation, model, status, startedAt, recordedAt, latencyMs, httpStatus, tokens, voice, estimatedCost, source, historical }) => ({ id, provider, feature, kind, operation, model, status, startedAt, recordedAt, latencyMs, httpStatus, tokens, voice, estimatedCost, source, historical }));
 }
 
 export function summarizeUsage(events: UsageEvent[], sessions: UsageSession[], options: { workspaceId: string; timeZone: string; period: UsagePeriod; now?: Date }) {
@@ -79,9 +82,13 @@ export function summarizeUsage(events: UsageEvent[], sessions: UsageSession[], o
     byDate.set(key, rows);
   }
   const chartStart = startDate || moveDay(today, -29);
-  const daily: Array<{ date: string; totals: UsageTotals }> = [];
+  const trackingStartedAt = [...events.filter((event) => !event.historical).map((event) => event.startedAt), ...sessions.filter((session) => !session.trustedUnattributedImport).map((session) => session.createdAt)].sort()[0] || null;
+  const earliestRecordAt = [...events.map((event) => event.startedAt), ...sessions.map((session) => session.createdAt)].sort()[0] || null;
+  const trackingDate = trackingStartedAt ? dateKey(new Date(trackingStartedAt)) : null;
+  const daily: Array<{ date: string; totals: UsageTotals; coverage: "untracked" | "partial" | "recorded" | "imported" }> = [];
   for (let day = chartStart; day <= today; day = moveDay(day, 1)) {
-    daily.push({ date: day, totals: usageTotals(byDate.get(day) || []) });
+    const rows = byDate.get(day) || [];
+    daily.push({ date: day, totals: usageTotals(rows), coverage: !trackingDate || day < trackingDate ? rows.length ? "imported" : "untracked" : day === trackingDate ? "partial" : "recorded" });
   }
   const providers = (["gemini", "elevenlabs"] as const).map((provider) => ({ provider, totals: usageTotals(filtered.filter((event) => event.provider === provider)) }));
   const features = (Object.keys(usageFeatures) as UsageFeature[]).map((feature) => ({
@@ -90,9 +97,10 @@ export function summarizeUsage(events: UsageEvent[], sessions: UsageSession[], o
   }));
   return {
     period: options.period, timeZone: options.timeZone, startDate, endDate: today, refreshedAt: now.toISOString(),
-    trackingStartedAt: [...events.map((event) => event.startedAt), ...sessions.map((session) => session.createdAt)].sort()[0] || null,
+    trackingStartedAt, earliestRecordAt,
     totals: usageTotals(filtered), providers, features, daily,
-    pendingSessions: sessions.filter((session) => inRange(session.createdAt) && !session.complete && (session.conversationIds.length > 0 || now.getTime() - Date.parse(session.createdAt) < 24 * 60 * 60_000)).length,
+    pendingSessions: sessions.filter((session) => inRange(session.createdAt) && (!session.complete || Boolean(session.recheckRequestedAt && session.recheckRequestedAt > (session.providerCheckedAt || "")))).length,
+    sessionSyncErrors: sessions.filter((session) => !session.complete && session.syncError).length,
     recent: recentRecords(filtered),
     recentByProvider: { gemini: recentRecords(filtered.filter((event) => event.provider === "gemini")), elevenlabs: recentRecords(filtered.filter((event) => event.provider === "elevenlabs")) },
     totalRecords: filtered.length,

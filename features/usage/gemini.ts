@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { recordUsage } from "@/lib/usage-store";
+import { finalizeUsage, retryUsageWrite } from "./delivery";
+import { estimateGeminiCost } from "./pricing";
 import { nonNegativeNumber, type GeminiTokens, type UsageContext, type UsageEvent } from "./types";
 
 export function geminiTokens(payload: unknown): GeminiTokens | null {
@@ -33,7 +35,7 @@ export async function meteredGeminiRequest(
   const save = options.record || recordUsage;
   // Establish a durable record before making a chargeable call. A later write
   // failure leaves a pending record and must never trigger another AI request.
-  if (event) await save(event);
+  if (event) await retryUsageWrite(() => save(event));
   let response: Response | undefined;
   let payload: unknown = null;
   try {
@@ -42,12 +44,15 @@ export async function meteredGeminiRequest(
     return { response, payload };
   } finally {
     if (event) {
-      await save({
+      const tokens = geminiTokens(payload);
+      const responseId = (payload as { responseId?: unknown } | null)?.responseId;
+      await finalizeUsage({
         ...event,
         status: response?.ok ? "success" : "failed", startedAt, recordedAt: new Date().toISOString(),
         latencyMs: Math.round(performance.now() - started), httpStatus: response?.status ?? null,
-        tokens: geminiTokens(payload), voice: null,
-      }).catch(() => console.error("Could not finalize a Gemini usage record; the pending record was retained."));
+        tokens, voice: null, source: "response", estimatedCost: estimateGeminiCost(model, tokens, { timestamp: startedAt }),
+        ...(typeof responseId === "string" ? { providerResponseId: responseId.slice(0, 200) } : {}),
+      }, options.record ? { record: options.record } : {});
     }
   }
 }

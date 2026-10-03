@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     const input = JSON.parse(raw) as { sessionId?: string; conversationId?: string };
     if (typeof input.sessionId !== "string" || typeof input.conversationId !== "string" || !/^[a-zA-Z0-9_-]{1,160}$/.test(input.conversationId)) return NextResponse.json({ error: "Invalid usage session request." }, { status: 400 });
     const session = await readUsageSession(input.sessionId);
-    if (!session || Date.now() - Date.parse(session.createdAt) > 24 * 60 * 60_000) return NextResponse.json({ error: "Usage session unavailable." }, { status: 404 });
+    if (!session) return NextResponse.json({ error: "Usage session unavailable." }, { status: 404 });
     // The opaque credential authorizes only reconciliation with a provider
     // conversation whose userId AND agentId match. No client metrics accepted.
     await syncUsageSession(session, input.conversationId);

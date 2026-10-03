@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { createServer } from "node:net";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -62,9 +63,12 @@ globalThis.fetch = async (input, init) => {
     EVERONN_DATA_FILE: dataFile, EVERONN_WORKSPACES_FILE: path.join(directory, "workspaces.json"),
     EVERONN_AUTH_FILE: path.join(directory, "auth.json"), EVERONN_CONNECTIONS_FILE: path.join(directory, "connections.json"),
     EVERONN_USAGE_DIR: path.join(directory, "usage"), EVERONN_AUTH_SETUP_TOKEN: "usage-smoke-setup",
-    GEMINI_API_KEY: "fixture-key", GOOGLE_API_KEY: "", GEMINI_WEBSITE_MODELS: "fixture-model", GEMINI_WEBSITE_MODEL: "", GEMINI_MODEL: "", GEMINI_WEBSITE_RETRY_DELAY_MS: "0",
+    GEMINI_API_KEY: "fixture-key", GOOGLE_API_KEY: "", GEMINI_WEBSITE_MODELS: "gemini-3.8-flash", GEMINI_WEBSITE_MODEL: "", GEMINI_MODEL: "", GEMINI_WEBSITE_RETRY_DELAY_MS: "0", GEMINI_BILLING_TIER: "list-price",
     ELEVENLABS_API_KEY: "fixture-key", ELEVENLABS_AGENT_ID: "fixture-agent", PEXELS_API_KEY: "",
     GOOGLE_OAUTH_CLIENT_ID: "", GOOGLE_OAUTH_CLIENT_SECRET: "", NETLIFY: "false", NETLIFY_BLOBS_CONTEXT: "", SITE_NAME: "",
+    SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_URL: "", SUPABASE_SECRET_KEY: "", SUPABASE_SERVICE_ROLE_KEY: "", SUPABASE_USAGE_SCHEMA: "", SUPABASE_DB_URL: "",
+    USAGE_REQUIRE_DURABLE_STORAGE: "false", AWS_LAMBDA_FUNCTION_NAME: "", USAGE_BACKGROUND_MODE: "external",
+    USAGE_CRON_SECRET: "usage-smoke-scheduler-secret-at-least-32", ELEVENLABS_WEBHOOK_SECRET: "usage-smoke-webhook-secret", GEMINI_BILLING_SERVICE_ACCOUNT_BASE64: "",
   };
   const server = spawn(process.execPath, ["--require", preload, "node_modules/next/dist/bin/next", "start", "--port", String(port)], { env: environment, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
   let logs = "";
@@ -95,16 +99,27 @@ globalThis.fetch = async (input, init) => {
     assert.equal(siteChat.status(), 200, await siteChat.text());
     const voice = await context.request.post(`${baseURL}/api/voice/session`, { headers, data: {} });
     assert.equal(voice.status(), 200, await voice.text());
+    const voiceTicket = (await voice.json()).usageSessionId as string;
     for (const mode of ["voice", "chat"]) {
       const session = await context.request.post(`${baseURL}/api/site-assistant/session`, { data: { previewToken: project.privateToken, mode } });
       assert.equal(session.status(), 200, await session.text());
     }
+    assert.equal((await context.request.post(`${baseURL}/api/usage/jobs`)).status(), 401, "scheduled jobs must require the server credential");
+    const job = await context.request.post(`${baseURL}/api/usage/jobs`, { headers: { authorization: `Bearer ${environment.USAGE_CRON_SECRET}` } });
+    assert.equal(job.status(), 200, await job.text());
+    assert.equal((await job.json()).checked, 3, "recovery must run without the Usage page or connection callbacks");
+    const webhook = JSON.stringify({ type: "post_call_transcription", data: { agent_id: "fixture-agent", conversation_id: `conv_${voiceTicket.slice(-16)}`, user_id: voiceTicket, metadata: { start_time_unix_secs: Math.floor(Date.now() / 1000), call_duration_secs: 60, cost: 250, cost_fiat: 0.05 } } });
+    assert.equal((await context.request.post(`${baseURL}/api/usage/elevenlabs/webhook`, { data: webhook, headers: { "elevenlabs-signature": "invalid" } })).status(), 401);
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = `t=${timestamp},v0=${createHmac("sha256", environment.ELEVENLABS_WEBHOOK_SECRET!).update(`${timestamp}.${webhook}`).digest("hex")}`;
+    for (let attempt = 0; attempt < 2; attempt++) assert.equal((await context.request.post(`${baseURL}/api/usage/elevenlabs/webhook`, { data: webhook, headers: { "elevenlabs-signature": signature } })).status(), 200);
     const sync = await context.request.post(`${baseURL}/api/usage/sync`);
     assert.equal(sync.status(), 200, await sync.text());
     assert.equal((await sync.json()).error, null);
     const summary = (await (await context.request.get(`${baseURL}/api/usage?period=all`)).json()).summary as UsageSummary;
     assert.equal(summary.totals.requests, 9, "three Gemini calls and six credential setup requests");
     assert.equal(summary.totals.totalTokens, 570);
+    assert.ok(Math.abs(summary.totals.estimatedGeminiCostUsd! - 0.001017) < 1e-12, "pricing must include cached input and thinking exactly once");
     assert.equal(summary.totals.conversations, 3);
     assert.equal(summary.totals.voiceSeconds, 120, "text chat time must not appear as voice time");
     assert.equal(summary.totals.credits, 750);
@@ -126,6 +141,7 @@ globalThis.fetch = async (input, init) => {
     await page.goto(`${baseURL}/dashboard/usage`);
     await page.getByRole("heading", { name: "See where your AI usage goes." }).waitFor();
     await page.locator(".eo-usage-metrics").getByText("570", { exact: true }).waitFor();
+    await page.locator(".eo-usage-gemini").getByText("$0.001017", { exact: true }).waitFor();
     assert.equal(await page.locator(".eo-usage-table").first().locator("tbody tr").count(), 7);
     await page.getByLabel("Filter provider").selectOption("elevenlabs");
     assert.equal(await page.locator(".eo-usage-table").first().locator("tbody tr").count(), 3);
@@ -133,6 +149,10 @@ globalThis.fetch = async (input, init) => {
     await page.getByLabel("Reporting period").selectOption("7d");
     await page.locator(".eo-usage-metrics").getByText("750", { exact: true }).waitFor();
     assert.equal(await page.locator(".eo-usage-chart-day").count(), 7);
+    assert.equal(await page.locator(".eo-usage-chart-axis span").count(), 5);
+    assert.ok(await page.locator(".eo-usage-chart-unknown").count(), "days before recording must be marked as untracked");
+    await page.locator(".eo-usage-chart-day b").getByText("750", { exact: true }).waitFor();
+    await page.getByText("Background reconciliation is running.", { exact: false }).waitFor();
     await page.getByRole("button", { name: "Refresh usage" }).click();
     await page.getByRole("button", { name: "Refresh usage" }).waitFor();
     assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
@@ -145,7 +165,7 @@ globalThis.fetch = async (input, init) => {
     await page.screenshot({ path: path.join(directory, "usage-mobile.png"), fullPage: true });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "mobile document must not overflow horizontally");
     assert.equal(JSON.parse(await readFile(dataFile, "utf8")).profile.businessName, workspace.profile.businessName);
-    console.log("Usage smoke passed: provider calls, exact fixture tokens/credits/costs, lost-callback recovery, tenant isolation, desktop/mobile UI and filters.");
+    console.log("Usage smoke passed: exact fixture metrics, unattended jobs, signed duplicate webhooks, tenant isolation, numeric chart, desktop/mobile UI and filters.");
     if (process.env.SMOKE_USAGE_ARTIFACTS === "keep") console.log(`Preview screenshots: ${directory}`);
   } catch (error) {
     console.error(logs);

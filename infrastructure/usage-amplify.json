@@ -1,0 +1,151 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "EverOnn unattended usage reconciliation for Amplify with Supabase storage",
+  "Parameters": {
+    "ApplicationUrl": {
+      "Type": "String",
+      "AllowedPattern": "https://[A-Za-z0-9.-]+(:[0-9]+)?",
+      "Description": "Exact live HTTPS origin, without a trailing slash"
+    },
+    "UsageCronSecret": {
+      "Type": "String",
+      "NoEcho": true,
+      "MinLength": 32,
+      "MaxLength": 256,
+      "AllowedPattern": "[A-Za-z0-9_-]+",
+      "Description": "Set the same value as USAGE_CRON_SECRET on Amplify"
+    },
+    "ScheduleState": {
+      "Type": "String",
+      "Default": "DISABLED",
+      "AllowedValues": [
+        "DISABLED",
+        "ENABLED"
+      ],
+      "Description": "Enable after the application environment and endpoint are deployed"
+    }
+  },
+  "Resources": {
+    "SchedulerRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "SchedulerLogs",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "SchedulerLogGroup",
+                      "Arn"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "SchedulerLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/aws/lambda/${AWS::StackName}-usage-sync"
+        },
+        "RetentionInDays": 30
+      }
+    },
+    "UsageScheduler": {
+      "Type": "AWS::Lambda::Function",
+      "DependsOn": "SchedulerLogGroup",
+      "Properties": {
+        "FunctionName": {
+          "Fn::Sub": "${AWS::StackName}-usage-sync"
+        },
+        "Runtime": "nodejs22.x",
+        "Handler": "index.handler",
+        "Timeout": 75,
+        "MemorySize": 128,
+        "Role": {
+          "Fn::GetAtt": [
+            "SchedulerRole",
+            "Arn"
+          ]
+        },
+        "Environment": {
+          "Variables": {
+            "APP_URL": {
+              "Ref": "ApplicationUrl"
+            },
+            "JOB_SECRET": {
+              "Ref": "UsageCronSecret"
+            }
+          }
+        },
+        "Code": {
+          "ZipFile": "exports.handler = async () => { const response = await fetch(process.env.APP_URL + '/api/usage/jobs', { method: 'POST', headers: { authorization: 'Bearer ' + process.env.JOB_SECRET }, signal: AbortSignal.timeout(65000) }); if (!response.ok) throw new Error('Usage job HTTP ' + response.status); console.log('Usage reconciliation succeeded'); };"
+        }
+      }
+    },
+    "UsageSchedule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "ScheduleExpression": "rate(1 minute)",
+        "State": {
+          "Ref": "ScheduleState"
+        },
+        "Targets": [
+          {
+            "Id": "UsageSync",
+            "Arn": {
+              "Fn::GetAtt": [
+                "UsageScheduler",
+                "Arn"
+              ]
+            },
+            "RetryPolicy": {
+              "MaximumEventAgeInSeconds": 60,
+              "MaximumRetryAttempts": 1
+            }
+          }
+        ]
+      }
+    },
+    "SchedulePermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Ref": "UsageScheduler"
+        },
+        "Principal": "events.amazonaws.com",
+        "SourceArn": {
+          "Fn::GetAtt": [
+            "UsageSchedule",
+            "Arn"
+          ]
+        }
+      }
+    }
+  }
+}

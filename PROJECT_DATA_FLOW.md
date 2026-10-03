@@ -29,30 +29,49 @@ Provider keys and Google tokens are separate from business data. They never ente
 
 ```mermaid
 flowchart LR
-  Feature[Website / chat / appointment extraction] --> Begin[Durable pending usage record]
-  Begin --> Gemini[Gemini generateContent attempt]
-  Gemini --> Metadata[HTTP result and usageMetadata]
-  Metadata --> Ledger[(Workspace usage records)]
-  Setup[ElevenLabs session route] --> Credentials[Meter token and signed-URL requests]
-  Credentials --> Ticket[Server-issued opaque session identity]
-  Ticket --> SDK[ElevenLabs SDK userId]
-  SDK --> Callback[Connection / disconnect callback]
-  Callback --> Verify[Verify provider agentId and userId]
-  Refresh[Usage page refresh] --> Discover[List provider conversations by opaque userId]
+  Feature[Website / chat / appointment extraction] --> Begin[Durable pending record]
+  Begin --> Gemini[Gemini generateContent]
+  Gemini --> Journal[Normalized response journal]
+  Journal --> Ledger[(Workspace usage ledger)]
+  Setup[ElevenLabs session setup] --> Ticket[Opaque server identity]
+  Ticket --> SDK[SDK userId]
+  SDK --> Callback[Browser callback]
+  Callback --> Verify[Provider identity verification]
+  Webhook[Signed post-call webhook] --> HMAC[Raw-body HMAC and timestamp]
+  HMAC --> Verify
+  Schedule[AWS schedule / local worker] --> Worker[Retry worker and heartbeat]
+  Worker --> Journal
+  Worker --> Discover[Paginated conversation discovery]
   Discover --> Verify
-  Verify --> Conversation[Stable conversation ID / duration / credits / USD / speech analytics]
-  Conversation --> Ledger
-  Ledger --> Summary[Authenticated workspace-only usage summary]
+  Verify --> Charges[Stable conversation duration / credits / USD]
+  Charges --> Ledger
+  Export[Dedicated Google billing export] --> Worker
+  Worker --> Billing[(Reported project billing)]
+  Import[Verified administrative history] --> Ledger
+  Ledger --> Summary[Actor-scoped totals / coverage / estimates]
+  Billing --> Summary
   Summary --> Dashboard[Dashboard Usage]
 ```
 
-Production Gemini entry points pass a trusted workspace/feature context to `meteredGeminiRequest`. The durable record is established before a provider request; a final-write failure retains the pending record and does not initiate an extra chargeable retry. Usage is captured before application parsing and grounding QA, so discarded output is still measured. Provider HTTP success describes the external request, not whether the resulting website passed QA. Missing metrics are preserved as null. Provider totals include thinking tokens; cached input remains a subset of input.
+Gemini entry points supply a trusted workspace/feature to `meteredGeminiRequest`. Initial writes retry three times and must succeed before a chargeable request. Final normalized responses are journaled, then written to the ledger; write retries never repeat the provider call. The worker replays durable journals, while a process-memory fallback handles responses when both journal and ledger writes fail. Losing that process during a complete storage outage can still lose token metadata; the initial pending record exposes the gap. Captured metadata precedes application QA. Provider totals are preserved; cached input is not added twice.
 
-Both ElevenLabs session routes meter credential requests and create an opaque session record with the server-resolved workspace, feature, and agent. The browser sends only session/conversation identities to the usage callback API. The server verifies the provider's userId and agentId before obtaining any metrics; the client cannot supply duration, tokens, credits, or costs. Sync can discover conversations after lost browser callbacks, pages through provider results, and updates one record per provider conversation. Stable IDs and conditional Blob writes prevent repeat syncs or stale pending snapshots from erasing final charges. Metrics remain separate from session credential request counts. Provider metadata/monitoring reads are not counted as feature API consumption.
+The two ElevenLabs session APIs meter credentials and issue opaque workspace/feature/agent tickets. SDK callbacks supply only identities; metadata is retrieved from ElevenLabs. Discovery handles pagination and delayed/missed callbacks, including tickets older than 24 hours. Eligibility/next-check timestamps make recent sessions fast and unused/old sessions slower; provider failures back off. Global provider claims, stable event IDs and conditional PostgreSQL/Blob writes prevent cross-workspace assignment and duplicate charges. New conversation IDs reopen a previously complete ticket, and stale snapshots cannot remove newer conversations or reported billing fields. Text-chat duration is excluded from voice minutes.
 
-`GET /api/usage?period=today|7d|30d|month|all` resolves the workspace from the authenticated actor and requires `usage:view` (owners/managers). It returns provider and feature totals, daily buckets in the business timezone, and the latest 50 records; opaque tracking identities are excluded. `POST /api/usage/sync` performs a bounded batch of ten pending sessions per refresh. Public `POST /api/usage/elevenlabs/session` accepts a valid opaque ticket for up to 24 hours and performs provider-verified reconciliation, without exposing workspace summaries. The Usage page polls records every 15 seconds and syncs every minute while visible; connection/disconnect notifications also reconcile. There is no background scheduler or configured webhook. Unconnected issued tickets stop automatic discovery after 24 hours; associated conversations remain eligible while charges are pending.
+`POST /api/usage/elevenlabs/webhook` validates the exact raw UTF-8 body with HMAC-SHA256 and a 30-minute past/one-minute future tolerance, caps streamed payloads at 2 MB, and verifies session/agent scope. Only normalized metrics are journaled; transcripts are discarded. It acknowledges only after durable acceptance and returns 503 on delivery failures so the provider can retry. A workspace receipt records actual verified webhook delivery. Replays update the same conversation ID. A delayed webhook cannot overwrite a newer direct provider read; a persisted recheck timestamp makes even a complete ticket eligible for authoritative verification. Provider-read start timestamps prevent a concurrently arriving webhook from being cleared by an older in-flight check.
 
-Persistence uses individual JSON records under `events/{workspaceHash}` and `sessions/{workspaceHash}` in `usage/` beside the primary data file (or `EVERONN_USAGE_DIR`). On Netlify, records use the dedicated `everonn-usage` Blob store with strong reads and conditional updates. Local updates are atomic and serialized in one application process; local files require a single writable instance. Business autosaves cannot overwrite usage. All-records totals read the durable ledger; only the displayed recent list is limited to 50 and the all-time chart to the last 30 days. No history is fabricated, no shared provider-account balance is exposed, and Gemini monetary billing remains external.
+`POST /api/usage/jobs` requires a server-only bearer secret of at least 32 characters. It runs a bounded all-workspace worker with journal recovery, eligible conversation checks and optional hourly BigQuery billing sync, then writes a heartbeat. Amplify uses the supplied EventBridge/Lambda template; long-lived local Node processes can enable `USAGE_BACKGROUND_MODE=in-process` or run `npm run usage:worker`. Instrumentation never starts timers in detected serverless runtimes. `POST /api/usage/sync` remains same-origin and actor-scoped. The page's polling/manual sync is additional recovery, not the unattended scheduler.
+
+`GET /api/usage` requires `usage:view`, resolves workspace from the actor, and includes provider/feature totals, numeric daily buckets, coverage/missing-state flags, synchronization health, up to 50 recent rows, estimates and optional billed project totals. Dates for feature usage follow the business timezone; billing export uses its explicitly configured timezone and native currencies. Response projections exclude workspace/session identities and Google credentials.
+
+Gemini standard text estimates are stored with their pricing basis/date; cached input and thinking output are priced once, and long-context/date tiers are applied only for supported models. Default list-price estimates do not assert the account's actual paid/free status. A configured workspace-dedicated Google project can import actual net charges after billing credits from BigQuery. Project/service/timezone query values are bound parameters, and table names are validated. Reported billing stays separate from feature estimates and may include project usage outside EverOnn. The export covers available rows in the last 365 days, refreshes hourly, and can lag provider activity; stale successful values are retained on errors.
+
+Administrative history import validates a complete manifest before saving. Gemini exports use stable response IDs and optionally match an existing request ID to repair missing counts. Legacy ElevenLabs IDs are fetched from the provider and deliberately assigned by an administrator; identified conversations must already match their own workspace ticket. Re-running imports updates stable records. Imported-only dates remain explicitly partial and do not create zero-usage days between an old imported record and the start of live tracking. No history or missing metrics are fabricated.
+
+Records live under event/session/outbox/claim/billing namespaces in the fixed Supabase `everonn_usage` schema, dedicated Netlify Blobs, or ignored local JSON. The PostgreSQL ledger keeps JSONB payloads, indexed key/workspace/type columns and UUID revisions. Atomic conditional writes reject stale instance updates; keyset listing preserves all pages. `SUPABASE_DB_URL` uses private pooled PostgreSQL with TLS, no prepared statements/pipelining and at most two connections per instance. When absent, server URL/secret variables use the explicit usage Data API profile. Partial configuration fails rather than saving to another backend. Only the dedicated migration runs; it does not modify AgenticThat's `public`/`agentic_that` data or migrate that repository. Private access requires no new exposed API schema. Optional Data API access requires an additive exposed-schema entry; browser roles receive no schema/table/function access. An unknown occupied usage schema aborts setup. Serverless deployments require durable storage before any paid provider call. The schema, Amplify environment/schedule, public webhook and optional BigQuery connection need production activation. See [USAGE_OPERATIONS.md](USAGE_OPERATIONS.md). Supabase usage persistence does not replace the existing file-backed authentication/business/Google-connection stores on Amplify. Local usage import retains source files and applies the existing merge/deduplication rules; worker health begins anew on the target backend.
+
+The supplied Supabase project now contains the applied usage schema (verified 2026-10-03). Local real-database checks verified TLS certificate/hostname, server access and browser-role denial, stale-write protection, probe cleanup and a successful worker run. One original local usage event was transferred. The existing app's object/permission metadata fingerprint stayed unchanged. Deployment/environment changes on Amplify and external provider/scheduler connections still need activation.
+
+During Amplify builds, `scripts/write-amplify-env.mjs` requires the live HTTPS origin and Supabase settings, then passes only whitelisted application variables into ignored `.env.production` for SSR. Literal dollars are escaped so Next.js expansion preserves secrets. The writer rejects another schema name, excludes build-role AWS credentials and forces durable storage/external scheduling. Missing deployment settings fail the build before publication; setting variables alone does not create the scheduled job or provider webhook.
 
 ### Browser startup
 
@@ -278,7 +297,7 @@ sequenceDiagram
 5. Transcript events update the dashboard.
 6. Phone/email detection triggers the same lead endpoint and Google automation.
 
-There is no server webhook ingest in this version; transcript capture depends on the active browser session/client tools.
+Transcript capture for the business inbox depends on the active browser session/client tools. The signed server webhook added for usage receives post-call data but discards transcripts and persists only normalized usage metrics; it does not populate the inbox.
 
 ## 10. Google OAuth flow
 

@@ -40,6 +40,10 @@ export type UsageEvent = UsageContext & {
   httpStatus: number | null;
   tokens: GeminiTokens | null;
   voice: ElevenLabsMetrics | null;
+  estimatedCost?: { usd: number | null; basis: string; ratesDate: string | null };
+  providerResponseId?: string;
+  source?: "response" | "reconciliation" | "webhook" | "import";
+  historical?: boolean;
 };
 
 // Opaque server-issued identity is passed as the ElevenLabs userId. It is never
@@ -51,6 +55,23 @@ export type UsageSession = UsageContext & {
   conversationIds: string[];
   syncedAt: string | null;
   complete: boolean;
+  nextSyncAt?: string | null;
+  syncAttempts?: number;
+  syncError?: string | null;
+  trustedUnattributedImport?: boolean;
+  recheckRequestedAt?: string | null;
+  providerCheckedAt?: string | null;
+};
+
+export type UsageWorkerState = { lastStartedAt: string; lastFinishedAt: string | null; error: string | null; checked: number };
+export type GeminiBillingReport = {
+  workspaceId: string;
+  refreshedAt: string;
+  timeZone: string;
+  coverageStart: string;
+  days: Array<{ date: string; currency: string; amount: number }>;
+  error: string | null;
+  lastSuccessfulAt?: string | null;
 };
 
 export function nonNegativeNumber(value: unknown): number | null {

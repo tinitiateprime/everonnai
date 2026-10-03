@@ -42,6 +42,8 @@ const environment: NodeJS.ProcessEnv = {
   EVERONN_AUTH_SETUP_TOKEN: "isolated-booking-smoke", PHONE_FRONT_DESK_FOLLOW_UP_ENABLED: "false",
   GEMINI_API_KEY: "", GOOGLE_API_KEY: "", ELEVENLABS_API_KEY: "", ELEVENLABS_AGENT_ID: "", PEXELS_API_KEY: "",
   GOOGLE_OAUTH_CLIENT_ID: "", GOOGLE_OAUTH_CLIENT_SECRET: "", NETLIFY: "false", NETLIFY_BLOBS_CONTEXT: "", SITE_NAME: "",
+  SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_URL: "", SUPABASE_SECRET_KEY: "", SUPABASE_SERVICE_ROLE_KEY: "", SUPABASE_USAGE_SCHEMA: "", SUPABASE_DB_URL: "",
+  EVERONN_USAGE_DIR: path.join(fixtureDirectory, "usage"), USAGE_REQUIRE_DURABLE_STORAGE: "false", AWS_LAMBDA_FUNCTION_NAME: "", USAGE_BACKGROUND_MODE: "external",
 };
 const server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--port", String(port)], { env: environment, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
 let logs = "";

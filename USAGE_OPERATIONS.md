@@ -1,6 +1,6 @@
 # Provider usage deployment and recovery
 
-Usage metering and signed jobs were activated in Amplify deployment 13 (2026-10-04). The deployed worker successfully reads/writes Supabase, webhook HMAC verification is configured, and Supabase Cron is enabled. A real scheduled invocation returned HTTP 200; the deployed nonce check accepted one concurrent request and rejected its replay with 409. ElevenLabs webhook attachment still needs `convai_write` permission on the API key. Google billing export is not connected. The application's separate business/auth stores still need durable hosting persistence. A scheduled run is evidence of worker execution, not a claim that a real provider post-call webhook has arrived.
+Usage metering and signed jobs were activated in Amplify deployment 13 (2026-10-04). The deployed worker successfully reads/writes Supabase, webhook HMAC verification is configured, and Supabase Cron is enabled. A real scheduled invocation returned HTTP 200; the deployed nonce check accepted one concurrent request and rejected its replay with 409. The ElevenLabs HMAC webhook is attached to the configured agent with transcription events and retries enabled; actual provider post-call delivery still needs a real matched conversation. Google billing export is not connected. The application's separate business/auth stores still need durable hosting persistence. A scheduled run is evidence of worker execution, not a claim that a real provider post-call webhook has arrived.
 
 ## Local operation
 
@@ -104,7 +104,7 @@ The job runs every minute, skips requests still pending within their 65-second H
 
 ## ElevenLabs automatic post-call delivery
 
-In the ElevenLabs Agents workspace settings, connect a **post-call transcription** webhook to:
+In the configured ElevenLabs agent's workspace overrides, connect a **post-call transcription** webhook to:
 
 ```text
 https://main.d2b3qy6tcyxz0p.amplifyapp.com/api/usage/elevenlabs/webhook
@@ -112,7 +112,7 @@ https://main.d2b3qy6tcyxz0p.amplifyapp.com/api/usage/elevenlabs/webhook
 
 Use HMAC authentication and set the provider-generated secret as `ELEVENLABS_WEBHOOK_SECRET` in Amplify, then redeploy so SSR receives it. This is a different secret from `USAGE_CRON_SECRET`. Preserve existing workspace webhooks/integrations when adding this endpoint. Transcription webhook retries should be enabled. The API key used for recovery needs conversation list/read access for the configured agent. A localhost callback cannot receive provider deliveries.
 
-On 2026-10-04 webhook `495e7cd7a3c94a1a9218a01c1051ec7e` (EverOnn usage (Amplify)) was created with HMAC and retries enabled; its secret is saved only in ignored local/server settings. The deployed endpoint verification passed. The configured agent has no post-call override, but attaching this hook returned HTTP 401 with `missing_permissions`: the current key lacks `convai_write`. Enable Agents Write for that key, or replace it and synchronize Amplify before deployment. Then attach this ID under **the configured agent's** `platform_settings.workspace_overrides.webhooks`, including the `transcript` event and `json` format, and verify other agent/workspace settings remain unchanged. The shared workspace configuration was not replaced. Until then, scheduled provider metadata reads perform unattended recovery; no actual provider delivery is claimed by the setup probe.
+On 2026-10-04 webhook `495e7cd7a3c94a1a9218a01c1051ec7e` (EverOnn usage (Amplify)) was created with HMAC and retries enabled; its secret is saved only in ignored local/server settings. After Agents Write permission was enabled on the existing key, attaching this ID under **the configured agent's** `platform_settings.workspace_overrides.webhooks` returned HTTP 200. A subsequent provider read confirmed the ID, `transcript` event and `json` format. Other agent settings and the shared workspace configuration remained unchanged; conversation list/read access also returned HTTP 200. A fresh signed non-usage probe returned HTTP 200 from the deployed endpoint without recording a delivery. No paid voice call was generated for setup. Scheduled provider metadata reads remain the unattended recovery fallback. Verify real delivery by completing a voice conversation through this application and checking **Last verified post-call delivery** after ElevenLabs finishes its analysis. Updating permissions on the same key requires no new AWS environment value.
 
 The endpoint verifies raw-body HMAC-SHA256 with constant-time comparison and rejects timestamps more than 30 minutes old or one minute into the future. It streams at most 2 MB, validates the opaque user identity and agent, strips transcript/customer fields, and journals normalized metrics before acknowledgement. Duplicate deliveries use the same conversation identity. Late payloads cannot overwrite newer direct provider charges and request another authoritative check, including for a completed ticket. Unknown/unassigned conversations are ignored; signed webhook data from a shared agent cannot automatically authorize another workspace's usage.
 

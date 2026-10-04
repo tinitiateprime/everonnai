@@ -21,6 +21,6 @@ async function main() {
     } finally { await store.remove(key); }
     if (await store.read(key)) throw new Error("Probe cleanup failed.");
   }
-  console.log(JSON.stringify({ schema: "everonn_usage", transport: process.env.SUPABASE_DB_URL ? "private-postgres" : "data-api", migration, connection: "verified", conditionalWriteProbe: probe ? "passed-and-removed" : "not-requested" }));
+  console.log(JSON.stringify({ schema: "everonn", transport: process.env.SUPABASE_DB_URL ? "private-postgres" : "data-api-compatibility-profile", migration, connection: "verified", conditionalWriteProbe: probe ? "passed-and-removed" : "not-requested" }));
 }
 main().catch((error: Error) => { console.error(error.message); process.exitCode = 1; }).finally(closeUsagePostgres);

@@ -14,7 +14,7 @@ async function database() {
 }
 function records(db: PGlite) {
   const query: AppQuery = async <T extends Record<string, unknown>>(statement: string, parameters: unknown[] = []) => (await db.query<T>(statement, parameters)).rows;
-  return createAppRecords(query);
+  return createAppRecords(query, { legacySchema: true });
 }
 
 test("application migration preserves other app/usage objects and denies browser/API access", async () => {

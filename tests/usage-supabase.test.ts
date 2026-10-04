@@ -61,7 +61,7 @@ test("PostgreSQL usage writes reject stale/create conflicts, preserve scope, and
       }
       return (await db.query<T>(statement, parameters)).rows;
     };
-    const store = createUsagePostgres(query);
+    const store = createUsagePostgres(query, { legacySchema: true });
     assert.equal(await store.checkMigration(), "202610030001");
     assert.equal(await store.write("events/ws_1/a", { workspaceId: "ws_1", value: 1 }, { new: true }), true);
     assert.equal(await store.write("events/ws_1/a", { value: 99 }, { new: true }), false);

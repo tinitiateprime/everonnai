@@ -16,7 +16,7 @@ async function main() {
   const probe = createServer();
   await new Promise<void>((resolve, reject) => { probe.once("error", reject); probe.listen(port, () => probe.close(() => resolve())); });
   const require = createRequire(import.meta.url);
-  const migration = await readFile(new URL("../supabase/migrations/202610040002_everonn_app.sql", import.meta.url), "utf8");
+  const migration = (await Promise.all(["202610030001_everonn_usage.sql", "202610040002_everonn_app.sql", "202610040003_everonn_relational.sql"].map(name => readFile(new URL("../supabase/migrations/" + name, import.meta.url), "utf8")))).join("\n");
   const preload = path.join(directory, "database-preload.cjs");
   const driver = path.join(directory, "database-driver.mjs");
   await writeFile(driver, "export default function postgres(){return globalThis.__everonnSmokeDatabaseDriver();}\n");
@@ -27,7 +27,7 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const db=new PGlite(process.env.SMOKE_APP_DB_DIR);
 const ready=(async()=>{
-  const table=(await db.query("SELECT to_regclass('everonn_app.app_records') AS value")).rows[0].value;
+  const table=(await db.query("SELECT to_regclass('everonn.users') AS value")).rows[0].value;
   if(!table){
     await db.exec('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;');
     await db.exec(${JSON.stringify(migration)});

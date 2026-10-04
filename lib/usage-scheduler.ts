@@ -95,7 +95,17 @@ export async function configureUsageScheduler(query: UsageQuery, options: { orig
     // short-lived one-use HMAC signatures; the permanent secret stays in Vault.
     // Do not alter managed grants, shared settings or other cron jobs.
   }
-  await query(options.migration);
+  const [core] = await query<{ present: boolean }>("SELECT pg_catalog.to_regclass('everonn.schema_migrations') IS NOT NULL AS present");
+  let migration = options.migration;
+  if (core?.present) {
+    // Keep the existing Cron command stable while moving its private tables.
+    migration = migration.replaceAll(usageSchedulerCommand, "__EVERONN_CRON_COMMAND__")
+      .replaceAll("everonn_usage.", "everonn.")
+      .replaceAll("__EVERONN_CRON_COMMAND__", usageSchedulerCommand)
+      .replace("AND (pg_catalog.to_regclass('everonn.worker_requests')", "AND NOT EXISTS (SELECT 1 FROM everonn.schema_migrations WHERE version='202610040003' AND component='everonn-core')\n     AND (pg_catalog.to_regclass('everonn.worker_requests')");
+    migration += "\nCREATE OR REPLACE FUNCTION everonn_usage.invoke_usage_worker() RETURNS bigint LANGUAGE sql SECURITY INVOKER SET search_path='' AS $$ SELECT everonn.invoke_usage_worker() $$;\nREVOKE ALL ON FUNCTION everonn_usage.invoke_usage_worker() FROM PUBLIC,anon,authenticated,service_role;";
+  }
+  await query(migration);
   await verifySecretAccess(query);
   const configuration = JSON.stringify({ applicationUrl: origin, cronSecret: options.secret });
   if (existingSecret) await query("SELECT vault.update_secret($1::uuid,$2::text,$3::text,$4::text)", [existingSecret.id, configuration, usageSchedulerName, description]);

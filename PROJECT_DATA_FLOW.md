@@ -9,7 +9,7 @@ The saved business profile is the source of truth for the dashboard, generated w
 ```mermaid
 flowchart LR
   Owner[Owner edits Knowledge] --> API[Workspace API]
-  API --> Store[(Workspace JSON)]
+  API --> Store[(EverOnn business tables)]
   Store --> Website[Website Studio]
   Store --> Gemini[Gemini chat]
   Store --> Voice[ElevenLabs voice/chat]
@@ -61,7 +61,7 @@ The two ElevenLabs session APIs meter credentials and issue opaque workspace/fea
 
 `POST /api/usage/jobs` requires a server-only bearer secret of at least 32 characters, or a SHA-256 HMAC over a timestamp/UUID nonce/POST/exact route. Signed jobs allow at most three minutes of age and 30 seconds future skew; the server atomically creates `system/job-auth/<nonce>` before running. Concurrent/replayed nonces return 409. It runs a bounded all-workspace worker with journal recovery, eligible conversation checks and optional hourly BigQuery billing sync, then writes a heartbeat. Supabase Cron dispatches signed requests through pg_net; the supplied EventBridge/Lambda bearer template remains an alternative. Long-lived local Node processes can enable `USAGE_BACKGROUND_MODE=in-process` or run `npm run usage:worker`. Instrumentation never starts timers in serverless runtimes. `POST /api/usage/sync` remains same-origin and actor-scoped.
 
-`npm run usage:scheduler -- --apply` uses a certificate-verified transaction to configure one paused, namespaced job and encrypted Vault configuration. Optional explicit extension installation enables missing pg_cron/pg_net without altering existing app schemas or shared extension grants/settings. Other jobs, secrets and `public`/`agentic_that` object permissions are compared before commit; unrecognized collisions abort. The private `everonn_usage.invoke_usage_worker()` function reads Vault, generates a one-use pgcrypto signature, queues the fixed HTTPS endpoint and records only its request ID/time. Permanent secrets never enter the managed HTTP queue or job command. Pending requests suppress overlapping dispatch; later ticks recover an outage. Only this job's request/history/nonce records are pruned after seven days. `--enable` first verifies a signed request against the live app. Status includes SQL execution and HTTP response codes; a queued request alone does not prove successful reconciliation. Do not run Supabase and EventBridge schedules together.
+`npm run usage:scheduler -- --apply` uses a certificate-verified transaction to configure one paused, namespaced job and encrypted Vault configuration. Optional explicit extension installation enables missing pg_cron/pg_net without altering existing app schemas or shared extension grants/settings. Other jobs, secrets and `public`/`agentic_that` object permissions are compared before commit; unrecognized collisions abort. The private `everonn.invoke_usage_worker()` function (with the existing `everonn_usage.invoke_usage_worker()` Cron alias) reads Vault, generates a one-use pgcrypto signature, queues the fixed HTTPS endpoint and records only its request ID/time. Permanent secrets never enter the managed HTTP queue or job command. Pending requests suppress overlapping dispatch; later ticks recover an outage. Only this job's request/history/nonce records are pruned after seven days. `--enable` first verifies a signed request against the live app. Status includes SQL execution and HTTP response codes; a queued request alone does not prove successful reconciliation. Do not run Supabase and EventBridge schedules together.
 
 `GET /api/usage` requires `usage:view`, resolves workspace from the actor, and includes provider/feature totals, numeric daily buckets, coverage/missing-state flags, synchronization health, up to 50 recent rows, estimates and optional billed project totals. Dates for feature usage follow the business timezone; billing export uses its explicitly configured timezone and native currencies. Response projections exclude workspace/session identities and Google credentials.
 
@@ -69,7 +69,7 @@ Gemini standard text estimates are stored with their pricing basis/date; cached 
 
 Administrative history import validates a complete manifest before saving. Gemini exports use stable response IDs and optionally match an existing request ID to repair missing counts. Legacy ElevenLabs IDs are fetched from the provider and deliberately assigned by an administrator; identified conversations must already match their own workspace ticket. Re-running imports updates stable records. Imported-only dates remain explicitly partial and do not create zero-usage days between an old imported record and the start of live tracking. No history or missing metrics are fabricated.
 
-Records live under event/session/outbox/claim/billing namespaces in the fixed Supabase `everonn_usage` schema, dedicated Netlify Blobs, or ignored local JSON. The PostgreSQL ledger keeps JSONB payloads, indexed key/workspace/type columns and UUID revisions. Atomic conditional writes reject stale instance updates; keyset listing preserves all pages. `SUPABASE_DB_URL` uses private pooled PostgreSQL with TLS, no prepared statements/pipelining and at most two connections per instance. When absent, server URL/secret variables use the explicit usage Data API profile. Partial configuration fails rather than saving to another backend. Only the dedicated migration runs; it does not modify AgenticThat's `public`/`agentic_that` data or migrate that repository. Private access requires no new exposed API schema. Optional Data API access requires an additive exposed-schema entry; browser roles receive no schema/table/function access. An unknown occupied usage schema aborts setup. Serverless deployments require durable storage before any paid provider call. The schema, Amplify environment/schedule, public webhook and optional BigQuery connection need production activation. See [USAGE_OPERATIONS.md](USAGE_OPERATIONS.md). Application accounts, business workspaces and encrypted Google connections use a separate private everonn_app schema through the same database connection; usage stays in everonn_usage. Local usage import retains source files and applies the existing merge/deduplication rules; worker health begins anew on the target backend.
+Records use separate `everonn.usage_events`, `usage_sessions`, `usage_outbox`, `usage_claims`, `billing_reports`, `usage_worker_state`, `usage_job_nonces` and `usage_webhook_receipts` tables; other system records use `usage_system_records`. The union `usage_records` view preserves existing store shapes and indexed pagination. Application/authentication rows share the `everonn` schema but have separate tables and permissions. Private PostgreSQL uses verified TLS, no prepared statements/pipelining and a two-connection usage pool per instance. The optional Data API keeps the `everonn_usage` compatibility profile. Atomic invoker functions use fresh UUID revisions. Broken configuration fails; serverless deployments require durable storage before chargeable requests. Local/Netlify stores remain available for their runtimes. Migration locks only EverOnn records, verifies exact round trips and compares other-project table contents and metadata, preserving `public`/`agentic_that`/Supabase Auth data and API exposure. Existing app/usage schema names become aliases for rolling deployments. Local imports still require explicit attribution and retain source files.
 
 The supplied Supabase project contains the applied usage schema (2026-10-03); real connection/permission/conditional-write checks passed and one local event was transferred without changing existing metadata. On 2026-10-04 Amplify deployment 13 activated signed jobs; an authenticated worker completed against Supabase and concurrent nonce reuse returned 409. Supabase Cron is enabled, with an actual scheduled HTTP 200 observed. The webhook rejects unsigned requests and accepts a signed non-usage probe without recording a delivery. The ElevenLabs HMAC hook is attached to the configured agent's post-call override with retries, transcription events and JSON format. Provider reads verified the attachment and conversation access; other agent settings and the shared workspace configuration remained unchanged. Actual delivery still requires a matched application conversation. Google billing export is not connected. The dashboard reports observed worker/provider delivery, not setup assertions.
 
@@ -102,19 +102,19 @@ The browser also refreshes on focus, visibility changes, and every 15 seconds.
 ```mermaid
 flowchart TD
   Request[Read or write actor workspace] --> Database{SUPABASE_DB_URL configured?}
-  Database -- Yes --> AppDB[Private everonn_app workspace records]
+  Database -- Yes --> AppDB[everonn business entity tables]
   Database -- No --> Runtime{Netlify runtime variables present?}
   Runtime -- No --> PrimaryFile[Primary: data/everonn.json]
   Runtime -- No --> CustomerFile[Customers: data/workspaces.json]
   Runtime -- Yes --> PrimaryBlob[Primary Blob: workspace-v1]
   Runtime -- Yes --> CustomerBlob[Customer Blob: workspaces-v1]
   Google[Google connection] --> CredDB{SUPABASE_DB_URL configured?}
-  CredDB -- Yes --> EncryptedDB[Private everonn_app encrypted credentials]
+  CredDB -- Yes --> EncryptedDB[everonn provider_connections]
   CredDB -- No --> CredRuntime{Netlify runtime?}
   CredRuntime -- No --> EncryptedFile[data/provider-connections.json]
   CredRuntime -- Yes --> EncryptedBlob[Netlify encrypted credential Blob]
   Auth[Authentication] --> AuthDB{SUPABASE_DB_URL configured?}
-  AuthDB -- Yes --> AccountsDB[Private everonn_app accounts and hashed sessions]
+  AuthDB -- Yes --> AccountsDB[everonn users and auth_sessions]
   AuthDB -- No --> AuthRuntime{Netlify runtime?}
   AuthRuntime -- No --> AuthFile[data/auth.json]
   AuthRuntime -- Yes --> AuthBlob[Netlify Blob: auth-v1]
@@ -123,10 +123,10 @@ flowchart TD
 - Local file writes use a temporary file and rename/copy replacement.
 - A write queue prevents overlapping local operations.
 - Blob writes use ETags and retry conflicts up to five times.
-- PostgreSQL writes use insert-only conditions or UUID revisions and retry updates up to eight times across server instances. Authentication/provider envelopes remain separate from per-workspace business records.
+- PostgreSQL invoker functions normalize app snapshots into named tables only after a matching UUID revision or insert-only claim. Workspaces have separate CAS boundaries; users/sessions/invitations share an account boundary. Entity writes are atomic, scoped by workspace, and preserve array order. Aggregation views reconstruct existing browser/API shapes.
 - Each account's server-resolved workspace ID selects exactly one business record; browser headers cannot grant access to another workspace.
 - Moving to another host does not automatically move Netlify Blob data or OAuth tokens.
-- Amplify requires private PostgreSQL and rejects file fallback. The private `everonn_app` migration is separate from usage storage and leaves existing application/Supabase Auth schemas and API exposure unchanged. The primary seed is inserted only when absent; ignored local accounts, sessions, customer workspaces and Google credentials are not automatically imported. Existing local/Netlify data requires a deliberate migration before switching backends.
+- Amplify requires private PostgreSQL and rejects file fallback. All active data uses private `everonn` tables. Consolidation preserves existing owner accounts, sessions, business rows, usage and encrypted connections. Other application/Supabase Auth schemas and exposed API configuration stay unchanged. Primary seeds load only when absent; ignored local/Netlify data is not imported automatically.
 
 ## 4. Knowledge propagation
 
@@ -383,7 +383,7 @@ Roles are enforced on the server: owner has all capabilities; manager can config
 
 State-changing API routes also call `assertSameOrigin()`. For browser requests, `features/auth/request-origin.ts` compares the exact HTTP(S) `Origin` with the configured `NEXT_PUBLIC_APP_URL`; when unset, it compares with the request URL's origin. Configuring the public origin supports Amplify or other proxies whose internal request URL differs from the browser URL. Invalid configured URLs and unrelated browser origins fail the check; `Host` and `X-Forwarded-*` headers do not grant trust. Non-browser requests without `Origin` retain existing behavior.
 
-Amplify receives the public URL, owner setup token and existing private PostgreSQL connection through its Next.js build/runtime environment. `lib/auth-store.ts`, `lib/json-workspace-store.ts` and `lib/provider-credentials.ts` select `everonn_app` whenever that connection is configured. This persists accounts, workspace changes and encrypted Google tokens across instances/deployments. Deployment 16 activated this adapter on 2026-10-04; live authentication writes and primary initialization passed without creating an actual owner. Setup remains a server-checked first-owner operation; the token disappears from normal registration after the account is durably created. Customer registration remains a separate isolated workspace. No Supabase Auth user or shared workspace is created for another project.
+Amplify receives the public URL, first-owner setup token and existing private PostgreSQL connection through its Next.js environment. `lib/auth-store.ts`, `lib/json-workspace-store.ts` and `lib/provider-credentials.ts` use the `everonn` relational store when configured. Existing authentication cookies/hashes survive consolidation. Users, sessions, invitations and provider connections have separate rows; workspace components have separate tables linked by workspace_id. Old schema views/functions bridge prior deployments. Setup remains restricted to the first owner; later customer registration creates an isolated workspace and needs no setup token. Supabase Auth and other projects remain unchanged.
 
 ## 12. Known non-data flows
 
@@ -402,7 +402,7 @@ Do not confuse the marketing scripted widget with the generated customer-site as
 | Problem | Start here | Then inspect |
 | --- | --- | --- |
 | Workspace changes do not persist | `features/everonn/workspace-provider.tsx` | `/api/workspace`, `lib/json-workspace-store.ts` |
-| Login or role access fails | `/api/auth/login` or `features/auth/session.ts` | `lib/auth-store.ts`, `features/auth/rbac.ts`, `everonn_app`/local auth JSON/Netlify Blob |
+| Login or role access fails | `/api/auth/login` or `features/auth/session.ts` | `lib/auth-store.ts`, `features/auth/rbac.ts`, `everonn`/local auth JSON/Netlify Blob |
 | Gemini chat gives an error | `/api/assistant/message` | `features/voice-agent/gemini.ts`, provider env |
 | Voice will not connect | `/api/voice/session` or `/api/site-assistant/session` | ElevenLabs key, agent ID, browser microphone permission |
 | Website generation fails | `/api/website-studio` | `ai-generator.ts`, Gemini model list, QA error |

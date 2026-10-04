@@ -31,26 +31,27 @@ export function usagePostgres() {
     catch (error) {
       const code = (error as { code?: string }).code;
       const safeCode = code && /^[A-Z0-9_]{1,40}$/.test(code) ? code : "unavailable";
-      const setup = ["42P01", "3F000", "42883"].includes(safeCode) ? " Apply supabase/migrations/202610030001_everonn_usage.sql." : "";
+      const setup = ["42P01", "3F000", "42883"].includes(safeCode) ? " Apply supabase/migrations/202610040003_everonn_relational.sql." : "";
       throw new Error(`Usage PostgreSQL request failed (${safeCode}).${setup}`);
     }
   };
   return createUsagePostgres(query);
 }
 
-export function createUsagePostgres(query: UsageQuery) {
+export function createUsagePostgres(query: UsageQuery, options: { legacySchema?: boolean } = {}) {
+  const schema = options.legacySchema ? "everonn_usage" : "everonn";
   const validateKey = (key: string) => { if (!keyPattern.test(key) || key.includes("..")) throw new Error("Invalid usage record key."); };
   return {
     async read<T>(key: string): Promise<{ data: T; revision: string } | null> {
       validateKey(key);
-      const [row] = await query<{ payload: T; revision: string }>("SELECT payload, revision FROM everonn_usage.usage_records WHERE key = $1", [key]);
+      const [row] = await query<{ payload: T; revision: string }>(`SELECT payload, revision FROM ${schema}.usage_records WHERE key = $1`, [key]);
       return row ? { data: row.payload, revision: row.revision } : null;
     },
     async write(key: string, value: unknown, condition?: { revision: string } | { new: true }) {
       validateKey(key);
       // Send serialized JSON as a text parameter: a jsonb-typed parameter makes
       // Postgres.js serialize the already-serialized string a second time.
-      const [row] = await query<{ accepted: boolean }>("SELECT everonn_usage.write_usage_record($1, $2::text::jsonb, $3::uuid, $4::boolean) AS accepted", [
+      const [row] = await query<{ accepted: boolean }>(`SELECT ${schema}.write_usage_record($1, $2::text::jsonb, $3::uuid, $4::boolean) AS accepted`, [
         key, JSON.stringify(value), condition && "revision" in condition ? condition.revision : null, Boolean(condition && "new" in condition),
       ]);
       if (typeof row?.accepted !== "boolean") throw new Error("Invalid usage database write acknowledgement.");
@@ -62,7 +63,7 @@ export function createUsagePostgres(query: UsageQuery) {
       const pattern = `${prefix}/`.replace(/[%_\\]/g, "\\$&") + "%";
       let cursor = "";
       for (;;) {
-        const rows = await query<{ key: string; payload: T }>("SELECT key, payload FROM everonn_usage.usage_records WHERE key LIKE $1 AND key > $2 ORDER BY key LIMIT 500", [pattern, cursor]);
+        const rows = await query<{ key: string; payload: T }>(`SELECT key, payload FROM ${schema}.usage_records WHERE key LIKE $1 AND key > $2 ORDER BY key LIMIT 500`, [pattern, cursor]);
         if (!rows.length) return result;
         for (const row of rows) {
           if (!row.key.startsWith(`${prefix}/`) || row.key <= cursor) throw new Error("Usage database listing scope or cursor mismatch.");
@@ -73,11 +74,11 @@ export function createUsagePostgres(query: UsageQuery) {
     },
     async remove(key: string) {
       validateKey(key);
-      await query("DELETE FROM everonn_usage.usage_records WHERE key = $1", [key]);
+      await query(`DELETE FROM ${schema}.usage_records WHERE key = $1`, [key]);
     },
     async checkMigration() {
-      const [row] = await query<{ version: string }>("SELECT version FROM everonn_usage.schema_migrations WHERE version = $1 AND component = $2", ["202610030001", "everonn-usage"]);
-      if (row?.version !== "202610030001") throw new Error("The EverOnn usage migration has not been verified.");
+      const [row] = await query<{ version: string }>(`SELECT version FROM ${schema}.schema_migrations WHERE version = $1 AND component = $2`, [options.legacySchema ? "202610030001" : "202610040003", options.legacySchema ? "everonn-usage" : "everonn-core"]);
+      if (row?.version !== (options.legacySchema ? "202610030001" : "202610040003")) throw new Error("The EverOnn usage migration has not been verified.");
       return row.version;
     },
   };

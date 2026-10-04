@@ -1,7 +1,7 @@
 import postgres from "postgres";
 import { usageDatabaseTls } from "./usage-postgres";
 
-export const appMigrationVersion = "202610040002";
+export const appMigrationVersion = "202610040003";
 export type AppQuery = <T extends Record<string, unknown>>(query: string, parameters?: unknown[]) => Promise<T[]>;
 const keyPattern = /^(auth\/accounts|workspaces\/primary|workspaces\/[a-f0-9]{64}|providers\/google)$/;
 let cached: { url: string; sql: ReturnType<typeof postgres> } | undefined;
@@ -39,24 +39,25 @@ export function appRecords() {
     catch (error) {
       const code = (error as { code?: string }).code;
       const safeCode = code && /^[A-Z0-9_]{1,40}$/.test(code) ? code : "unavailable";
-      const setup = ["42P01", "3F000", "42883"].includes(safeCode) ? " Apply the dedicated EverOnn application migration." : "";
+      const setup = ["42P01", "3F000", "42883"].includes(safeCode) ? " Apply the EverOnn relational migration." : "";
       throw Object.assign(new Error(`Account and workspace database request failed (${safeCode}).${setup}`), { status: 503 });
     }
   };
   return createAppRecords(query);
 }
 
-export function createAppRecords(query: AppQuery) {
+export function createAppRecords(query: AppQuery, options: { legacySchema?: boolean } = {}) {
+  const schema = options.legacySchema ? "everonn_app" : "everonn";
   const validateKey = (key: string) => { if (!keyPattern.test(key)) throw new Error("Invalid application record key."); };
   const store = {
     async read<T>(key: string): Promise<{ data: T; revision: string } | null> {
       validateKey(key);
-      const [row] = await query<{ payload: T; revision: string }>("SELECT payload, revision FROM everonn_app.app_records WHERE key = $1", [key]);
+      const [row] = await query<{ payload: T; revision: string }>(`SELECT payload, revision FROM ${schema}.app_records WHERE key = $1`, [key]);
       return row ? { data: row.payload, revision: row.revision } : null;
     },
     async write(key: string, value: unknown, condition: { revision: string } | { new: true }) {
       validateKey(key);
-      const [row] = await query<{ accepted: boolean }>("SELECT everonn_app.write_app_record($1, $2::text::jsonb, $3::uuid, $4::boolean) AS accepted", [
+      const [row] = await query<{ accepted: boolean }>(`SELECT ${schema}.write_app_record($1, $2::text::jsonb, $3::uuid, $4::boolean) AS accepted`, [
         key, JSON.stringify(value), "revision" in condition ? condition.revision : null, "new" in condition,
       ]);
       if (typeof row?.accepted !== "boolean") throw new Error("Invalid application database acknowledgement.");
@@ -66,7 +67,7 @@ export function createAppRecords(query: AppQuery) {
       const result: T[] = [];
       let cursor = "";
       for (;;) {
-        const rows = await query<{ key: string; payload: T }>("SELECT key, payload FROM everonn_app.app_records WHERE key LIKE 'workspaces/%' AND key <> 'workspaces/primary' AND key > $1 ORDER BY key LIMIT 500", [cursor]);
+        const rows = await query<{ key: string; payload: T }>(`SELECT key, payload FROM ${schema}.app_records WHERE key LIKE 'workspaces/%' AND key <> 'workspaces/primary' AND key > $1 ORDER BY key LIMIT 500`, [cursor]);
         if (!rows.length) return result;
         for (const row of rows) {
           validateKey(row.key);
@@ -78,7 +79,7 @@ export function createAppRecords(query: AppQuery) {
     },
     async remove(key: string, revision: string) {
       validateKey(key);
-      const rows = await query<{ key: string }>("DELETE FROM everonn_app.app_records WHERE key = $1 AND revision = $2::uuid RETURNING key", [key, revision]);
+      const rows = await query<{ key: string }>(`DELETE FROM ${schema}.app_records WHERE key = $1 AND revision = $2::uuid RETURNING key`, [key, revision]);
       return rows.length === 1;
     },
     async mutate<T, R>(key: string, empty: () => T, validate: (value: unknown) => asserts value is T, update: (value: T) => R | Promise<R>) {
@@ -94,8 +95,8 @@ export function createAppRecords(query: AppQuery) {
       throw Object.assign(new Error("The account or workspace changed repeatedly. Please retry."), { status: 409 });
     },
     async checkMigration() {
-      const [row] = await query<{ version: string }>("SELECT version FROM everonn_app.schema_migrations WHERE version = $1 AND component = 'everonn-app'", [appMigrationVersion]);
-      if (row?.version !== appMigrationVersion) throw new Error("The dedicated EverOnn application migration has not been verified.");
+      const [row] = await query<{ version: string }>(`SELECT version FROM ${schema}.schema_migrations WHERE version = $1 AND component = $2`, [options.legacySchema ? "202610040002" : appMigrationVersion, options.legacySchema ? "everonn-app" : "everonn-core"]);
+      if (row?.version !== (options.legacySchema ? "202610040002" : appMigrationVersion)) throw new Error("The EverOnn relational migration has not been verified.");
       return row.version;
     },
   };

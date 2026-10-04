@@ -11,6 +11,37 @@ const origin = "https://main.fixture.amplifyapp.com";
 const secret = "fixture_cron_credential_with_at_least_32_characters";
 const schedulerMigration = () => readFile(new URL("../supabase/migrations/202610040001_everonn_usage_scheduler.sql", import.meta.url), "utf8");
 
+test("consolidation keeps the live scheduler, secret and job unchanged; reconfiguration targets the new tables", async () => {
+  const {db,query}=await fixture();
+  try {
+    const migration=await schedulerMigration();
+    await configureUsageScheduler(query,{origin,secret,migration});
+    await changeUsageScheduler(query,true,{origin,secret});
+    const jobs=await query("SELECT * FROM cron.job ORDER BY jobid");
+    const secrets=await query("SELECT * FROM vault.secrets ORDER BY id");
+    const [first]=await query<{id:number}>("SELECT everonn_usage.invoke_usage_worker() AS id");
+    await query("INSERT INTO net._http_response(id,status_code,created) VALUES ($1,200,now())",[first.id]);
+    await db.exec(await readFile(new URL("../supabase/migrations/202610040002_everonn_app.sql",import.meta.url),"utf8"));
+    await db.exec(await readFile(new URL("../supabase/migrations/202610040003_everonn_relational.sql",import.meta.url),"utf8"));
+    assert.deepEqual(await query("SELECT * FROM cron.job ORDER BY jobid"),jobs);
+    assert.deepEqual(await query("SELECT * FROM vault.secrets ORDER BY id"),secrets);
+    assert.equal((await usageSchedulerStatus(query)).active,true);
+    const [second]=await query<{id:number}>("SELECT everonn_usage.invoke_usage_worker() AS id");
+    assert.ok(second.id>first.id);
+    assert.equal((await query("SELECT * FROM everonn.worker_requests")).length,2);
+    await query("INSERT INTO net._http_response(id,status_code,created) VALUES ($1,200,now())",[second.id]);
+    await db.exec("INSERT INTO everonn.usage_job_nonces(key,payload,updated_at) VALUES ('system/job-auth/expired','{}',now()-interval '9 days')");
+    const [third]=await query<{id:number}>("SELECT everonn_usage.invoke_usage_worker() AS id");
+    assert.ok(third.id>second.id);
+    assert.equal((await query("SELECT * FROM everonn.usage_job_nonces")).length,0);
+    await configureUsageScheduler(query,{origin,secret,migration});
+    await changeUsageScheduler(query,true,{origin,secret});
+    assert.equal((await usageSchedulerStatus(query)).active,true);
+    assert.deepEqual(await query("SELECT * FROM cron.job WHERE jobname='other_project'"),jobs.filter(row=>row.jobname==="other_project"));
+    assert.deepEqual(await query("SELECT * FROM vault.secrets WHERE name='other_project'"),secrets.filter(row=>row.name==="other_project"));
+  } finally {await db.close();}
+});
+
 async function fixture() {
   const db = new PGlite({ extensions: { pgcrypto } });
   await db.exec(`

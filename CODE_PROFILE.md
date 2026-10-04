@@ -12,9 +12,9 @@ For request-by-request diagrams, read [PROJECT_DATA_FLOW.md](PROJECT_DATA_FLOW.m
 
 ## 1. System in one sentence
 
-EverOnn is a Next.js application with JSON-backed workspace and authentication stores, Gemini for generation and text reasoning, Pexels for website images, ElevenLabs for live voice/chat, and Google OAuth for Calendar booking and Gmail notifications.
+EverOnn is a Next.js application with Supabase-backed workspace and authentication stores on Amplify, Gemini for generation and text reasoning, Pexels for website images, ElevenLabs for live voice/chat, and Google OAuth for Calendar booking and Gmail notifications.
 
-Provider usage is persisted in the existing Supabase project's dedicated `everonn_usage` PostgreSQL schema. Business and authentication persistence remains JSON/Netlify Blobs.
+Provider usage is persisted in the existing Supabase project's dedicated `everonn_usage` PostgreSQL schema. Accounts, workspaces and encrypted Google connections use a separate private `everonn_app` schema through the same server database connection. JSON files and Netlify Blobs remain supported for their respective runtimes when no PostgreSQL connection is configured.
 
 ## 2. Main technology
 
@@ -23,10 +23,10 @@ Provider usage is persisted in the existing Supabase project's dedicated `everon
 | Web application | Next.js 16 App Router, React 19, TypeScript |
 | Styling | Tailwind CSS 4 plus project CSS files |
 | Icons | Lucide React |
-| Main business data | Primary workspace in `data/everonn.json`; self-registered customer workspaces in ignored `data/workspaces.json`; Netlify Blobs on Netlify |
-| Authentication | Scrypt password hashes and hashed opaque sessions in ignored `data/auth.json`; Netlify Blobs on Netlify |
+| Main business data | Private `everonn_app` workspace records with PostgreSQL; shipped `data/everonn.json` seeds only a missing primary record; JSON/Netlify Blobs without a database |
+| Authentication | Scrypt password hashes and hashed opaque sessions in private `everonn_app`; JSON/Netlify Blobs without a database |
 | Provider usage | Dedicated `everonn_usage` schema in the existing Supabase project when configured, Netlify Blobs, or ignored local `data/usage/` for a writable single server |
-| Provider credentials | Environment variables and encrypted `data/provider-connections.json` locally |
+| Provider credentials | Environment variables and AES-256-GCM encrypted Google connections in private `everonn_app`; encrypted files/Blobs without a database |
 | AI text and structured generation | Google Gemini REST API |
 | Website photography | Pexels REST API |
 | Live browser voice/chat | ElevenLabs Conversational AI |
@@ -49,6 +49,7 @@ The owner/manager `/dashboard/usage` shows workspace-scoped Gemini requests/toke
 | `features/usage/import*.ts`, `scripts/import-usage.ts` | Administrative, explicitly attributed history import; dry run by default; stable provider IDs repair existing requests without double-counting |
 | `lib/usage-store.ts`, `lib/usage-supabase.ts`, `lib/usage-postgres.ts` | Event/session/journal/billing namespaces and provider claims; private PostgreSQL or optional Data API; UUID conditional updates across instances |
 | `lib/supabase-ca.ts` | Public provider CA for database certificate/hostname verification; contains no application credential |
+| `lib/app-records.ts`, `scripts/migrate-app-database.ts`, `supabase/migrations/202610040002_everonn_app.sql` | Private application JSONB storage, conditional revisions, database-only Amplify persistence, dedicated migration and preservation/security probes |
 | `supabase/migrations/202610030001_everonn_usage.sql`, `scripts/*usage-database.ts` | Isolated schema migration, security checks, connection/probe verification; no AgenticThat migrations or runtime DDL |
 | `scripts/migrate-local-usage.ts` | Dry-run/explicit-apply transfer of existing local usage; ownership guards and deduplication retained |
 | `features/usage/summary.ts`, `features/usage/health.ts` | Timezone totals, missing-metric counts, chart coverage, background heartbeat, verified webhook receipt, queued-write counts |
@@ -71,7 +72,7 @@ The UI includes a numeric chart scale and recorded values, untracked-day shading
 
 Storage priority is configured Supabase, Netlify Blobs, then ignored local JSON under `EVERONN_USAGE_DIR` or `usage/` beside the primary data file. Supabase uses only `everonn_usage`, with indexed JSONB records, generated workspace/type columns, keyset pagination and atomic UUID compare-and-set updates. `SUPABASE_DB_URL` selects private PostgreSQL access with TLS, prepared statements/pipelining disabled and a two-connection instance limit. Otherwise server-only URL/secret credentials use the explicit usage schema over the Data API. Other schema names/public keys are rejected; partial/broken configuration never silently falls back. Local files require one writable process. AWS/serverless runtimes and `USAGE_REQUIRE_DURABLE_STORAGE=true` reject unsafe file fallback before a chargeable call. Records contain no prompts, transcripts, provider keys, or customer details. Database/billing credentials remain in server environment variables.
 
-Implemented deployment support is distinct from an active connection: apply the dedicated Supabase migration, configure the Amplify environment, deploy the scheduler and enable it. Private PostgreSQL access leaves the existing project's Data API settings alone; the optional Data API path requires adding the usage schema without removing existing exposed entries. The schema grants no access to browser roles, enables RLS and uses an invoker write function. An unrecognized occupied usage schema stops the migration transaction. ElevenLabs needs the live HTTPS webhook URL and its provider-generated secret. BigQuery needs its own export/read credentials. A local build does not configure these external connections. Existing workspace/auth/Google-connection persistence outside Netlify is still file-backed; Supabase support here is for the usage ledger.
+Implemented deployment support is distinct from an active connection: apply the dedicated Supabase migration, configure the Amplify environment, deploy the scheduler and enable it. Private PostgreSQL access leaves the existing project's Data API settings alone; the optional usage Data API path requires adding the usage schema without removing existing exposed entries. The usage schema grants no access to browser roles, enables RLS and uses an invoker write function. An unrecognized occupied usage schema stops the migration transaction. ElevenLabs needs the live HTTPS webhook URL and its provider-generated secret. BigQuery needs its own export/read credentials. A local build does not configure these external connections. Application data uses the separate private `everonn_app` backend described below; usage records remain in `everonn_usage`.
 
 On 2026-10-03 the dedicated schema was applied to the supplied existing Supabase project; TLS, permission and conditional-write checks passed without changing existing project metadata, and one local usage event was transferred. On 2026-10-04 Amplify deployment 13 activated signed jobs after server settings were corrected. Live checks verified the worker's Supabase connection, job authorization, concurrent nonce rejection (200/409) and webhook HMAC verification. Supabase Cron is enabled and an actual scheduled HTTP 200 was observed. After the existing key received Agents Write permission, the ElevenLabs HMAC hook was attached to the configured agent with retries, transcription events and JSON format. Provider reads verified the attachment, retained conversation access and unchanged other agent/shared workspace settings. Google billing export is not connected; a setup probe does not establish actual post-call delivery.
 
@@ -80,6 +81,16 @@ The Supabase scheduler enables previously absent pg_cron/pg_net extensions and a
 Verification is in `tests/usage.test.ts`, `tests/usage-reliability.test.ts`, `tests/usage-supabase.test.ts`, `tests/usage-scheduler.test.ts`, `tests/amplify-env.test.ts` and `scripts/smoke-usage.ts`. Tests cover recovery, signed/duplicate webhooks, old-session discovery, imports, billing scope/currencies and mobile chart behavior. PostgreSQL-engine tests verify migrations, retained existing sample data/permissions, conditional writes, pagination, scheduler collisions, scoped retention, unchanged other jobs/secrets and compatibility of real pgcrypto signatures with Node verification. Smoke checks concurrent signed jobs accept one nonce only. Mocked HTTP tests verify Data API profiles, row caps and sanitized errors. Amplify tests verify rejection of missing storage and round-trip secret preservation without build-role credentials. Smoke stores override all Supabase variables to protect the shared project. Browser/provider responses are mocked; separately authorized live checks are documented in [USAGE_OPERATIONS.md](USAGE_OPERATIONS.md).
 
 Path alias: `@/something` means a file starting at the project root, configured in `tsconfig.json`.
+
+### Application persistence on Amplify
+
+`lib/app-records.ts` uses only fixed, fully qualified `everonn_app` objects through certificate-verified PostgreSQL, with prepared statements/pipelining disabled and at most two additional connections per server instance. `auth/accounts` retains the existing authentication envelope, including hashed passwords, sessions, invitations and lockouts. `providers/google` retains encrypted connection envelopes. Each business workspace has a separate record; customer keys hash their workspace ID, while `workspaces/primary` is seeded once from the shipped primary JSON. Database reads never import ignored local accounts, sessions, customer collections or OAuth credentials automatically.
+
+All writes require insert-only or a matching UUID revision. Authentication/provider mutations and workspace updates reread and retry conflicts up to eight times. Concurrent first-owner setup has one winner; existing accounts and sessions survive server restarts. Explicit workspace replacement still replaces the supplied snapshot; ordinary API saves preserve server-owned fields through the existing update callback. Primary workspace deletion and workspace-ID changes remain forbidden. Configured database failures and serverless deployments without a database never fall back to files. Netlify ETags and local single-process queues remain available without PostgreSQL.
+
+The dedicated migration enables RLS and denies schema/table/function access to browser and Data API roles, including `service_role`. Runtime access uses the private database connection; no Exposed schemas change is needed. An occupied unrecognized schema stops setup. Migration verification compares existing `public`, `agentic_that`, `everonn_usage` and Supabase `auth` object/permission metadata inside the transaction, then probes create/read/update/stale-write/delete with a fresh record. On 2026-10-04 the real migration, security checks and probe passed with existing metadata unchanged. Supabase Auth itself is not adopted or modified. This retains application authentication and RBAC; it does not add password recovery, MFA or email verification. Record envelopes favor compatibility; accounts still share one authentication record and database/project capacity.
+
+`tests/app-records.test.ts` verifies migration preservation, access denial, concurrent account/owner writes, revision conflicts, workspace isolation and the serverless guard. `npm run smoke:auth-db` exercises production setup, registration, login, workspace saving, tenant denial and restart persistence against disposable PGlite while application file writes are blocked. It substitutes only the database driver; it never contacts the shared Supabase project or providers. `next.config.ts` keeps the Node PostgreSQL driver external to the Next.js server bundle.
 
 ## 3. Best reading order
 
@@ -282,7 +293,7 @@ Secrets never belong in workspace JSON files.
 Runtime details that commonly cause confusion:
 
 - `features/auth/request-origin.ts` compares browser `Origin` with `NEXT_PUBLIC_APP_URL` when configured, otherwise with the request URL's origin. Only an exact HTTP(S) origin matches; client-supplied `Host` and `X-Forwarded-*` headers cannot add trusted origins. Requests without an `Origin` header retain the existing non-browser behavior.
-- On Amplify, set `NEXT_PUBLIC_APP_URL` to the exact public site origin and include it and `EVERONN_AUTH_SETUP_TOKEN` in `.env.production` before `npm run build` in the build specification. The setup token remains server-only. This enables setup/origin checks; durable AWS authentication/workspace storage is not yet implemented.
+- On Amplify, the build writer passes the public origin, server-only setup token and existing `SUPABASE_DB_URL` into `.env.production`. It requires private PostgreSQL and forces `EVERONN_REQUIRE_DURABLE_STORAGE=true`. Apply `npm run app:db:migrate` before deploying the application storage change.
 - `GOOGLE_OAUTH_REDIRECT_URI` is not read; the callback is derived from the request origin or Netlify `SITE_NAME`.
 - `GOOGLE_CALENDAR_SERVICE_ACCOUNT_BASE64`, `RESEND_API_KEY`, and `AUTH_EMAIL_FROM` are reported by provider-readiness code, but no current product flow uses those providers.
 - `NETLIFY` and `NETLIFY_BLOBS_CONTEXT` are host-provided switches that select Blob persistence.

@@ -7,8 +7,8 @@ let validOrigin = false;
 try { const parsed = new URL(appOrigin); validOrigin = parsed.protocol === "https:" && !parsed.username && !parsed.password && !parsed.search && !parsed.hash && ["", "/"].includes(parsed.pathname); } catch { /* Report configuration without values. */ }
 if (!validOrigin) throw new Error("Set NEXT_PUBLIC_APP_URL to the live HTTPS Amplify origin before deploying.");
 if ((process.env.SUPABASE_USAGE_SCHEMA || "everonn_usage") !== "everonn_usage") throw new Error("SUPABASE_USAGE_SCHEMA must be everonn_usage.");
-if (!process.env.SUPABASE_DB_URL && !((process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL) && (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY))) {
-  throw new Error("Configure SUPABASE_DB_URL in Amplify before deploying the usage meter. A configured Data API URL/server key is the optional alternative.");
+if (!process.env.SUPABASE_DB_URL) {
+  throw new Error("Configure SUPABASE_DB_URL in Amplify before deploying account, workspace and usage storage.");
 }
 const keys = [
   "NEXT_PUBLIC_APP_URL", "EVERONN_AUTH_SETUP_TOKEN", "GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_MODEL", "GEMINI_TIMEOUT_MS", "GEMINI_WEBSITE_MODEL", "GEMINI_WEBSITE_MODELS", "GEMINI_WEBSITE_TIMEOUT_MS", "GEMINI_WEBSITE_RETRY_DELAY_MS", "GEMINI_BILLING_TIER", "PEXELS_API_KEY",
@@ -20,6 +20,6 @@ const keys = [
 // is not changed by an accidental reference to another environment variable.
 const lines = keys.filter((key) => process.env[key]).map((key) => `${key}=${JSON.stringify(process.env[key]).replace(/\$/g, "\\$")}`);
 if (!process.env.SUPABASE_USAGE_SCHEMA) lines.push("SUPABASE_USAGE_SCHEMA=everonn_usage");
-lines.push("USAGE_REQUIRE_DURABLE_STORAGE=true", "USAGE_BACKGROUND_MODE=external");
+lines.push("EVERONN_REQUIRE_DURABLE_STORAGE=true", "USAGE_REQUIRE_DURABLE_STORAGE=true", "USAGE_BACKGROUND_MODE=external");
 await writeFile(".env.production", `${lines.join("\n")}\n`, { mode: 0o600 });
 console.log("Prepared the server environment for Amplify without logging secret values.");

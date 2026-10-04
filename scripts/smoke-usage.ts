@@ -68,7 +68,7 @@ globalThis.fetch = async (input, init) => {
     ELEVENLABS_API_KEY: "fixture-key", ELEVENLABS_AGENT_ID: "fixture-agent", PEXELS_API_KEY: "",
     GOOGLE_OAUTH_CLIENT_ID: "", GOOGLE_OAUTH_CLIENT_SECRET: "", NETLIFY: "false", NETLIFY_BLOBS_CONTEXT: "", SITE_NAME: "",
     SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_URL: "", SUPABASE_SECRET_KEY: "", SUPABASE_SERVICE_ROLE_KEY: "", SUPABASE_USAGE_SCHEMA: "", SUPABASE_DB_URL: "",
-    USAGE_REQUIRE_DURABLE_STORAGE: "false", AWS_LAMBDA_FUNCTION_NAME: "", USAGE_BACKGROUND_MODE: "external",
+    EVERONN_REQUIRE_DURABLE_STORAGE: "false", USAGE_REQUIRE_DURABLE_STORAGE: "false", AWS_LAMBDA_FUNCTION_NAME: "", USAGE_BACKGROUND_MODE: "external",
     USAGE_CRON_SECRET: "usage-smoke-scheduler-secret-at-least-32", ELEVENLABS_WEBHOOK_SECRET: "usage-smoke-webhook-secret", GEMINI_BILLING_SERVICE_ACCOUNT_BASE64: "",
   };
   const server = spawn(process.execPath, ["--require", preload, "node_modules/next/dist/bin/next", "start", "--port", String(port)], { env: environment, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });

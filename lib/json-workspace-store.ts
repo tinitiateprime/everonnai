@@ -1,8 +1,10 @@
 import { getStore, type Store } from "@netlify/blobs";
+import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { EverOnnWorkspace } from "@/features/everonn/types";
 import { createDemoWorkspace } from "@/features/everonn/demo-data";
+import { appDatabaseConfigured, appRecords } from "./app-records";
 
 type WorkspaceCollection = { version: 1; workspaces: EverOnnWorkspace[] };
 
@@ -23,7 +25,43 @@ function workspaceBlobStore(): Store {
 }
 
 export function workspacePersistence() {
+  if (appDatabaseConfigured()) return "supabase-postgres";
   return usesNetlifyBlobs() ? "netlify-json-blob" : "json-file";
+}
+
+const workspaceRecordKey = (workspaceId: string) => `workspaces/${createHash("sha256").update(workspaceId).digest("hex")}`;
+
+async function readPrimaryWorkspaceDatabase() {
+  const store = appRecords();
+  let current = await store.read<EverOnnWorkspace>("workspaces/primary");
+  if (!current) {
+    const seed = await readSeedWorkspace();
+    await store.write("workspaces/primary", seed, { new: true });
+    current = await store.read<EverOnnWorkspace>("workspaces/primary");
+  }
+  if (!current) throw new Error("EverOnn could not initialize its database workspace.");
+  validateWorkspace(current.data);
+  return structuredClone(current.data);
+}
+
+async function updateWorkspaceDatabase(
+  key: string,
+  workspaceId: string,
+  update: (current: EverOnnWorkspace) => EverOnnWorkspace | Promise<EverOnnWorkspace>,
+) {
+  const store = appRecords();
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const current = await store.read<EverOnnWorkspace>(key);
+    if (!current) throw workspaceNotFound(workspaceId);
+    validateWorkspace(current.data);
+    if (current.data.workspaceId !== workspaceId) throw new Error("Database workspace scope mismatch.");
+    const next = structuredClone(await update(structuredClone(current.data)));
+    validateWorkspace(next);
+    if (next.workspaceId !== workspaceId) throw new Error("A workspace update cannot change its ID.");
+    if (await store.write(key, next, { revision: current.revision })) return structuredClone(next);
+    await new Promise((resolve) => setTimeout(resolve, 15 * (attempt + 1)));
+  }
+  throw Object.assign(new Error("The workspace changed repeatedly while saving. Please retry."), { status: 409 });
 }
 
 function validateWorkspace(value: unknown): asserts value is EverOnnWorkspace {
@@ -129,10 +167,16 @@ async function readWorkspaceCollectionBlob() {
 }
 
 async function readPrimaryUnqueued() {
+  if (appDatabaseConfigured()) return readPrimaryWorkspaceDatabase();
   return usesNetlifyBlobs() ? (await readPrimaryWorkspaceBlob()).workspace : readPrimaryWorkspaceFile();
 }
 
 async function readCollectionUnqueued() {
+  if (appDatabaseConfigured()) {
+    const collection: WorkspaceCollection = { version: 1, workspaces: await appRecords().listWorkspaces<EverOnnWorkspace>() };
+    validateCollection(collection);
+    return collection;
+  }
   return usesNetlifyBlobs() ? (await readWorkspaceCollectionBlob()).collection : readWorkspaceCollectionFile();
 }
 
@@ -152,6 +196,13 @@ export async function readWorkspaceJson(workspaceId?: string) {
   await writeQueue.catch(() => undefined);
   const primary = await readPrimaryUnqueued();
   if (!workspaceId || workspaceId === primary.workspaceId) return primary;
+  if (appDatabaseConfigured()) {
+    const current = await appRecords().read<EverOnnWorkspace>(workspaceRecordKey(workspaceId));
+    if (!current) throw workspaceNotFound(workspaceId);
+    validateWorkspace(current.data);
+    if (current.data.workspaceId !== workspaceId) throw new Error("Database workspace scope mismatch.");
+    return structuredClone(current.data);
+  }
   const collection = await readCollectionUnqueued();
   const workspace = collection.workspaces.find((item) => item.workspaceId === workspaceId);
   if (!workspace) throw workspaceNotFound(workspaceId);
@@ -209,7 +260,9 @@ export function createWorkspaceJson(workspace: EverOnnWorkspace) {
   const operation = writeQueue.then(async () => {
     const primary = await readPrimaryUnqueued();
     if (primary.workspaceId === snapshot.workspaceId) throw new Error("A workspace with this ID already exists.");
-    if (usesNetlifyBlobs()) {
+    if (appDatabaseConfigured()) {
+      if (!await appRecords().write(workspaceRecordKey(snapshot.workspaceId), snapshot, { new: true })) throw new Error("A workspace with this ID already exists.");
+    } else if (usesNetlifyBlobs()) {
       await mutateBlobCollection((collection) => {
         if (collection.workspaces.some((item) => item.workspaceId === snapshot.workspaceId)) throw new Error("A workspace with this ID already exists.");
         collection.workspaces.push(snapshot);
@@ -230,7 +283,12 @@ export function deleteWorkspaceJson(workspaceId: string) {
   const operation = writeQueue.then(async () => {
     const primary = await readPrimaryUnqueued();
     if (primary.workspaceId === workspaceId) throw new Error("The primary workspace cannot be deleted.");
-    if (usesNetlifyBlobs()) {
+    if (appDatabaseConfigured()) {
+      const store = appRecords();
+      const key = workspaceRecordKey(workspaceId);
+      const current = await store.read<EverOnnWorkspace>(key);
+      if (current && !await store.remove(key, current.revision)) throw Object.assign(new Error("The workspace changed while deleting. Please retry."), { status: 409 });
+    } else if (usesNetlifyBlobs()) {
       await mutateBlobCollection((collection) => {
         collection.workspaces = collection.workspaces.filter((item) => item.workspaceId !== workspaceId);
       });
@@ -249,6 +307,10 @@ export function writeWorkspaceJson(workspace: EverOnnWorkspace) {
   validateWorkspace(snapshot);
   const operation = writeQueue.then(async () => {
     const primary = await readPrimaryUnqueued();
+    if (appDatabaseConfigured()) {
+      const key = primary.workspaceId === snapshot.workspaceId ? "workspaces/primary" : workspaceRecordKey(snapshot.workspaceId);
+      return updateWorkspaceDatabase(key, snapshot.workspaceId, () => snapshot);
+    }
     if (primary.workspaceId === snapshot.workspaceId) {
       if (usesNetlifyBlobs()) await workspaceBlobStore().setJSON(primaryWorkspaceBlobKey, snapshot);
       else await writePrimaryFile(snapshot);
@@ -280,6 +342,9 @@ export function updateWorkspaceJson(
   const operation = writeQueue.then(async () => {
     const primary = await readPrimaryUnqueued();
     const targetId = workspaceId || primary.workspaceId;
+    if (appDatabaseConfigured()) {
+      return updateWorkspaceDatabase(targetId === primary.workspaceId ? "workspaces/primary" : workspaceRecordKey(targetId), targetId, update);
+    }
     if (targetId === primary.workspaceId) {
       if (usesNetlifyBlobs()) {
         for (let attempt = 0; attempt < 5; attempt += 1) {

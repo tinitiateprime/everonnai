@@ -10,7 +10,7 @@ import test from "node:test";
 const execute = promisify(execFile);
 const require = createRequire(import.meta.url);
 const writer = path.resolve("scripts/write-amplify-env.mjs");
-const keys = ["NEXT_PUBLIC_APP_URL", "SUPABASE_DB_URL", "SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_USAGE_SCHEMA", "GEMINI_API_KEY", "USAGE_REQUIRE_DURABLE_STORAGE", "USAGE_BACKGROUND_MODE"];
+const keys = ["NEXT_PUBLIC_APP_URL", "SUPABASE_DB_URL", "SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_USAGE_SCHEMA", "GEMINI_API_KEY", "EVERONN_REQUIRE_DURABLE_STORAGE", "USAGE_REQUIRE_DURABLE_STORAGE", "USAGE_BACKGROUND_MODE"];
 function cleanEnvironment() {
   const environment = { ...process.env };
   for (const key of keys) delete environment[key];
@@ -35,7 +35,7 @@ test("Amplify server environment preserves literal-dollar secrets and excludes A
     const source = await readFile(path.join(directory, ".env.production"), "utf8");
     assert.ok(!source.includes("AWS_ACCESS_KEY_ID") && !source.includes("fixture-build-secret"));
     const parser = "const env=require(process.argv[1]);env.loadEnvConfig(process.cwd());console.log(JSON.stringify(Object.fromEntries(JSON.parse(process.argv[2]).map(key=>[key,process.env[key]]))));";
-    const parsed = await execute(process.execPath, ["-e", parser, require.resolve("@next/env"), JSON.stringify([...Object.keys(values), "USAGE_REQUIRE_DURABLE_STORAGE", "USAGE_BACKGROUND_MODE"])], { cwd: directory, env: cleanEnvironment(), windowsHide: true });
-    assert.deepEqual(JSON.parse(parsed.stdout), { ...values, USAGE_REQUIRE_DURABLE_STORAGE: "true", USAGE_BACKGROUND_MODE: "external" });
+    const parsed = await execute(process.execPath, ["-e", parser, require.resolve("@next/env"), JSON.stringify([...Object.keys(values), "EVERONN_REQUIRE_DURABLE_STORAGE", "USAGE_REQUIRE_DURABLE_STORAGE", "USAGE_BACKGROUND_MODE"])], { cwd: directory, env: cleanEnvironment(), windowsHide: true });
+    assert.deepEqual(JSON.parse(parsed.stdout), { ...values, EVERONN_REQUIRE_DURABLE_STORAGE: "true", USAGE_REQUIRE_DURABLE_STORAGE: "true", USAGE_BACKGROUND_MODE: "external" });
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

@@ -6,6 +6,7 @@ import path from "node:path";
 import type { TeamMember, WorkspaceRole } from "@/features/everonn/types";
 import { hashPassword, verifyPassword } from "@/features/auth/password";
 import type { AuthActor, AuthInvitationRecord, AuthStore, AuthUserRecord } from "@/features/auth/types";
+import { appDatabaseConfigured, appRecords } from "./app-records";
 
 const defaultAuthFile = path.join(process.cwd(), "data", "auth.json");
 const authFile = path.resolve(/*turbopackIgnore: true*/ process.env.EVERONN_AUTH_FILE || defaultAuthFile);
@@ -72,6 +73,12 @@ async function readBlobStore() {
 
 async function readStore() {
   await authQueue.catch(() => undefined);
+  if (appDatabaseConfigured()) {
+    const current = await appRecords().read<AuthStore>("auth/accounts");
+    if (!current) return emptyStore();
+    if (!validStore(current.data)) throw new Error("Invalid EverOnn authentication store.");
+    return current.data;
+  }
   return usesNetlifyBlobs() ? (await readBlobStore()).store : readFileStore();
 }
 
@@ -89,6 +96,12 @@ async function writeFileStore(store: AuthStore) {
 
 function mutateStore<T>(update: (store: AuthStore) => T | Promise<T>) {
   const operation = authQueue.then(async () => {
+    if (appDatabaseConfigured()) {
+      return appRecords().mutate("auth/accounts", emptyStore, assertAuthStore, async (store) => {
+        cleanExpired(store);
+        return update(store);
+      });
+    }
     if (usesNetlifyBlobs()) {
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const current = await readBlobStore();
@@ -109,6 +122,10 @@ function mutateStore<T>(update: (store: AuthStore) => T | Promise<T>) {
   });
   authQueue = operation.catch(() => undefined);
   return operation;
+}
+
+function assertAuthStore(value: unknown): asserts value is AuthStore {
+  if (!validStore(value)) throw new Error("Invalid EverOnn authentication store.");
 }
 
 function newSession(store: AuthStore, user: AuthUserRecord) {

@@ -2,6 +2,7 @@ import { getStore, type Store } from "@netlify/blobs";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { copyFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { appDatabaseConfigured, appRecords } from "./app-records";
 
 export type GoogleConnection = {
   accessToken: string;
@@ -78,6 +79,12 @@ async function readBlobStore() {
 
 async function readStore(): Promise<ProviderStore> {
   await writeQueue.catch(() => undefined);
+  if (appDatabaseConfigured()) {
+    const current = await appRecords().read<ProviderStore>("providers/google");
+    if (!current) return { version: 1, google: {} };
+    if (!validStore(current.data)) throw new Error("Invalid provider connection store.");
+    return current.data;
+  }
   return usesNetlifyBlobs() ? (await readBlobStore()).store : readFileStore();
 }
 
@@ -95,6 +102,9 @@ async function writeStore(store: ProviderStore) {
 
 function mutateStore(update: (store: ProviderStore) => void) {
   const operation = writeQueue.then(async () => {
+    if (appDatabaseConfigured()) {
+      return appRecords().mutate("providers/google", () => ({ version: 1, google: {} } as ProviderStore), assertProviderStore, update);
+    }
     if (usesNetlifyBlobs()) {
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const current = await readBlobStore();
@@ -119,6 +129,10 @@ function mutateStore(update: (store: ProviderStore) => void) {
   });
   writeQueue = operation.catch(() => undefined);
   return operation;
+}
+
+function assertProviderStore(value: unknown): asserts value is ProviderStore {
+  if (!validStore(value)) throw new Error("Invalid provider connection store.");
 }
 
 export async function getGoogleConnection(workspaceId: string) {

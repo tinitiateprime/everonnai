@@ -69,7 +69,7 @@ Gemini standard text estimates are stored with their pricing basis/date; cached 
 
 Administrative history import validates a complete manifest before saving. Gemini exports use stable response IDs and optionally match an existing request ID to repair missing counts. Legacy ElevenLabs IDs are fetched from the provider and deliberately assigned by an administrator; identified conversations must already match their own workspace ticket. Re-running imports updates stable records. Imported-only dates remain explicitly partial and do not create zero-usage days between an old imported record and the start of live tracking. No history or missing metrics are fabricated.
 
-Records live under event/session/outbox/claim/billing namespaces in the fixed Supabase `everonn_usage` schema, dedicated Netlify Blobs, or ignored local JSON. The PostgreSQL ledger keeps JSONB payloads, indexed key/workspace/type columns and UUID revisions. Atomic conditional writes reject stale instance updates; keyset listing preserves all pages. `SUPABASE_DB_URL` uses private pooled PostgreSQL with TLS, no prepared statements/pipelining and at most two connections per instance. When absent, server URL/secret variables use the explicit usage Data API profile. Partial configuration fails rather than saving to another backend. Only the dedicated migration runs; it does not modify AgenticThat's `public`/`agentic_that` data or migrate that repository. Private access requires no new exposed API schema. Optional Data API access requires an additive exposed-schema entry; browser roles receive no schema/table/function access. An unknown occupied usage schema aborts setup. Serverless deployments require durable storage before any paid provider call. The schema, Amplify environment/schedule, public webhook and optional BigQuery connection need production activation. See [USAGE_OPERATIONS.md](USAGE_OPERATIONS.md). Supabase usage persistence does not replace the existing file-backed authentication/business/Google-connection stores on Amplify. Local usage import retains source files and applies the existing merge/deduplication rules; worker health begins anew on the target backend.
+Records live under event/session/outbox/claim/billing namespaces in the fixed Supabase `everonn_usage` schema, dedicated Netlify Blobs, or ignored local JSON. The PostgreSQL ledger keeps JSONB payloads, indexed key/workspace/type columns and UUID revisions. Atomic conditional writes reject stale instance updates; keyset listing preserves all pages. `SUPABASE_DB_URL` uses private pooled PostgreSQL with TLS, no prepared statements/pipelining and at most two connections per instance. When absent, server URL/secret variables use the explicit usage Data API profile. Partial configuration fails rather than saving to another backend. Only the dedicated migration runs; it does not modify AgenticThat's `public`/`agentic_that` data or migrate that repository. Private access requires no new exposed API schema. Optional Data API access requires an additive exposed-schema entry; browser roles receive no schema/table/function access. An unknown occupied usage schema aborts setup. Serverless deployments require durable storage before any paid provider call. The schema, Amplify environment/schedule, public webhook and optional BigQuery connection need production activation. See [USAGE_OPERATIONS.md](USAGE_OPERATIONS.md). Application accounts, business workspaces and encrypted Google connections use a separate private everonn_app schema through the same database connection; usage stays in everonn_usage. Local usage import retains source files and applies the existing merge/deduplication rules; worker health begins anew on the target backend.
 
 The supplied Supabase project contains the applied usage schema (2026-10-03); real connection/permission/conditional-write checks passed and one local event was transferred without changing existing metadata. On 2026-10-04 Amplify deployment 13 activated signed jobs; an authenticated worker completed against Supabase and concurrent nonce reuse returned 409. Supabase Cron is enabled, with an actual scheduled HTTP 200 observed. The webhook rejects unsigned requests and accepts a signed non-usage probe without recording a delivery. The ElevenLabs HMAC hook is attached to the configured agent's post-call override with retries, transcription events and JSON format. Provider reads verified the attachment and conversation access; other agent settings and the shared workspace configuration remained unchanged. Actual delivery still requires a matched application conversation. Google billing export is not connected. The dashboard reports observed worker/provider delivery, not setup assertions.
 
@@ -93,7 +93,7 @@ During Amplify builds, `scripts/write-amplify-env.mjs` requires the live HTTPS o
 4. It verifies the workspace ID.
 5. It preserves server-owned request details, provider delivery markers, and Google appointment rows, including records created concurrently by server automation. Incoming browser data cannot reset the automation lease.
 6. It prevents an older browser copy from moving a published website backward.
-7. The JSON store validates and saves the result atomically.
+7. The storage adapter validates and saves the result; PostgreSQL rejects stale revisions and retries against current data.
 
 The browser also refreshes on focus, visibility changes, and every 15 seconds.
 
@@ -101,15 +101,21 @@ The browser also refreshes on focus, visibility changes, and every 15 seconds.
 
 ```mermaid
 flowchart TD
-  Request[Read or write actor workspace] --> Runtime{Netlify runtime variables present?}
+  Request[Read or write actor workspace] --> Database{SUPABASE_DB_URL configured?}
+  Database -- Yes --> AppDB[Private everonn_app workspace records]
+  Database -- No --> Runtime{Netlify runtime variables present?}
   Runtime -- No --> PrimaryFile[Primary: data/everonn.json]
   Runtime -- No --> CustomerFile[Customers: data/workspaces.json]
   Runtime -- Yes --> PrimaryBlob[Primary Blob: workspace-v1]
   Runtime -- Yes --> CustomerBlob[Customer Blob: workspaces-v1]
-  Google[Google connection] --> CredRuntime{Netlify runtime?}
+  Google[Google connection] --> CredDB{SUPABASE_DB_URL configured?}
+  CredDB -- Yes --> EncryptedDB[Private everonn_app encrypted credentials]
+  CredDB -- No --> CredRuntime{Netlify runtime?}
   CredRuntime -- No --> EncryptedFile[data/provider-connections.json]
   CredRuntime -- Yes --> EncryptedBlob[Netlify encrypted credential Blob]
-  Auth[Authentication] --> AuthRuntime{Netlify runtime?}
+  Auth[Authentication] --> AuthDB{SUPABASE_DB_URL configured?}
+  AuthDB -- Yes --> AccountsDB[Private everonn_app accounts and hashed sessions]
+  AuthDB -- No --> AuthRuntime{Netlify runtime?}
   AuthRuntime -- No --> AuthFile[data/auth.json]
   AuthRuntime -- Yes --> AuthBlob[Netlify Blob: auth-v1]
 ```
@@ -117,9 +123,10 @@ flowchart TD
 - Local file writes use a temporary file and rename/copy replacement.
 - A write queue prevents overlapping local operations.
 - Blob writes use ETags and retry conflicts up to five times.
+- PostgreSQL writes use insert-only conditions or UUID revisions and retry updates up to eight times across server instances. Authentication/provider envelopes remain separate from per-workspace business records.
 - Each account's server-resolved workspace ID selects exactly one business record; browser headers cannot grant access to another workspace.
 - Moving to another host does not automatically move Netlify Blob data or OAuth tokens.
-- A host with an ephemeral filesystem cannot safely persist this JSON between deployments without a durable volume or storage adapter.
+- Amplify requires private PostgreSQL and rejects file fallback. The private `everonn_app` migration is separate from usage storage and leaves existing application/Supabase Auth schemas and API exposure unchanged. The primary seed is inserted only when absent; ignored local accounts, sessions, customer workspaces and Google credentials are not automatically imported. Existing local/Netlify data requires a deliberate migration before switching backends.
 
 ## 4. Knowledge propagation
 
@@ -268,7 +275,7 @@ sequenceDiagram
 
 - Calendar event ID is a deterministic hash of workspace ID + lead ID. A Google `409` loads the existing event instead of duplicating it.
 - A confirmed appointment is retained; later detail changes are flagged for human review. A previously unconfirmed request can be retried with a new customer-selected time. A cancelled request cannot be recreated from the same saved selection. Recovering an existing event verifies its actual start/end; mismatches require review.
-- Each workspace has an in-process queue and a five-minute durable automation lease. Netlify uses conditional writes across workers; local files support a single server process.
+- Each workspace has an in-process queue and a five-minute durable automation lease. PostgreSQL revisions and Netlify ETags protect writes across workers; local files support a single server process.
 - Gmail pending/attempted/sent markers survive every progressive lead update and stale workspace autosave. Reservations are never reclaimed based on age.
 - If a send times out or returns no message ID, delivery is marked delivery_unknown and automatic resend is blocked. Check the connected Gmail Sent folder before manually sending anything again.
 
@@ -376,7 +383,7 @@ Roles are enforced on the server: owner has all capabilities; manager can config
 
 State-changing API routes also call `assertSameOrigin()`. For browser requests, `features/auth/request-origin.ts` compares the exact HTTP(S) `Origin` with the configured `NEXT_PUBLIC_APP_URL`; when unset, it compares with the request URL's origin. Configuring the public origin supports Amplify or other proxies whose internal request URL differs from the browser URL. Invalid configured URLs and unrelated browser origins fail the check; `Host` and `X-Forwarded-*` headers do not grant trust. Non-browser requests without `Origin` retain existing behavior.
 
-Amplify must receive the public URL and owner setup token through its Next.js build/runtime environment. Passing those values does not add durable AWS persistence: outside Netlify, authentication and workspace stores still use local JSON files.
+Amplify receives the public URL, owner setup token and existing private PostgreSQL connection through its Next.js build/runtime environment. `lib/auth-store.ts`, `lib/json-workspace-store.ts` and `lib/provider-credentials.ts` select `everonn_app` whenever that connection is configured. This persists accounts, workspace changes and encrypted Google tokens across instances/deployments. Setup remains a server-checked first-owner operation; the token disappears from normal registration after the account is durably created. Customer registration remains a separate isolated workspace. No Supabase Auth user or shared workspace is created for another project.
 
 ## 12. Known non-data flows
 
@@ -395,7 +402,7 @@ Do not confuse the marketing scripted widget with the generated customer-site as
 | Problem | Start here | Then inspect |
 | --- | --- | --- |
 | Workspace changes do not persist | `features/everonn/workspace-provider.tsx` | `/api/workspace`, `lib/json-workspace-store.ts` |
-| Login or role access fails | `/api/auth/login` or `features/auth/session.ts` | `lib/auth-store.ts`, `features/auth/rbac.ts`, `data/auth.json`/auth Blob |
+| Login or role access fails | `/api/auth/login` or `features/auth/session.ts` | `lib/auth-store.ts`, `features/auth/rbac.ts`, `everonn_app`/local auth JSON/Netlify Blob |
 | Gemini chat gives an error | `/api/assistant/message` | `features/voice-agent/gemini.ts`, provider env |
 | Voice will not connect | `/api/voice/session` or `/api/site-assistant/session` | ElevenLabs key, agent ID, browser microphone permission |
 | Website generation fails | `/api/website-studio` | `ai-generator.ts`, Gemini model list, QA error |

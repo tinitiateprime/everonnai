@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright-core";
 import { createDemoWorkspace } from "../features/everonn/demo-data";
-import { createWebsiteProject, generateDeterministicWebsiteSpec } from "../features/website-studio/generator";
+import { generateDeterministicWebsiteSpec } from "../tests/fixtures/website";
+import { createWebsiteProject } from "../features/website-studio/generator";
 import type { UsageSummary } from "../features/usage/summary";
 import { usageJobSignedHeaders } from "../features/usage/job-auth";
 

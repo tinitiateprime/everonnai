@@ -11,6 +11,7 @@ export function createDemoWorkspace(): EverOnnWorkspace {
       workspaceId: "workspace_everonn_demo",
       businessName: "Northstar Heating & Cooling",
       businessType: "HVAC service company",
+      skillId: "hvac",
       description: "A locally operated heating and cooling company helping residential customers with repairs, seasonal maintenance, and replacement estimates.",
       phone: "+1 (555) 014-2187",
       email: "hello@northstar.example",

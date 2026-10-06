@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
-import { buildVoiceSessionVariables } from "@/features/voice-agent/session-context";
+import { websiteAccess } from "@/features/website-studio/site-access";
+import { buildVoiceSessionVariables } from "@/features/voice-agent/session-prompt";
 import { getGoogleConnection } from "@/lib/provider-credentials";
 import { assertSameOrigin, authErrorDetails } from "@/features/auth/session";
 import { findWorkspaceJson } from "@/lib/json-workspace-store";
 import { meteredElevenLabsSetup } from "@/features/usage/elevenlabs";
 import { createUsageSession } from "@/lib/usage-store";
+import { workflowAvailability } from "@/features/agent-runtime/tool-registry";
 
 export const dynamic = "force-dynamic";
 
@@ -32,13 +34,12 @@ export async function POST(request: Request) {
     const input = raw ? JSON.parse(raw) as { previewToken?: string; publicSlug?: string; mode?: "voice" | "chat" } : {};
     if (input.mode && input.mode !== "voice" && input.mode !== "chat") return NextResponse.json({ error: "Invalid assistant mode." }, { status: 400 });
     const workspace = await findWorkspaceJson((candidate) => Boolean(
-      (input.previewToken && candidate.websiteProject?.privateToken === input.previewToken)
-      || (input.publicSlug && candidate.websiteProject?.publicSlug === input.publicSlug && candidate.websiteProject.status === "published")
+      websiteAccess(candidate, input)
     ));
     if (!workspace) return NextResponse.json({ error: "This website assistant is unavailable." }, { status: 404 });
-    const project = workspace.websiteProject;
+    const project = websiteAccess(workspace, input);
     const previewAllowed = Boolean(input.previewToken && project?.privateToken === input.previewToken);
-    const publicAllowed = Boolean(input.publicSlug && project?.publicSlug === input.publicSlug && project.status === "published");
+    const publicAllowed = Boolean(input.publicSlug && websiteAccess(workspace, { publicSlug: input.publicSlug }));
     if (!project || (!previewAllowed && !publicAllowed)) return NextResponse.json({ error: "This website assistant is unavailable." }, { status: 404 });
     enforceRateLimit(visitorKey(request, project.id));
 
@@ -54,12 +55,13 @@ export async function POST(request: Request) {
     const usageSessionId = await createUsageSession(usage, agentId);
     const profile = workspace.profile;
     const googleConnection = await getGoogleConnection(workspace.workspaceId);
+    const actions = workflowAvailability(profile, googleConnection?.scope, String(process.env.PHONE_FRONT_DESK_FOLLOW_UP_ENABLED || "true").trim().toLowerCase() !== "false");
     return NextResponse.json({
       configured: true,
       conversationToken: token.token,
       signedUrl: signedUrl.signed_url,
       usageSessionId,
-      dynamicVariables: buildVoiceSessionVariables(profile, Boolean(googleConnection?.scope.some((scope) => scope.includes("calendar")))),
+      dynamicVariables: buildVoiceSessionVariables(profile, actions.calendarConnected, actions),
       assistant: { name: profile.assistantName, businessName: profile.businessName, greeting: profile.greeting },
       expiresAt: new Date(Date.now() + 14 * 60_000).toISOString(),
     }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });

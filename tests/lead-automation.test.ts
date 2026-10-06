@@ -9,7 +9,8 @@ import { createLeadCaptureQueue } from "@/features/voice-agent/capture-client";
 import { detectUrgency, extractCallerDetails } from "@/features/voice-agent/engine";
 import { localDateTimeToUtc } from "@/features/voice-agent/appointment-time";
 import { customerWorkspaceView } from "@/features/everonn/sample-records";
-import { bookingToolResult, buildVoiceSessionVariables } from "@/features/voice-agent/session-context";
+import { bookingToolResult } from "@/features/voice-agent/session-context";
+import { buildVoiceSessionVariables } from "@/features/voice-agent/session-prompt";
 
 const input: LeadCaptureInput = { requestId: "request_1234567890", callerName: "Sam", callerPhone: "+91 9876543210", callerEmail: "sam@example.com", reason: "Book Seasonal maintenance for my heat pump", urgency: "normal", source: "chat" };
 

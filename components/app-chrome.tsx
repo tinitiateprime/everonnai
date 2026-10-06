@@ -9,7 +9,7 @@ import { SiteHeader } from "./site-header";
 
 export function AppChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  if (pathname.startsWith("/sites") || pathname.startsWith("/preview") || pathname.startsWith("/login") || pathname.startsWith("/join")) return <>{children}</>;
+  if (pathname.startsWith("/sites") || pathname.startsWith("/preview") || pathname.startsWith("/login") || pathname.startsWith("/join") || pathname === "/workspace") return <>{children}</>;
   if (pathname.startsWith("/dashboard")) {
     return <WorkspaceProvider><ConversationProvider>{children}</ConversationProvider></WorkspaceProvider>;
   }

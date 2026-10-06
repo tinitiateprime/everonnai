@@ -9,6 +9,7 @@ function clean(environment: Environment, ...keys: string[]) {
 }
 
 function boundedNumber(value: string, fallback: number, minimum: number, maximum: number) {
+  if (!value.trim()) return fallback;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(minimum, Math.min(parsed, maximum)) : fallback;
 }
@@ -22,13 +23,13 @@ export function getGeminiWebsiteConfig(environment: Environment = process.env) {
     ...configuredModels,
     clean(environment, "GEMINI_WEBSITE_MODEL"),
     clean(environment, "GEMINI_MODEL"),
-    "gemini-2.5-flash",
+    "gemini-3.8-flash",
   ].filter(Boolean))].slice(0, 5);
 
   return {
     apiKey: clean(environment, "GEMINI_API_KEY", "GOOGLE_API_KEY"),
     models,
-    timeoutMs: boundedNumber(clean(environment, "GEMINI_WEBSITE_TIMEOUT_MS", "GEMINI_TIMEOUT_MS"), 55_000, 10_000, 110_000),
+    timeoutMs: boundedNumber(clean(environment, "GEMINI_WEBSITE_TIMEOUT_MS", "GEMINI_TIMEOUT_MS"), 150_000, 10_000, 240_000),
     retryDelayMs: boundedNumber(clean(environment, "GEMINI_WEBSITE_RETRY_DELAY_MS"), 900, 0, 10_000),
   };
 }
@@ -43,4 +44,8 @@ export function getProviderReadiness(environment: Environment = process.env) {
     googleServiceAccount: Boolean(clean(environment, "GOOGLE_CALENDAR_SERVICE_ACCOUNT_BASE64")),
     resend: Boolean(clean(environment, "RESEND_API_KEY") && clean(environment, "AUTH_EMAIL_FROM")),
   };
+}
+
+export function getGeminiWebsiteCodeTimeout(environment: Environment = process.env) {
+  return boundedNumber(clean(environment, "GEMINI_WEBSITE_CODE_TIMEOUT_MS"), 150_000, 30_000, 240_000);
 }

@@ -11,7 +11,7 @@ import type { UsageEvent, UsageSession } from "../features/usage/types";
 import { createUsageSession, readUsageEvents, readUsageSession, readUsageSessions, recordUsage } from "../lib/usage-store";
 import { createDemoWorkspace } from "../features/everonn/demo-data";
 import { generateWebsiteSpec } from "../features/website-studio/ai-generator";
-import { generateDeterministicWebsiteSpec } from "../features/website-studio/generator";
+import { generateDeterministicWebsiteSpec } from "./fixtures/website";
 
 const now = new Date("2026-10-03T10:00:00Z");
 function request(overrides: Partial<UsageEvent> = {}): UsageEvent {

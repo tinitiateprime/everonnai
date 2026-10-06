@@ -16,6 +16,7 @@ import {
   ExternalLink,
   Globe2,
   Gauge,
+  FolderGit2,
   Headphones,
   Inbox,
   LayoutDashboard,
@@ -40,6 +41,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useConversation } from "@elevenlabs/react";
 import { useEverOnnWorkspace } from "@/features/everonn/workspace-provider";
 import type { BusinessProfile, Lead, TeamMember, TranscriptMessage, WebsiteProject } from "@/features/everonn/types";
+import { readWebsiteGeneration, type WebsiteGenerationProgress } from "@/features/website-studio/progress";
 import { hasCapability } from "@/features/auth/rbac";
 import type { AuthActor } from "@/features/auth/types";
 import { extractCallerDetails } from "@/features/voice-agent/engine";
@@ -50,6 +52,8 @@ import { isSampleAppointment } from "@/features/everonn/sample-records";
 import { bookingToolResult } from "@/features/voice-agent/session-context";
 import { notifyElevenLabsUsage } from "@/features/usage/client";
 import { UsageSection } from "@/components/dashboard/usage-section";
+import { DOMAIN_SKILLS } from "@/features/agent-runtime/skill-registry";
+import { WebsiteDesignEditor } from "@/components/dashboard/website-design-editor";
 
 const sections = [
   ["overview", "Overview", LayoutDashboard],
@@ -129,6 +133,7 @@ export function EverOnnDashboard({ initialSection, actor }: { initialSection: st
           <small>{workspace.profile.verified ? "Verified business" : "Verification required"}</small>
         </div>
         <nav aria-label="Dashboard navigation">
+          <Link className="eo-project-workspace-link" href="/workspace"><FolderGit2 /><span>Project workspace</span></Link>
           {sections.filter(([key]) => canOpenSection(actor, key)).map(([key, label, Icon]) => (
             <button className={active === key ? "active" : ""} onClick={() => navigate(key)} key={key}>
               <Icon /><span>{label}</span>{key === "inbox" && <b>{workspace.leads.filter((lead) => lead.status === "new").length}</b>}
@@ -190,7 +195,7 @@ function Overview({ actor }: { actor: AuthActor }) {
       </section>
       <section className="eo-panel eo-channel-health">
         <div className="eo-panel-heading"><div><span>Customer front</span><h2>Channel readiness</h2></div></div>
-        {[["Website", workspace.websiteProject?.status === "published" ? "Live" : workspace.websiteProject ? "Private preview" : "Not generated", Globe2], ["AI website chat", workspace.integrations.gemini === "ready" || workspace.integrations.elevenLabs === "ready" ? "Provider configured" : "Not configured", MessageSquareText], ["AI phone", workspace.integrations.elevenLabs === "ready" ? "Voice provider configured" : "Not configured", Headphones], ["Google Calendar", workspace.integrations.googleCalendar === "connected" ? "Connected" : "Not connected", CalendarCheck]].map(([label, state, Icon]) => <div className="eo-health-row" key={String(label)}><span><Icon /></span><div><strong>{String(label)}</strong><small>{String(state)}</small></div><i className={String(state).includes("Not") ? "off" : ""} /></div>)}
+        {[["Website", (workspace.publishedWebsite || workspace.websiteProject?.status === "published") ? "Live" : workspace.websiteProject ? "Private preview" : "Not generated", Globe2], ["AI website chat", workspace.integrations.gemini === "ready" || workspace.integrations.elevenLabs === "ready" ? "Provider configured" : "Not configured", MessageSquareText], ["AI phone", workspace.integrations.elevenLabs === "ready" ? "Voice provider configured" : "Not configured", Headphones], ["Google Calendar", workspace.integrations.googleCalendar === "connected" ? "Connected" : "Not connected", CalendarCheck]].map(([label, state, Icon]) => <div className="eo-health-row" key={String(label)}><span><Icon /></span><div><strong>{String(label)}</strong><small>{String(state)}</small></div><i className={String(state).includes("Not") ? "off" : ""} /></div>)}
         {hasCapability(actor.role, "business:configure") && <Link className="eo-secondary-button" href="/dashboard/settings">Manage connections</Link>}
       </section>
     </div>
@@ -347,6 +352,7 @@ function KnowledgeSection() {
         <div className="eo-form-grid">
           <label>Business name<input value={profile.businessName} onChange={(event) => field("businessName", event.target.value)} /></label>
           <label>Business type<input value={profile.businessType} onChange={(event) => field("businessType", event.target.value)} /></label>
+          <label>Industry intelligence<select value={profile.skillId || "general"} onChange={(event) => field("skillId", event.target.value as BusinessProfile["skillId"])}>{DOMAIN_SKILLS.map((skill) => <option value={skill.id} key={skill.id}>{skill.label}</option>)}</select></label>
           <label className="wide">Description<textarea rows={4} value={profile.description} onChange={(event) => field("description", event.target.value)} /></label>
           <label>Business phone<input value={profile.phone} onChange={(event) => field("phone", event.target.value)} /></label>
           <label>Follow-up email<input type="email" value={profile.email} onChange={(event) => field("email", event.target.value)} /></label>
@@ -608,24 +614,55 @@ function AiAgentSection() {
 }
 
 function WebsiteSection() {
-  const { workspace, setWebsiteProject, advanceWebsiteProject } = useEverOnnWorkspace();
+  const { workspace, setWebsiteProject, advanceWebsiteProject, refreshWebsiteState, syncStatus } = useEverOnnWorkspace();
   const project = workspace.websiteProject;
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
+  const [progress, setProgress] = useState<WebsiteGenerationProgress | null>(null);
 
   async function generate() {
-    setGenerating(true); setError("");
+    setGenerating(true); setError(""); setProgress({ stage: "content", message: "Starting your website build." });
     try {
-      const response = await fetch("/api/website-studio", { method: "POST", headers: { "Content-Type": "application/json", "x-everonn-workspace": workspace.workspaceId }, body: JSON.stringify({ profile: workspace.profile }) });
-      const data = await response.json() as { project?: WebsiteProject; error?: string };
+      if (syncStatus === "loading" || syncStatus === "saving" || syncStatus === "error") throw new Error("Wait for your business profile to finish saving before generating a website.");
+      const response = await fetch("/api/website-studio", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/x-ndjson", "x-everonn-workspace": workspace.workspaceId }, body: JSON.stringify({ workspaceId: workspace.workspaceId }) });
+      const data = await readWebsiteGeneration(response, setProgress);
       if (!response.ok || !data.project) throw new Error(data.error || "Unable to generate the website project.");
       setWebsiteProject(data.project);
+      await refreshWebsiteState();
+      return true;
     } catch (generationError) {
       setError(generationError instanceof Error ? generationError.message : "Unable to generate the website project.");
+      return false;
     } finally { setGenerating(false); }
   }
 
-  return <><PageHeading eyebrow="AI Website Studio" title="Generate, verify, and publish from the same business profile." copy="Three private concepts are generated from approved facts and held behind owner claim, verification, and approval gates." action={<button className="eo-primary-button" onClick={generate} disabled={generating}>{generating ? <><RefreshCw className="spin" /> Generating</> : <><Sparkles /> {project ? "Regenerate concepts" : "Generate three concepts"}</>}</button>} />{error && <div className="eo-error"><CircleAlert /> {error}</div>}{!project ? <section className="eo-panel eo-empty-studio"><div><Globe2 /></div><h2>Your private website concepts begin here.</h2><p>EverOnn will use {workspace.profile.services.filter((item) => item.active).length} active services, {workspace.profile.knowledge.filter((item) => item.approved).length} approved answers, and the verified business profile.</p><button className="eo-primary-button" onClick={generate}><Sparkles /> Generate website</button></section> : <WebsiteProjectView project={project} advance={advanceWebsiteProject} />}</>;
+  return <>
+    <PageHeading eyebrow="AI Website Studio" title="A website shaped around your business." copy="Explore three distinct design compositions, request changes in your own words, and review every new version before publishing." action={<button className="eo-primary-button" onClick={generate} disabled={generating || syncStatus !== "saved"}>{generating ? <><RefreshCw className="spin" /> Generating</> : <><Sparkles /> {project ? "Regenerate concepts" : "Generate three concepts"}</>}</button>} />
+    <WebsiteDesignEditor generating={generating} onGenerate={generate} />
+    {generating && progress && <div className="eo-notice" role="status" aria-live="polite"><RefreshCw className="spin" /><div><strong>{progress.message}</strong><p>Your published website stays available while this private preview is built. Larger service catalogues take several minutes.</p>{progress.totalPages && <progress aria-label="Website pages complete" max={progress.totalPages} value={progress.completedPages || 0} />}</div></div>}
+    <WebsiteReleaseView />
+    {error && <div className="eo-error"><CircleAlert /> {error}</div>}
+    {!project ? <section className="eo-panel eo-empty-studio"><div><Globe2 /></div><h2>Your private website concepts begin here.</h2><p>EverOnn will use {workspace.profile.services.filter((item) => item.active).length} active services, {workspace.profile.knowledge.filter((item) => item.approved).length} approved answers, and your saved design direction.</p><button className="eo-primary-button" onClick={generate} disabled={generating || syncStatus !== "saved"}><Sparkles /> Generate website</button></section> : <WebsiteProjectView project={project} advance={advanceWebsiteProject} />}
+  </>;
+}
+
+function WebsiteReleaseView() {
+  const { workspace, refreshWebsiteState, syncStatus } = useEverOnnWorkspace();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const live = workspace.publishedWebsite;
+  if (!live) return null;
+  async function restore(releaseId: string) {
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/website-studio/status", { method: "POST", headers: { "Content-Type": "application/json", "x-everonn-workspace": workspace.workspaceId }, body: JSON.stringify({ rollbackReleaseId: releaseId, expectedLiveReleaseId: live!.id }) });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Unable to restore this release.");
+      await refreshWebsiteState();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to restore this release."); }
+    finally { setBusy(false); }
+  }
+  return <section className="eo-panel eo-website-releases"><div><strong>Your published website stays live while you review revisions.</strong><a href={`/sites/${live.project.publicSlug}`} target="_blank" rel="noreferrer">View live website <ExternalLink /></a></div>{workspace.websiteReleases?.length ? <details><summary>Previous published versions ({workspace.websiteReleases.length})</summary>{workspace.websiteReleases.map((release) => <div key={release.id}><span>{formatDate(release.publishedAt)} · {release.project.selectedConcept}</span><button className="eo-secondary-button" disabled={busy || syncStatus !== "saved"} onClick={() => void restore(release.id)}>Restore this version</button></div>)}</details> : null}{error && <p className="eo-error" role="alert">{error}</p>}</section>;
 }
 
 function WebsiteProjectView({ project, advance }: { project: WebsiteProject; advance: (status: WebsiteProject["status"], concept?: WebsiteProject["selectedConcept"]) => Promise<void> }) {
@@ -635,7 +672,6 @@ function WebsiteProjectView({ project, advance }: { project: WebsiteProject; adv
   const stepIndex = ["generated", "claimed", "verified", "approved", "published"].indexOf(project.status);
   const next = ["claimed", "verified", "approved", "published"][Math.max(0, stepIndex)] as WebsiteProject["status"] | undefined;
   const actionLabels: Partial<Record<WebsiteProject["status"], string>> = { generated: "Claim this preview", claimed: "Verify business owner", verified: "Approve for publishing", approved: "Publish website" };
-  const heroStyle = project.spec.media.hero ? { "--eo-site-image": `url("${project.spec.media.hero.url}")` } as React.CSSProperties : undefined;
 
   async function updatePublishing(status: WebsiteProject["status"]) {
     setPublishing(true);
@@ -656,6 +692,7 @@ function WebsiteProjectView({ project, advance }: { project: WebsiteProject; adv
         <h2>{project.spec.hero.headline}</h2>
         <p>Created {formatDate(project.createdAt)} · Home + Services + {project.spec.services.length} service pages + About + Contact</p>
         <small>{project.generation ? `Generated by Gemini · ${project.generation.model}` : "Legacy project · regenerate to use verified Gemini-only generation"}</small>
+        {project.spec.design && <p>{project.spec.design.rationale}</p>}
       </div>
       <StatusPill tone={project.status === "published" ? "good" : "warning"}>{project.status}</StatusPill>
       <ol>{["Generated", "Claimed", "Owner verified", "Approved", "Published"].map((label, index) => <li className={index <= stepIndex ? "done" : ""} key={label}><i>{index < stepIndex ? <Check /> : index + 1}</i><span>{label}</span></li>)}</ol>
@@ -663,14 +700,7 @@ function WebsiteProjectView({ project, advance }: { project: WebsiteProject; adv
     <div className="eo-studio-grid">
       <section className="eo-panel eo-concept-panel">
         <div className="eo-concept-tabs">{project.concepts.map((item) => <button className={concept === item ? "active" : ""} onClick={() => setConcept(item)} key={item}>{item}</button>)}</div>
-        <div className={`eo-site-mini eo-site-${concept}`}>
-          <header><strong>{project.spec.brand.tagline}</strong><span>Services · About · Contact</span></header>
-          <div className="eo-site-hero" style={heroStyle}><small>{project.spec.hero.eyebrow}</small><h2>{project.spec.hero.headline}</h2><p>{project.spec.hero.subheadline}</p><button>{project.spec.hero.primaryCta}</button></div>
-          <div className="eo-site-services">{project.spec.services.slice(0, 3).map((service) => {
-            const image = project.spec.media.services[service.id];
-            return <article key={service.id}>{image && <div className="eo-site-service-image" style={{ backgroundImage: `url("${image.url}")` }} />}<span>0{project.spec.services.indexOf(service) + 1}</span><strong>{service.name}</strong><p>{service.summary}</p></article>;
-          })}</div>
-        </div>
+        <iframe className="eo-generated-preview" title={`${concept} website preview`} src={`/preview/${project.privateToken}?theme=${concept}`} loading="lazy" sandbox="allow-scripts allow-same-origin allow-forms" />
         <div className="eo-concept-actions">
           <button className="eo-secondary-button" onClick={() => void updatePublishing(project.status)} disabled={publishing}><Check /> {publishing ? "Saving…" : `Select ${concept}`}</button>
           <Link className="eo-primary-button" href={`/preview/${project.privateToken}?theme=${concept}`} target="_blank">Open multi-page preview <ExternalLink /></Link>

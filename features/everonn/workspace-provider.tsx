@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createDemoWorkspace } from "./demo-data";
 import { customerWorkspaceView, isSampleAppointment } from "./sample-records";
+import type { ScopedMemory } from "@/features/agent-runtime/types";
 import type {
   Appointment,
   BusinessProfile,
@@ -26,6 +27,8 @@ type WorkspaceContextValue = {
   syncStatus: WorkspaceSyncStatus;
   updateProfile: (patch: Partial<BusinessProfile>) => void;
   setWebsiteProject: (project: WebsiteProject | null) => void;
+  setAgentMemory: (memory: ScopedMemory[]) => void;
+  refreshWebsiteState: () => Promise<void>;
   advanceWebsiteProject: (status: WebsiteProject["status"], selectedConcept?: WebsiteProject["selectedConcept"]) => Promise<void>;
   addConversation: (conversation: Conversation) => void;
   addLead: (lead: Lead) => void;
@@ -85,7 +88,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         const response = await fetch("/api/workspace", {
           method: "PUT",
           headers: { "Content-Type": "application/json", "x-everonn-workspace": workspace.workspaceId },
-          body: JSON.stringify({ workspace }),
+          body: JSON.stringify({ workspace: { ...workspace, websiteProject: null, publishedWebsite: undefined, websiteReleases: undefined } }),
           signal: controller.signal,
         });
         if (handleExpiredSession(response, router.replace)) return;
@@ -134,6 +137,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     hydrated,
     persistenceReady,
     syncStatus,
+    setAgentMemory(memory) { setWorkspace((current) => ({ ...current, aiMemory: memory })); },
     updateProfile(patch) {
       setWorkspace((current) => ({
         ...current,
@@ -142,6 +146,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     },
     setWebsiteProject(project) {
       setWorkspace((current) => ({ ...current, websiteProject: project }));
+    },
+    async refreshWebsiteState() {
+      const response = await fetch("/api/workspace", { cache: "no-store" });
+      if (handleExpiredSession(response, router.replace)) return;
+      const data = await response.json() as { workspace?: EverOnnWorkspace; error?: string };
+      if (!response.ok || !data.workspace) throw new Error(data.error || "Unable to refresh website releases.");
+      setWorkspace((current) => ({ ...current, websiteProject: data.workspace!.websiteProject, publishedWebsite: data.workspace!.publishedWebsite, websiteReleases: data.workspace!.websiteReleases }));
     },
     async advanceWebsiteProject(status, selectedConcept) {
       const project = workspace.websiteProject;
@@ -155,7 +166,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         });
         const data = await response.json() as { project?: WebsiteProject; error?: string };
         if (!response.ok || !data.project) throw new Error(data.error || "Unable to update the website project.");
-        setWorkspace((current) => ({ ...current, websiteProject: data.project! }));
+        const refreshed = await fetch("/api/workspace", { cache: "no-store" });
+        const saved = await refreshed.json() as { workspace?: EverOnnWorkspace };
+        setWorkspace((current) => ({ ...current, websiteProject: data.project!, publishedWebsite: saved.workspace?.publishedWebsite, websiteReleases: saved.workspace?.websiteReleases }));
         setSyncStatus("saved");
       } catch (error) {
         setSyncStatus("error");
@@ -215,7 +228,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         };
       });
     },
-  }), [hydrated, persistenceReady, syncStatus, workspace]);
+  }), [hydrated, persistenceReady, syncStatus, workspace, router]);
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }

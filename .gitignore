@@ -13,3 +13,6 @@ data/usage/
 .vercel
 coverage
 *.tsbuildinfo
+/artifacts/
+
+data/project-repositories.json

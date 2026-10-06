@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createDemoWorkspace } from "@/features/everonn/demo-data";
-import { createWebsiteProject, generateDeterministicWebsiteSpec, runWebsiteQa } from "@/features/website-studio/generator";
-import { buildReceptionistPrompt, detectUrgency, extractCallerDetails } from "@/features/voice-agent/engine";
+import { generateDeterministicWebsiteSpec } from "./fixtures/website";
+import { createWebsiteProject, runWebsiteQa } from "@/features/website-studio/generator";
+import { detectUrgency, extractCallerDetails } from "@/features/voice-agent/engine";
+import { buildReceptionistPrompt } from "@/features/agent-runtime/prompt-composer";
 import { bookGoogleCalendarAppointment, buildGmailRaw } from "@/features/integrations/google";
 import { localDateTimeToUtc, parseEmbeddedJsonObject } from "@/features/voice-agent/appointment-time";
 
@@ -26,6 +28,18 @@ test("unsupported claims fail website QA", () => {
   const qa = runWebsiteQa(project.spec, profile);
   assert.equal(qa.passed, false);
   assert.equal(qa.checks.find((check) => check.key === "no-unsupported-claims")?.passed, false);
+});
+
+test("grounding scans customer copy while internal design and image-search notes stay out", () => {
+  const profile = createDemoWorkspace().profile;
+  const spec = generateDeterministicWebsiteSpec(profile);
+  spec.design = { rationale: "Avoid placeholder copy and invented certified credentials." };
+  spec.mediaPlan.heroQuery = "certified equipment photograph";
+  assert.equal(runWebsiteQa(spec, profile).passed, true);
+  spec.seo.description = "Certified seasonal care.";
+  assert.equal(runWebsiteQa(spec, profile).checks.find((check) => check.key === "no-unsupported-claims")?.passed, false);
+  spec.seo.description = "Coming soon";
+  assert.equal(runWebsiteQa(spec, profile).checks.find((check) => check.key === "no-placeholders")?.passed, false);
 });
 
 test("phone front desk detects urgency and instructs AI not to invent pricing", () => {

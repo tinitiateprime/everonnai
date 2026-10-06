@@ -5,6 +5,8 @@ import path from "node:path";
 import type { EverOnnWorkspace } from "@/features/everonn/types";
 import { createDemoWorkspace } from "@/features/everonn/demo-data";
 import { appDatabaseConfigured, appRecords } from "./app-records";
+import { validateMemoryScope } from "@/features/agent-runtime/memory";
+import { selectedDomains } from "@/features/agent-runtime/skill-registry";
 
 type WorkspaceCollection = { version: 1; workspaces: EverOnnWorkspace[] };
 
@@ -72,6 +74,8 @@ function validateWorkspace(value: unknown): asserts value is EverOnnWorkspace {
   if (!workspace.profile || workspace.profile.workspaceId !== workspace.workspaceId) {
     throw new Error("The EverOnn business profile is outside its workspace scope.");
   }
+  selectedDomains(workspace.profile);
+  validateMemoryScope(workspace.aiMemory, workspace.workspaceId);
   const collections = [workspace.contacts, workspace.leads, workspace.conversations, workspace.appointments];
   if (collections.some((collection) => !Array.isArray(collection))) {
     throw new Error("The EverOnn JSON file is missing a required collection.");
@@ -86,6 +90,9 @@ function validateWorkspace(value: unknown): asserts value is EverOnnWorkspace {
   }
   if (workspace.websiteProject && workspace.websiteProject.workspaceId !== workspace.workspaceId) {
     throw new Error("The website project is outside its workspace scope.");
+  }
+  for (const release of [workspace.publishedWebsite, ...(workspace.websiteReleases || [])].filter(Boolean)) {
+    if (release!.project.workspaceId !== workspace.workspaceId || release!.profile.workspaceId !== workspace.workspaceId || release!.project.status !== "published") throw new Error("The website release is outside its workspace scope.");
   }
 }
 

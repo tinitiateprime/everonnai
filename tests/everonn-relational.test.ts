@@ -5,6 +5,7 @@ import test from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import { createAppRecords, type AppQuery } from "../lib/app-records";
 import { createUsagePostgres } from "../lib/usage-postgres";
+import { saveWebsiteMemory, EMPTY_WEBSITE_PREFERENCES } from "../features/agent-runtime/memory";
 
 const migration = (name: string) => readFile(new URL("../supabase/migrations/" + name, import.meta.url), "utf8");
 const keyFor = (id: string) => "workspaces/" + createHash("sha256").update(id).digest("hex");
@@ -26,7 +27,10 @@ async function workspace(id = "test_primary") {
   seed.conversations = [{id:"conversation_1",workspaceId:id,channel:"chat",status:"completed",summary:"fixture",
     messages:[{id:"m2",role:"user",text:"Hello",at:"2026-10-04T01:00:00Z"},{id:"m1",role:"assistant",text:"Welcome",at:"2026-10-04T01:00:01Z"}]}];
   seed.websiteProject = { id:"website_1",workspaceId:id,status:"draft",publicSlug:"fixture-site",spec:{nested:["retained"]} };
+  seed.publishedWebsite = { id: "release_1", project: { ...seed.websiteProject, status: "published", spec: { code: { schemaVersion: 1, concepts: { editorial: { css: ".site{display:grid}", pages: [{ path: "/", html: "<main>Saved generated page</main>" }] } } } } }, profile: structuredClone(seed.profile), publishedAt: "2026-10-04T01:00:00Z" };
+  seed.websiteReleases = [{ ...structuredClone(seed.publishedWebsite), id: "release_0" }];
   seed.extraFixture = {keep:true};
+  seed.aiMemory = saveWebsiteMemory({ profile: seed.profile, actor: { workspaceId: id, role: "owner", userId: "fixture-owner" }, preferences: { ...EMPTY_WEBSITE_PREFERENCES, brief: "Black and gold", rejected: ["Technician stock photos"] } });
   return seed;
 }
 const account = (workspaceId = "test_primary", id = "owner_1") => ({

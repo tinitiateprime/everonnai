@@ -5,6 +5,7 @@ import { parseEmbeddedJsonObject } from "./appointment-time";
 import { validateExtractedIntent, type AppointmentIntent } from "./appointment-validation";
 import { meteredGeminiRequest } from "@/features/usage/gemini";
 import type { UsageContext } from "@/features/usage/types";
+import { composeAgentContext } from "@/features/agent-runtime/prompt-composer";
 
 export { localDateTimeToUtc } from "./appointment-time";
 
@@ -45,23 +46,7 @@ export async function extractAppointmentIntent(
   const config = options.config || getGeminiWebsiteConfig();
   if (!config.apiKey) throw new Error("Gemini is required to understand appointment requests.");
   const now = options.now || new Date();
-  const prompt = `Extract an appointment request from this customer message.
-
-CURRENT UTC TIME: ${now.toISOString()}
-BUSINESS TIME ZONE: ${profile.timeZone}
-APPOINTMENT DURATION: ${profile.appointmentDurationMinutes} minutes
-APPROVED SERVICES: ${profile.services.filter((service) => service.active).map((service) => service.name).join(", ")}
-CUSTOMER MESSAGE (customer turns only, in order): ${clean(reason, 12000)}
-
-Rules:
-- appointmentRequested is true only when the customer explicitly asks to schedule, book, or request an appointment.
-- Resolve relative dates using the current time and business time zone.
-- startsAtLocal must be YYYY-MM-DDTHH:mm:ss in the business time zone, with no UTC suffix or offset.
-- If either the date or time is missing or ambiguous, return an empty startsAtLocal. Never guess.
-- Match service to exactly one approved service. If unclear or unsupported, return an empty service.
-- serviceEvidence, dateEvidence, and timeEvidence must each quote the customer's exact words. Empty evidence means missing information. Never use assistant suggestions as customer preferences.
-- Use the most recent explicit preference when the customer corrects a date or time. A bare number, morning, afternoon, ASAP, or next week is not an exact time/date.
-- Return only the JSON object.`;
+  const prompt = composeAgentContext({ profile, capabilities: ["appointment-booking"], now });
 
   let lastError = "Gemini could not understand the appointment request.";
   for (const [index, model] of config.models.slice(0, 2).entries()) {
@@ -70,7 +55,8 @@ Rules:
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          systemInstruction: { parts: [{ text: prompt.systemInstruction }] },
+          contents: [{ role: "user", parts: [{ text: `${prompt.context}\n\nExtract appointment intent from these customer turns, in order:\n${clean(reason, 12000)}` }] }],
           generationConfig: { responseMimeType: "application/json", responseSchema, temperature: 0, maxOutputTokens: 2048 },
         }),
         signal: AbortSignal.timeout(Math.min(config.timeoutMs, 25_000)),

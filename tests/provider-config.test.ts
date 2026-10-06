@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { googleOAuthRedirectUri } from "../features/integrations/google-oauth";
-import { getGeminiWebsiteConfig, getProviderReadiness } from "../lib/provider-config";
+import { getGeminiWebsiteCodeTimeout, getGeminiWebsiteConfig, getProviderReadiness } from "../lib/provider-config";
 
 test("AgenticThat provider variable names work unchanged", () => {
   const environment = {
@@ -50,4 +50,17 @@ test("Google OAuth callback uses Netlify's stable site URL instead of an immutab
     if (previousSiteName === undefined) delete process.env.SITE_NAME;
     else process.env.SITE_NAME = previousSiteName;
   }
+});
+
+test("missing timeout configuration uses defaults and explicit values stay bounded", () => {
+  assert.equal(getGeminiWebsiteConfig({}).timeoutMs, 150_000);
+  assert.equal(getGeminiWebsiteConfig({ GEMINI_WEBSITE_TIMEOUT_MS: "240000" }).timeoutMs, 240_000);
+  assert.equal(getGeminiWebsiteConfig({ GEMINI_WEBSITE_TIMEOUT_MS: "900000" }).timeoutMs, 240_000);
+  assert.equal(getGeminiWebsiteConfig({}).retryDelayMs, 900);
+  assert.equal(getGeminiWebsiteCodeTimeout({}), 150_000);
+  assert.equal(getGeminiWebsiteCodeTimeout({ GEMINI_WEBSITE_CODE_TIMEOUT_MS: " " }), 150_000);
+  assert.equal(getGeminiWebsiteCodeTimeout({ GEMINI_WEBSITE_CODE_TIMEOUT_MS: "invalid" }), 150_000);
+  assert.equal(getGeminiWebsiteCodeTimeout({ GEMINI_WEBSITE_CODE_TIMEOUT_MS: "240000" }), 240_000);
+  assert.equal(getGeminiWebsiteCodeTimeout({ GEMINI_WEBSITE_CODE_TIMEOUT_MS: "900000" }), 240_000);
+  assert.equal(getGeminiWebsiteCodeTimeout({ GEMINI_WEBSITE_CODE_TIMEOUT_MS: "0" }), 30_000);
 });

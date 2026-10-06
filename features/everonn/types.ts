@@ -1,3 +1,5 @@
+import type { DomainSkillId, ScopedMemory, SkillTrace, WebsiteDesign } from "@/features/agent-runtime/types";
+
 export type WorkspaceRole = "owner" | "manager" | "agent" | "viewer";
 export type Urgency = "low" | "normal" | "high";
 
@@ -22,6 +24,8 @@ export type BusinessProfile = {
   workspaceId: string;
   businessName: string;
   businessType: string;
+  skillId?: DomainSkillId;
+  domainSkillIds?: DomainSkillId[];
   description: string;
   phone: string;
   email: string;
@@ -141,6 +145,8 @@ export type WebsiteServiceSpec = {
 
 export type WebsiteSpec = {
   schemaVersion: 1;
+  design?: Pick<WebsiteDesign, "rationale">;
+  code?: WebsiteCode;
   seo: { title: string; description: string };
   brand: { tagline: string; positioning: string };
   visualDirection: { primaryColor: string; accentColor: string; mood: string };
@@ -169,6 +175,21 @@ export type WebsiteMediaAsset = {
   sourceUrl: string;
 };
 
+export type WebsiteCodePage = { path: string; title: string; description: string; html: string };
+export type WebsiteCodeConcept = { name: string; rationale: string; css: string; pages: WebsiteCodePage[]; models?: string[] };
+export type WebsiteCode = {
+  schemaVersion: 1;
+  concepts: Record<"editorial" | "momentum" | "aura", WebsiteCodeConcept>;
+  validatedAt: string;
+};
+
+export type WebsiteRelease = {
+  id: string;
+  project: WebsiteProject;
+  profile: BusinessProfile;
+  publishedAt: string;
+};
+
 export type WebsiteProject = {
   id: string;
   workspaceId: string;
@@ -177,7 +198,8 @@ export type WebsiteProject = {
   concepts: Array<"editorial" | "momentum" | "aura">;
   selectedConcept: "editorial" | "momentum" | "aura" | null;
   status: "draft" | "generated" | "claimed" | "verified" | "approved" | "published";
-  generation?: { provider: "gemini"; model: string; generatedAt: string };
+  profileSnapshot?: BusinessProfile;
+  generation?: { provider: "gemini"; model: string; generatedAt: string; skills?: SkillTrace[] };
   spec: WebsiteSpec;
   qa: { passed: boolean; checks: QaCheck[]; checkedAt: string };
   createdAt: string;
@@ -208,7 +230,10 @@ export type EverOnnWorkspace = {
   conversations: Conversation[];
   appointments: Appointment[];
   websiteProject: WebsiteProject | null;
+  publishedWebsite?: WebsiteRelease | null;
+  websiteReleases?: WebsiteRelease[];
   integrations: IntegrationState;
   team: TeamMember[];
+  aiMemory?: ScopedMemory[];
   automationLock?: { token: string; expiresAt: string };
 };

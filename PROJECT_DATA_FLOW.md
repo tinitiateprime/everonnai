@@ -148,46 +148,73 @@ Only `approved: true` knowledge items are inserted into the receptionist prompt.
 
 ```mermaid
 sequenceDiagram
-  participant O as Owner browser
+  participant O as Owner
   participant W as Website Studio API
   participant G as Gemini
   participant P as Pexels
   participant S as Workspace store
-
-  O->>W: POST /api/website-studio + BusinessProfile
-  W->>W: Validate business name, type, description, active service
-  W->>G: Request schema-constrained multi-page website JSON
-  G-->>W: Structured content
-  W->>W: Verify completeness, normalize to approved services, run QA
-  W->>P: Search hero, gallery, and service photography
-  P-->>W: Ranked landscape images
-  W->>S: Save profile + generated WebsiteProject
-  W-->>O: Project, model, media result
+  O->>W: Generate or apply remembered changes
+  W->>S: Read canonical facts, approved memory and draft
+  W->>G: Markdown + facts + content-plan schema
+  G-->>W: Grounded copy, brand, SEO and media direction
+  W->>W: Validate active services and factual QA
+  opt Content fails validation
+    W->>G: Original content + failed checks, one repair per model
+    G-->>W: Complete corrected content plan
+    W->>W: Rerun completeness and grounding checks
+  end
+  W->>P: Resolve approved photography when requested
+  P-->>W: Available image asset manifest
+  W->>G: Three parallel original CSS + homepage requests
+  G-->>W: Original stylesheet and Home per concept
+  loop Remaining routes in batches of up to three pages
+    W->>G: Requested routes + same CSS/Home design reference
+    G-->>W: Requested page fragments only
+    W->>W: Validate batch HTML/CSS/grounding
+    W-->>O: Stream completed-page counts
+    opt Timeout or transient provider failure
+      W->>G: Retry this batch with another configured Gemini model
+    end
+  end
+  W->>W: Recheck complete route coverage and grounding
+  W->>G: One bounded validation repair per invalid batch
+  W->>S: Compare original facts/memory/draft, save new private draft
+  Note over S: Published release remains live
+  W-->>O: Actual generated page preview + validation results
 ```
 
-Important controls:
+Gemini determines page structure and CSS, without hero/service template enums. The content plan remains structured to establish approved services, copy, routes, SEO and media facts. Each code artifact includes every required page. Scripts/handlers/embeds/forms, unknown contacts/routes/images, unsafe CSS resource loading and dependency execution are rejected. Safe inline declarations are parsed with the same stylesheet guards and moved into generated classes; stored HTML has no inline styles. CSS is parsed, all selectors are scoped under the generated surface, keyframes are renamed, and paint/layout containment isolates controls. Failed content validation receives one complete repair per model with the original output and exact check messages; each invalid code batch receives one repair with combined completeness/route/grounding feedback. The provider schema bounds each response to its exact requested page count; final validation still checks unique route coverage. Three concepts run independently, with at most three code requests active. CSS is created with each homepage and reused across its remaining page batches; configured-model fallbacks retry the affected batch while retaining completed pages in this request. Successful code model IDs are stored on each concept. A fatal code error cancels outstanding code requests. Code output is bounded to 16,384 tokens per call, with final whole-site coverage checked after assembly. Persistent errors expose their failed checks. QA inspects customer-visible content rather than internal design notes or structural selectors, while still checking SEO, accessible labels and CSS-generated text. Repairs do not relax rules. All provider attempts are metered.
 
-- Gemini must return every approved active service; it cannot add unsupported services.
-- Normalization keeps original service IDs and names.
-- QA checks owner verification, service coverage, complete pages, FAQ depth, contact path, placeholders, and unsupported claims.
-- Pexels failures do not replace content with fake images; the project can have missing media plus a warning.
-- Regenerating creates a new project and a new private token.
+The server renders validated fragments and generated CSS. Local route links are rewritten for the exact preview capability or public slug. Booking/chat/voice anchors are connected to application controls rather than generated integration code. Pexels failures leave an explicit limited asset manifest for Gemini; no-photography skips Pexels. Equipment filtering uses provider metadata, not visual recognition. Generated code is limited to sixteen services and bounded HTML/CSS/artifact sizes. Code calls default to 150 seconds via `GEMINI_WEBSITE_CODE_TIMEOUT_MS` (30–240 seconds); content calls have their separate timeout. Missing configuration uses the intended default, not the lower bound. Generation is synchronous; browser screenshot review is a separate local verification workflow, not an automatic production visual-evaluation worker. The dashboard opts into a no-store NDJSON progress stream with heartbeats, stage updates and completed-page counts. Authorization is checked before streaming; only a persisted final project counts as success. Non-stream requests retain JSON behavior. Completed batches are not durable across process loss, and streams still obey the host's absolute request-duration limit.
 
-### Preview flow
+### Owner changes and scoped memory
 
-`/preview/[privateToken]` is a capability link. The server reads the project, validates the exact private token, and renders the preview as `noindex`. `/preview/demo` works only for a signed-in actor belonging to the workspace. Customer-assistant API calls always receive the project's real private token.
+Owners/managers save brief, accepted/rejected choices, brand colors and presentation hints through the authenticated memory endpoint. Workspace/project records are full snapshots, project overrides workspace, and newest request wins within scope. Twenty chronological requests are retained with revision conflicts returning 409. Legacy layout controls are compatibility hints, not renderer choices; the layout picker is removed. Visitors cannot write memory or company configuration. Generic workspace saves preserve all server-owned website/release/memory fields. A saved preference does not itself publish or regenerate.
 
-### Publish flow
+Owners/managers can now clear the selected scope through DELETE on the same endpoint. The server checks origin, role, business, explicit scope and current record revision before removing it. A stale revision returns 409; missing revision returns 400. Clearing project preferences allows remaining business defaults to apply; published releases and the other scope remain. Memory validation rejects unknown fields, invalid/duplicate scopes, oversized histories and recognised credential/private-key patterns. MEMORY.md is injected as policy; the data remains scoped workspace persistence rather than a shared Markdown user-history file.
 
-1. Owner selects a concept.
-2. Each button calls `POST /api/website-studio/status`.
-3. Server allows only the next state: `generated → claimed → verified → approved → published`.
-4. Publication requires passed QA and a selected concept.
-5. `/sites/[publicSlug]` reads the published project on the server.
-6. Unknown pages, wrong slugs, unpublished projects, or unselected concepts return 404.
-7. The browser on a published site never downloads `/api/workspace`.
+### Runtime instruction and reference flow
 
-Generated routes are Home, Services, one route per service, About, and Contact.
+1. The server selects shared policies, capability instructions and explicit domain skills from the allowlisted registry; all assets have versions/digests.
+2. SYSTEM/GUARDRAILS plus PLUGINS/MEMORY policy text enter the system instruction. Only active services and approved knowledge enter the business context.
+3. Selected-domain SOURCES becomes reference data with approved HTTPS URLs, bounded verified notes and provenance. Provided snippets have `contentProvided:true` and `fetchedAtRuntime:false`; no runtime web fetching or promotion to company facts occurs. Platform policy and approved business facts take precedence.
+4. APPLICATION_WORKFLOWS describes existing application-managed actions. Chat/voice derive Calendar/Gmail availability from actual business connection scopes; missing readiness disables those actions. The backend retains all execution authority.
+5. Website requests additionally receive validated approved preferences for their business/project; assistant/booking contexts do not receive website preference history.
+6. Gemini uses this assembled context in its requests; ElevenLabs receives the same assembly through both `approved_instructions` and the currently consumed `faq_notes` variable. Immediate safety and missing-slot replies precede optional connection lookup.
+7. EVALS data is loaded only by the evaluation workflow, never this runtime composer. The CLI executes the document's case definitions, with provider calls isolated and explicit; its results are narrower than full document acceptance.
+
+### Preview and release flow
+
+`/preview/[token]` reads the current private draft, validates the capability and route, and renders noindex. `/preview/demo` requires the matching signed-in workspace. The dashboard iframe displays this actual preview. Existing saved sites without page code use a legacy compatibility reader, while new generation always requires valid Gemini code.
+
+1. Owner selects a concept and completes generated → claimed → verified → approved → published.
+2. The status endpoint authenticates website permission, validates the concept, checks current facts match the generation snapshot, and reruns code/grounding checks.
+3. Publishing atomically saves `publishedWebsite` (project + presentation profile snapshot) and retains three previous releases.
+4. `/sites/[slug]` reads the live release, generated page HTML/CSS and metadata. New drafts do not change it. The visitor browser never fetches the private workspace.
+5. Authorized rollback identifies a previous release and the expected current live-release ID; concurrent changes return 409. The current draft is kept.
+6. Assistant, lead and booking routes resolve the live slug or exact current draft token independently. Their operations use current canonical business facts and server-confirmed provider results.
+
+The existing private workspace envelope persists release snapshots/history, with tenant validation and conditional writes. No new SQL migration or live database operation accompanies this change.
 
 ## 6. Generated-site chat and voice
 
@@ -246,7 +273,7 @@ sequenceDiagram
     A->>C: Recover deterministic event if already accepted
     A->>C: Verified freeBusy on primary calendar when no existing event
     alt Busy
-      A->>A: Save requested appointment; human follow-up required
+      A->>A: Save requested appointment, human follow-up required
     else Free
       A->>C: Insert event and optionally invite customer
       A->>A: Mark appointment confirmed
@@ -255,7 +282,7 @@ sequenceDiagram
   A->>S: Save appointment + automation result
   A->>S: Persist pending + gmailAttemptedAt when eligible
   A->>M: Send owner lead summary once
-  A->>S: Save sent identifier or delivery_unknown; release lease
+  A->>S: Save sent identifier or delivery_unknown, release lease
   A-->>L: Updated lead and appointment
 ```
 
@@ -318,7 +345,7 @@ sequenceDiagram
   participant K as Encrypted credential store
 
   B->>E: GET /api/integrations/google/connect?workspaceId=...
-  E->>E: Sign state; set HttpOnly nonce cookie
+  E->>E: Sign state, set HttpOnly nonce cookie
   E-->>B: Redirect to Google consent
   B->>G: Approve Calendar and Gmail scopes
   G-->>E: GET callback?code=...&state=...
@@ -414,8 +441,30 @@ Do not confuse the marketing scripted widget with the generated customer-site as
 
 Whenever one of these paths changes, update this document in the same code change.
 
-The primary US Carpentry workspace uses carpentry services documented in its saved description and Asia/Kolkata for its Hyderabad location. Identified Northstar profile details, sample customer records, sample appointment, and sample team members were removed; unsupported after-hours sample knowledge was unapproved. Existing real Google appointments retain their original booking timezone and show a review notice when it differs from the current business timezone. The private generated website was rebuilt from the corrected profile through Gemini/Pexels and remains unpublished.
+The primary US Carpentry workspace uses carpentry services documented in its saved description and Asia/Kolkata for its Hyderabad location. Identified Northstar profile details, sample customer records, sample appointment, and sample team members were removed; unsupported after-hours sample knowledge was unapproved. Existing real Google appointments retain their original booking timezone and show a review notice when it differs from the current business timezone. The saved workspace currently contains a legacy published website. It remains available while replacement HTML/CSS designs are generated and reviewed privately.
 
-Both voice session routes use `features/voice-agent/session-context.ts`. The existing ElevenLabs template reads faq_notes rather than approved_instructions, so the full approved receptionist rules are supplied through both variables. Calendar/handoff/duration/language fields now match the remote template. Website and dashboard voice tools use the real lead endpoint result; booked=true requires a confirmed Calendar appointment. The configured provider key allows reading the remote agent but its prompt update request returned HTTP 401, so remote configuration was left unchanged and the supported existing dynamic-variable contract is used.
+Both voice session routes use server-only `features/voice-agent/session-prompt.ts`; client booking results remain in `session-context.ts`. The existing ElevenLabs template reads faq_notes rather than approved_instructions, so the full approved receptionist rules are supplied through both variables. Calendar/handoff/duration/language fields now match the remote template. Website and dashboard voice tools use the real lead endpoint result; booked=true requires a confirmed Calendar appointment. The configured provider key allows reading the remote agent but its prompt update request returned HTTP 401, so remote configuration was left unchanged and the supported existing dynamic-variable contract is used.
 
 Dashboard Inbox filters now select real subsets, and authorized operators can update lead status. Contacts can be added with callback validation and their details/call/email links can be opened. The notification icon opens Inbox. Billing shows its unconnected state without fictitious subscription prices, usage, or invoice dates. Customer Settings no longer exposes the demo-reset action. Latest customer phone/email/name corrections are extracted, and newer contact records survive stale browser autosaves.
+
+## Customer project repositories
+
+```mermaid
+flowchart LR
+  Team[Authenticated workspace team] --> Scope[Server-resolved workspace ID]
+  Scope --> API[Project Workspace API]
+  API --> Store[(Private repository records)]
+  Owner[Owner / manager connects repository] --> API
+  Store --> Key[Decrypt scoped GitHub token when needed]
+  Key --> GitHub[GitHub repository / tree / blob APIs]
+  GitHub --> Catalog[Complete filtered document manifest]
+  Catalog --> Store
+  GitHub --> Viewer[Sanitized Markdown / strict diagrams / raster images]
+  API --> Viewer
+```
+
+`/workspace` loads only the actor workspace's safe repository summaries. Choosing a repository reads its stored catalog, then fetches a registered immutable GitHub blob. Tokens are decrypted only on the server and are bound to the workspace/repository. Private images use the same authenticated scope and a registered raster asset; arbitrary URLs/files are not proxied. Filename search and theme/selected-document state stay in the browser.
+
+A connection validates GitHub access, imports a bounded complete manifest and encrypts any supplied token before saving. Manual Sync validates a fresh tree and conditionally replaces that repository's manifest; the previous record remains on provider failure. Connect/disconnect require owner/manager configuration capability, while team members can read and sync. Same-origin checks protect mutations. Disconnect uses the displayed revision and removes the local connection/credential. Customer workspace records, other repositories, Google connections and GitHub files are unchanged.
+
+Persistence uses private `everonn.project_repositories`, a per-workspace Netlify Blob, or an ignored local file. Repository bodies are fetched on demand instead of cloned or persisted as a disk cache. Migration `202610060004` adds the private table/function and is included in the existing safe database migration command; it was applied to the configured shared PostgreSQL database on 2026-10-06. The migration preserved the verified 95 other-project tables. Rolled-back live checks verified encrypted persistence, conditional writes, disconnect and tenant isolation without retaining probe data. Hosted UI availability still depends on deploying the updated application code. Repository skill files are documentation, separate from the platform's approved AI runtime and customer memory.

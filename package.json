@@ -7,9 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "node --import tsx --test tests/*.test.ts",
-    "smoke": "node scripts/smoke-product.mjs",
+    "test": "node --conditions=react-server --import tsx --test tests/*.test.ts",
+    "smoke": "npm run smoke:hvac",
     "smoke:booking": "node --import tsx scripts/smoke-booking.ts",
+    "smoke:hvac": "node --import tsx scripts/smoke-hvac.ts",
+    "verify:website:live": "node --conditions=react-server --import tsx scripts/verify-website-live.ts",
     "smoke:usage": "node --import tsx scripts/smoke-usage.ts",
     "smoke:auth-db": "node --import tsx scripts/smoke-auth-database.ts",
     "usage:worker": "node --import tsx scripts/usage-worker.ts",
@@ -20,21 +22,35 @@
     "usage:db:check": "node --import tsx scripts/check-usage-database.ts",
     "usage:db:import-local": "node --import tsx scripts/migrate-local-usage.ts",
     "usage:scheduler": "node --import tsx scripts/configure-usage-scheduler.ts",
-    "check": "npm run lint && npm test && npm run build"
+    "ai:eval": "node --conditions=react-server --import tsx scripts/evaluate-ai.ts",
+    "check": "npm run lint && npm test && npm run ai:eval && npm run build",
+    "smoke:project": "node --import tsx scripts/smoke-project-workspace.ts"
   },
   "dependencies": {
     "@elevenlabs/client": "^1.25.0",
     "@elevenlabs/react": "^1.15.2",
     "@netlify/blobs": "^11.1.1",
+    "css-tree": "^3.2.1",
     "lucide-react": "^0.468.0",
+    "mermaid": "11.17.2",
     "next": "^16.3.6",
+    "parse5": "^8.0.1",
     "postgres": "^3.4.9",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-markdown": "10.1.0",
+    "rehype-autolink-headings": "7.1.0",
+    "rehype-highlight": "7.0.2",
+    "rehype-sanitize": "6.0.0",
+    "rehype-slug": "6.0.0",
+    "remark-gfm": "4.0.1",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
+    "@next/env": "^16.3.8",
     "@tailwindcss/postcss": "^4.0.0",
+    "@types/css-tree": "^3.2.0",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.3",
     "@types/react-dom": "^19.0.2",
@@ -45,5 +61,10 @@
     "tailwindcss": "^4.0.0",
     "tsx": "^4.23.0",
     "typescript": "^5.7.2"
+  },
+  "overrides": {
+    "mermaid": {
+      "katex": "0.18.2"
+    }
   }
 }

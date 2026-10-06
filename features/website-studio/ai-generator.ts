@@ -1,14 +1,20 @@
 import type { BusinessProfile, WebsiteServiceSpec, WebsiteSpec } from "@/features/everonn/types";
-import { buildWebsitePrompt, runWebsiteQa, websiteSlug } from "./generator";
+import { runWebsiteQa, websiteSlug } from "./generator";
+import { buildWebsitePrompt } from "./prompt";
+import { applyWebsitePreferences } from "./brand";
+import { resolvedWebsitePreferences } from "@/features/agent-runtime/memory";
+import type { ScopedMemory, SkillTrace } from "@/features/agent-runtime/types";
 import { getGeminiWebsiteConfig } from "@/lib/provider-config";
 import { meteredGeminiRequest } from "@/features/usage/gemini";
 import type { UsageContext } from "@/features/usage/types";
+import type { WebsiteGenerationProgress } from "./progress";
 
 type GeminiConfig = ReturnType<typeof getGeminiWebsiteConfig>;
 type GenerationResult = {
   spec: WebsiteSpec;
   provider: "gemini";
   model: string;
+  skills: SkillTrace[];
 };
 
 const string = { type: "STRING" };
@@ -19,8 +25,9 @@ const titledCopy = {
 };
 const responseSchema = {
   type: "OBJECT",
-  required: ["seo", "brand", "visualDirection", "mediaPlan", "hero", "servicesIntro", "services", "benefits", "process", "about", "faq", "contact"],
+  required: ["design", "seo", "brand", "visualDirection", "mediaPlan", "hero", "servicesIntro", "services", "benefits", "process", "about", "faq", "contact"],
   properties: {
+    design: { type: "OBJECT", required: ["rationale"], properties: { rationale: string } },
     seo: { type: "OBJECT", required: ["title", "description"], properties: { title: string, description: string } },
     brand: { type: "OBJECT", required: ["tagline", "positioning"], properties: { tagline: string, positioning: string } },
     visualDirection: { type: "OBJECT", required: ["primaryColor", "accentColor", "mood"], properties: { primaryColor: string, accentColor: string, mood: string } },
@@ -88,6 +95,7 @@ function requireTitledRows(value: unknown, path: string, minimum: number) {
 
 function assertCompleteAiSpec(value: unknown, profile: BusinessProfile) {
   const generated = record(value);
+  requireText(record(generated.design), "rationale", "design");
   const textGroups: Array<[string, string[]]> = [
     ["seo", ["title", "description"]],
     ["brand", ["tagline", "positioning"]],
@@ -110,6 +118,10 @@ function assertCompleteAiSpec(value: unknown, profile: BusinessProfile) {
   requireTitledRows(generated.process, "process", 3);
 
   const generatedServices = records(generated.services);
+  const activeServices = profile.services.filter((item) => item.active);
+  if (generatedServices.length !== activeServices.length || generatedServices.some((item) => !activeServices.some((service) => service.id === item.id && service.name === item.name))) {
+    throw new Error("Gemini introduced unsupported or duplicate services.");
+  }
   for (const service of profile.services.filter((item) => item.active)) {
     const match = generatedServices.find((item) => item.id === service.id || String(item.name || "").trim().toLowerCase() === service.name.toLowerCase());
     if (!match) throw new Error(`Gemini omitted the service page for ${service.name}.`);
@@ -173,6 +185,7 @@ function normalizeGeneratedSpec(value: unknown, profile: BusinessProfile): Websi
 
   return {
     schemaVersion: 1,
+    design: { rationale: text(record(generated.design).rationale, "", 1200) },
     seo: { title: text(seo.title, "", 180), description: text(seo.description, "", 320) },
     brand: { tagline: text(brand.tagline, "", 240), positioning: text(brand.positioning, "", 800) },
     visualDirection: { primaryColor: color(direction.primaryColor, ""), accentColor: color(direction.accentColor, ""), mood: text(direction.mood, "", 100) },
@@ -212,12 +225,19 @@ function extractGeminiJson(payload: unknown) {
   return JSON.parse(cleaned) as unknown;
 }
 
-async function requestGemini(model: string, profile: BusinessProfile, config: GeminiConfig, fetchImpl: typeof fetch, usage?: UsageContext) {
+async function requestGemini(model: string, profile: BusinessProfile, config: GeminiConfig, fetchImpl: typeof fetch, usage?: UsageContext, memory?: ScopedMemory[], correction?: { generated: unknown; feedback: string }) {
+  const prompt = buildWebsitePrompt(profile, memory);
+  const contents = [{ role: "user", parts: [{ text: `${prompt.context}\n\nCONTENT_PLAN_TASK\nPlan the complete grounded website content, brand colors, photography direction, and design rationale matching the response schema. Include every active service exactly once, at least three benefits, three process steps, four FAQs, and two detailed sections per service. Actual HTML and CSS are generated in the next stage; do not choose from a layout menu.` }] }];
+  if (correction) {
+    contents.push({ role: "model", parts: [{ text: JSON.stringify(correction.generated) }] });
+    contents.push({ role: "user", parts: [{ text: `Repair the complete content plan and return the full response-schema JSON. Validation feedback: ${correction.feedback}\nUse only supplied business facts. Remove unsupported claims everywhere, including SEO and service pages. Do not change service IDs/names, invent evidence, or weaken the validation rules.` }] });
+  }
   const { response, payload } = await meteredGeminiRequest(model, config.apiKey, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: `${buildWebsitePrompt(profile)}\n\nReturn only the JSON object matching the supplied response schema.` }] }],
+      systemInstruction: { parts: [{ text: prompt.systemInstruction }] },
+      contents,
       generationConfig: { responseMimeType: "application/json", responseSchema, temperature: 0.55, maxOutputTokens: 16384 },
     }),
     signal: AbortSignal.timeout(config.timeoutMs),
@@ -228,22 +248,34 @@ async function requestGemini(model: string, profile: BusinessProfile, config: Ge
     throw new Error(message || `Gemini returned HTTP ${response.status}.`);
   }
   const generated = extractGeminiJson(payload);
-  assertCompleteAiSpec(generated, profile);
-  return generated;
+  return { generated, skills: prompt.trace };
 }
 
-export async function generateWebsiteSpec(input: BusinessProfile, options: { config?: GeminiConfig; fetchImpl?: typeof fetch; usage?: UsageContext } = {}): Promise<GenerationResult> {
+export async function generateWebsiteSpec(input: BusinessProfile, options: { config?: GeminiConfig; fetchImpl?: typeof fetch; usage?: UsageContext; memory?: ScopedMemory[]; onProgress?: (progress: WebsiteGenerationProgress) => void } = {}): Promise<GenerationResult> {
   const config = options.config || getGeminiWebsiteConfig();
   if (!config.apiKey) throw new Error("Gemini website generation is required. Add GEMINI_API_KEY before generating a site.");
 
   let lastError = "Gemini generation was unavailable.";
   for (const [index, model] of config.models.entries()) {
     try {
-      const generated = await requestGemini(model, input, config, options.fetchImpl || fetch, options.usage);
-      const spec = normalizeGeneratedSpec(generated, input);
-      const qa = runWebsiteQa(spec, input);
-      if (!qa.passed) throw new Error("Generated content did not pass EverOnn grounding QA.");
-      return { spec, provider: "gemini", model };
+      options.onProgress?.({ stage: "content", message: "Planning website content from your saved business knowledge." });
+      let result = await requestGemini(model, input, config, options.fetchImpl || fetch, options.usage, options.memory);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        let feedback: string;
+        try {
+          assertCompleteAiSpec(result.generated, input);
+          const preferences = resolvedWebsitePreferences(options.memory, input.workspaceId);
+          const spec = applyWebsitePreferences(normalizeGeneratedSpec(result.generated, input), preferences);
+          const qa = runWebsiteQa(spec, input);
+          if (!qa.passed) throw new Error(`Generated content did not pass EverOnn grounding QA. ${qa.checks.filter((check) => !check.passed).map((check) => check.message).join(" ")}`);
+          return { spec, provider: "gemini", model, skills: result.skills };
+        } catch (error) {
+          feedback = error instanceof Error ? error.message : "The website content is incomplete.";
+          if (attempt) throw error;
+        }
+        options.onProgress?.({ stage: "content", message: "Refining website content after factual checks." });
+        result = await requestGemini(model, input, config, options.fetchImpl || fetch, options.usage, options.memory, { generated: result.generated, feedback: feedback.slice(0, 2000) });
+      }
     } catch (error) {
       lastError = error instanceof Error ? error.message : lastError;
       if (index < config.models.length - 1 && config.retryDelayMs) await new Promise((resolve) => setTimeout(resolve, config.retryDelayMs));

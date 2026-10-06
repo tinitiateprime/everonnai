@@ -20,7 +20,7 @@ export async function closeAppDatabase() {
   if (previous) await previous.sql.end({ timeout: 2 });
 }
 
-export function appRecords() {
+export function appDatabaseQuery(): AppQuery {
   const url = process.env.SUPABASE_DB_URL || "";
   let parsed: URL;
   try { parsed = new URL(url); } catch { throw Object.assign(new Error("Configure SUPABASE_DB_URL for account and workspace storage."), { status: 503 }); }
@@ -43,7 +43,11 @@ export function appRecords() {
       throw Object.assign(new Error(`Account and workspace database request failed (${safeCode}).${setup}`), { status: 503 });
     }
   };
-  return createAppRecords(query);
+  return query;
+}
+
+export function appRecords() {
+  return createAppRecords(appDatabaseQuery());
 }
 
 export function createAppRecords(query: AppQuery, options: { legacySchema?: boolean } = {}) {

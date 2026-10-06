@@ -163,7 +163,7 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
       const message = startError instanceof Error ? startError.message : "The AI assistant could not connect.";
       if (mode === "chat") {
         setStatus("gemini");
-        setActivity("Gemini AI chat");
+        setActivity("Ready to help");
         pushMessage("assistant", profile.greeting);
       } else {
         setError(message);
@@ -184,7 +184,7 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
       sessionRef.current.sendUserMessage(value);
       return;
     }
-    setActivity("Gemini is thinking…");
+    setActivity(`${profile.assistantName} is thinking…`);
     setReplying(true);
     setError("");
     try {
@@ -199,10 +199,10 @@ export function WebsiteAssistant({ profile, previewToken, publicSlug }: { profil
       const data = await response.json() as { reply?: string; model?: string; error?: string };
       if (!response.ok || !data.reply) throw new Error(data.error || "Gemini could not answer this message.");
       pushMessage("assistant", data.reply);
-      setActivity(data.model ? `Gemini AI · ${data.model}` : "Gemini AI chat");
+      setActivity("Ready to help");
     } catch (replyError) {
-      setError(replyError instanceof Error ? replyError.message : "Gemini could not answer this message.");
-      setActivity("Gemini AI unavailable");
+      setError(replyError instanceof Error && replyError.message.startsWith("Please wait") ? replyError.message : "The assistant is temporarily unavailable. Please try again or contact the business directly.");
+      setActivity("Please try again shortly");
     } finally {
       setReplying(false);
     }

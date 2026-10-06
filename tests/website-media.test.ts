@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createDemoWorkspace } from "../features/everonn/demo-data";
-import { generateDeterministicWebsiteSpec } from "../features/website-studio/generator";
+import { generateDeterministicWebsiteSpec } from "./fixtures/website";
 import { resolveWebsiteMedia } from "../features/website-studio/media";
 
 test("Pexels media populates hero, service, and gallery placements without duplicates", async () => {
@@ -29,7 +29,7 @@ test("Pexels media populates hero, service, and gallery placements without dupli
   assert.equal(new Set(assets.map((asset) => asset?.id)).size, assets.length);
 });
 
-test("website generation survives a Pexels outage with the visual fallback intact", async () => {
+test("a Pexels outage returns empty assets and an explicit warning", async () => {
   const profile = createDemoWorkspace().profile;
   const spec = generateDeterministicWebsiteSpec(profile);
   const fetchImpl = async () => new Response(JSON.stringify({ error: "unavailable" }), { status: 503 });

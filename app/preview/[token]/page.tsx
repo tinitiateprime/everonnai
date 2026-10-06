@@ -17,5 +17,5 @@ export default async function PreviewPage({ params, searchParams }: { params: Pr
   const demoAllowed = token === "demo" && actor?.workspaceId === workspace.workspaceId;
   if (!project || (project.privateToken !== token && !demoAllowed)) notFound();
   const theme = query.theme === "momentum" || query.theme === "aura" ? query.theme : "editorial";
-  return <GeneratedWebsite project={project} profile={workspace.profile} theme={theme} previewToken={project.privateToken} />;
+  return <GeneratedWebsite project={project} profile={project.profileSnapshot || workspace.profile} theme={theme} previewToken={project.privateToken} />;
 }

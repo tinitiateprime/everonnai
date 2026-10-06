@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 import postgres from "postgres";
 import { usageDatabaseTls } from "../lib/usage-postgres";
 
-const version = "202610040003";
+const version = "202610060004";
 const foreignSchemas = ["public","agentic_that","agenticthat","auth"];
 const metadata = `
   SELECT 'schema' AS kind,n.oid::text AS id,n.nspname AS name,n.nspacl::text AS details
@@ -38,15 +38,16 @@ export async function migrateEveronnDatabase(apply = false) {
   const options = {prepare:false,max:1,max_pipeline:1,connect_timeout:15,ssl:usageDatabaseTls(),onnotice:()=>{}};
   const sql = postgres(url,options);
   try {
-    const [present] = await sql.unsafe("SELECT to_regclass('everonn.schema_migrations') IS NOT NULL AS core, to_regclass('everonn_app.app_records') IS NOT NULL AS app, to_regclass('everonn_usage.usage_records') IS NOT NULL AS usage, to_regclass('everonn_usage.worker_requests') IS NOT NULL AS scheduler");
+    const [present] = await sql.unsafe("SELECT to_regclass('everonn.schema_migrations') IS NOT NULL AS core, to_regclass('everonn.project_repositories') IS NOT NULL AS projects, to_regclass('everonn_app.app_records') IS NOT NULL AS app, to_regclass('everonn_usage.usage_records') IS NOT NULL AS usage, to_regclass('everonn_usage.worker_requests') IS NOT NULL AS scheduler");
     if (!apply) {
       const tables = await sql.unsafe("SELECT table_name FROM information_schema.tables WHERE table_schema='everonn' AND table_type='BASE TABLE' ORDER BY table_name");
-      return {schema:"everonn",migration:version,applied:present.core,tables:tables.map(row=>row.table_name),action:"Use --apply to migrate only EverOnn's recognized stores."};
+      return {schema:"everonn",migration:version,applied:present.core && present.projects,tables:tables.map(row=>row.table_name),action:"Use --apply to migrate only EverOnn's recognized stores."};
     }
     const files = [
       ...(!present.usage ? ["202610030001_everonn_usage.sql"] : []),
       ...(!present.app ? ["202610040002_everonn_app.sql"] : []),
       "202610040003_everonn_relational.sql",
+      "202610060004_project_repositories.sql",
     ];
     const sources = await Promise.all(files.map(async name => (await readFile(new URL("../supabase/migrations/"+name,import.meta.url),"utf8")).replace(/^BEGIN;\s*$/m,"").replace(/^COMMIT;\s*$/m,"")));
     const result = await sql.begin("isolation level repeatable read", async tx => {
@@ -97,6 +98,7 @@ export async function migrateEveronnDatabase(apply = false) {
         UNION ALL SELECT 'appointments',count(*)::int FROM everonn.appointments
         UNION ALL SELECT 'conversations',count(*)::int FROM everonn.conversations
         UNION ALL SELECT 'usage_events',count(*)::int FROM everonn.usage_events
+        UNION ALL SELECT 'project_repositories',count(*)::int FROM everonn.project_repositories
         ORDER BY table_name`);
       return {schema:"everonn",migration:version,applied:true,counts,security,otherProjectTablesVerified:foreignTables.length,otherProjectDataAndMetadataUnchanged:true,legacyDeploymentCompatible:true};
     });

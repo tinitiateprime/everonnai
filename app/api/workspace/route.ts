@@ -10,8 +10,6 @@ import { preserveContactServerState, preserveLeadServerState } from "@/features/
 
 export const dynamic = "force-dynamic";
 
-const websiteStatusRank = { draft: 0, generated: 1, claimed: 2, verified: 3, approved: 4, published: 5 } as const;
-
 function preserveRows<T extends { id: string }>(current: T[], incoming: T[]) {
   const incomingIds = new Set(incoming.map((item) => item.id));
   return [...incoming, ...current.filter((item) => !incomingIds.has(item.id))];
@@ -61,7 +59,6 @@ function authorizeWorkspaceUpdate(actor: Awaited<ReturnType<typeof requireActor>
   if (changed(current.contacts, incoming.contacts) || changed(current.leads, incoming.leads)) authorizeWorkspaceAction(actor, current, "inbox:operate");
   if (changed(current.conversations, incoming.conversations)) authorizeWorkspaceAction(actor, current, "calls:operate");
   if (changed(current.appointments, incoming.appointments)) authorizeWorkspaceAction(actor, current, "appointments:operate");
-  if (changed(current.websiteProject, incoming.websiteProject)) authorizeWorkspaceAction(actor, current, "website:publish");
   if (changed(current.team, incoming.team)) {
     authorizeWorkspaceAction(actor, current, "team:manage");
     if (!incoming.team.some((member) => member.role === "owner" && member.status === "active")) throw new Error("The workspace must keep at least one active owner.");
@@ -91,24 +88,19 @@ export async function PUT(request: Request) {
       }
       authorizeWorkspaceUpdate(actor, current, body.workspace);
       teamChanged = changed(current.team, body.workspace.team);
-      const currentProject = current.websiteProject;
-      const incomingProject = body.workspace.websiteProject;
-      const currentProjectTime = currentProject ? Date.parse(currentProject.updatedAt) || 0 : 0;
-      const incomingProjectTime = incomingProject ? Date.parse(incomingProject.updatedAt) || 0 : 0;
-      const sameProject = currentProject && incomingProject
-        && currentProject.privateToken === incomingProject.privateToken;
-      const regressesPublishing = sameProject
-        && websiteStatusRank[currentProject.status] > websiteStatusRank[incomingProject.status];
       return {
         ...body.workspace,
+        // Preferences are written through the authorized memory endpoint; stale autosaves cannot overwrite them.
+        aiMemory: current.aiMemory,
         contacts: preserveContactServerState(current.contacts, body.workspace.contacts),
         leads: preserveLeadServerState(current.leads, body.workspace.leads),
         conversations: preserveRows(current.conversations, body.workspace.conversations),
         appointments: preserveRows(current.appointments, body.workspace.appointments).map((item) => current.appointments.find((saved) => saved.id === item.id && saved.provider === "google") || item),
         automationLock: current.automationLock,
-        websiteProject: currentProjectTime > incomingProjectTime || regressesPublishing
-          ? currentProject
-          : incomingProject,
+        // Generation and publication are server-owned, never trusted from generic autosaves.
+        websiteProject: current.websiteProject,
+        publishedWebsite: current.publishedWebsite,
+        websiteReleases: current.websiteReleases,
       };
     }, actor.workspaceId);
     if (teamChanged) await syncAuthUsersFromTeam(workspace.workspaceId, workspace.team);

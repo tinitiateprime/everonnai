@@ -28,6 +28,7 @@ export function createStarterWorkspace(input: {
       workspaceId: input.workspaceId,
       businessName: input.businessName,
       businessType: input.businessType,
+      skillId: "general",
       description: "",
       phone: "",
       email: input.ownerEmail,

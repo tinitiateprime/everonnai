@@ -7,7 +7,8 @@ import { createServer } from "node:net";
 import { chromium } from "playwright-core";
 import { createDemoWorkspace } from "../features/everonn/demo-data";
 import type { EverOnnWorkspace } from "../features/everonn/types";
-import { createWebsiteProject, generateDeterministicWebsiteSpec } from "../features/website-studio/generator";
+import { generateDeterministicWebsiteSpec } from "../tests/fixtures/website";
+import { createWebsiteProject } from "../features/website-studio/generator";
 
 // This smoke test uses a disposable workspace/auth store and disables every live provider.
 async function main() {

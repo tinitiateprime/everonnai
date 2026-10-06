@@ -1,4 +1,5 @@
 import type { BusinessProfile, WebsiteMediaAsset, WebsiteSpec } from "@/features/everonn/types";
+import type { WebsitePreferences } from "@/features/agent-runtime/types";
 
 type PexelsPhoto = {
   id: number;
@@ -69,7 +70,8 @@ function selectUnique(photos: PexelsPhoto[], query: string, used: Set<number>, u
   return asset;
 }
 
-export async function resolveWebsiteMedia(spec: WebsiteSpec, profile: BusinessProfile, options: { apiKey?: string; fetchImpl?: typeof fetch } = {}) {
+export async function resolveWebsiteMedia(spec: WebsiteSpec, profile: BusinessProfile, options: { apiKey?: string; fetchImpl?: typeof fetch; preferences?: WebsitePreferences } = {}) {
+  if (options.preferences?.imagery === "none") return { hero: null, story: null, gallery: [], services: {}, provider: "none" as const, warning: null };
   const apiKey = String(options.apiKey || process.env.PEXELS_API_KEY || "").trim();
   if (!apiKey) return { hero: null, story: null, gallery: [], services: {}, provider: "none" as const, warning: null };
   const fetchImpl = options.fetchImpl || fetch;
@@ -80,7 +82,8 @@ export async function resolveWebsiteMedia(spec: WebsiteSpec, profile: BusinessPr
     searchPexels(spec.mediaPlan.galleryQuery, apiKey, 20, fetchImpl),
     ...spec.services.map((service) => searchPexels(service.imageQuery || `${service.name} ${profile.businessType}`, apiKey, 10, fetchImpl)),
   ]);
-  const results = searches.map((result) => result.status === "fulfilled" ? result.value : []);
+  const results = searches.map((result) => result.status === "fulfilled" ? result.value.filter((photo) => options.preferences?.imagery !== "equipment"
+    || !/\b(?:technician|worker|man|woman|person|people|engineer|repairman|team|portrait)\b/i.test(`${photo.alt || ""} ${photo.url || ""}`)) : []);
   const [heroCandidates = [], galleryCandidates = [], ...serviceCandidates] = results;
   const sharedFallbacks = [...heroCandidates, ...galleryCandidates];
   const hero = selectUnique([...heroCandidates, ...galleryCandidates], spec.mediaPlan.heroQuery, used, usedPhotographers, spec.mediaPlan.heroAlt);

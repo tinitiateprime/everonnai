@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
+import { websiteAccess } from "@/features/website-studio/site-access";
 import type { Contact, Lead, Urgency } from "@/features/everonn/types";
 import { processLeadAutomation } from "@/features/integrations/lead-automation";
 import { findWorkspaceJson, readWorkspaceJson, updateWorkspaceJson } from "@/lib/json-workspace-store";
@@ -79,8 +80,7 @@ export async function POST(request: Request) {
       : selectedWorkspace
         ? null
         : await findWorkspaceJson((candidate) => Boolean(
-          (input.previewToken && candidate.websiteProject?.privateToken === input.previewToken)
-          || (input.publicSlug && candidate.websiteProject?.publicSlug === input.publicSlug && candidate.websiteProject.status === "published")
+          websiteAccess(candidate, input)
         ));
     if (!resolvedWorkspace) return NextResponse.json({ error: "This website assistant is unavailable." }, { status: 404 });
     const workspaceId = resolvedWorkspace.workspaceId;
@@ -92,9 +92,9 @@ export async function POST(request: Request) {
     }
     if (!actor) enforcePublicRateLimit(request, input.publicSlug || input.previewToken || "unscoped");
     await updateWorkspaceJson((workspace) => {
-      const project = workspace.websiteProject;
+      const project = websiteAccess(workspace, input);
       const previewAllowed = Boolean(input.previewToken && project?.privateToken === input.previewToken);
-      const publicAllowed = Boolean(input.publicSlug && project?.publicSlug === input.publicSlug && project.status === "published");
+      const publicAllowed = Boolean(input.publicSlug && websiteAccess(workspace, { publicSlug: input.publicSlug }));
       if (!workspaceAllowed && (!project || (!previewAllowed && !publicAllowed))) throw new Error("This website assistant is unavailable.");
       const callerName = clean(input.callerName, 120) || "Website visitor";
       const reason = clean(input.reason, 12000);

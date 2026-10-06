@@ -75,6 +75,8 @@ The supplied Supabase project contains the applied usage schema (2026-10-03); re
 
 During Amplify builds, `scripts/write-amplify-env.mjs` requires the live HTTPS origin and Supabase settings, then passes only whitelisted application variables into ignored `.env.production` for SSR. Literal dollars are escaped so Next.js expansion preserves secrets. The writer rejects another schema name, excludes build-role AWS credentials and forces durable storage/external scheduling. Missing deployment settings fail the build before publication; setting variables alone does not create the scheduled job or provider webhook.
 
+The whitelist includes both optional website content/code timeout variables. Omitted values use the code defaults (150 seconds per call); an existing explicit shorter value remains in effect. Markdown runtime resources ship with the traced application bundle and require no additional Amplify variable. Timeout settings do not extend the host's request-duration limit.
+
 ### Browser startup
 
 1. The dashboard server page reads the HttpOnly session and resolves the current actor.

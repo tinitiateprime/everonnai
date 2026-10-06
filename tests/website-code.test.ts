@@ -60,6 +60,23 @@ test("HTML parser rejects execution, forged contacts, unsupported routes and bro
   assert.throws(() => normalizeWebsiteCodeConcept(duplicate, spec, profile), /duplicate/);
 });
 
+test("page repair feedback identifies the route and every missing structural requirement", () => {
+  const { profile } = workspace();
+  const spec = generateDeterministicWebsiteSpec(profile);
+  const fixture = websiteCodeFixture(spec, profile);
+  const page = fixture.pages.find((item) => item.path === "/about")!;
+  page.html = page.html.replace(/<(\/?)(main|nav|h1)\b/g, "<$1div").replace(/href="action:(booking|chat|voice)"/g, 'href="/contact"');
+  assert.throws(() => normalizeWebsiteCodeConcept(fixture, spec, profile), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /Page \/about:/);
+    assert.match(error.message, /one <main> element; found 0/);
+    assert.match(error.message, /one <h1> element; found 0/);
+    assert.match(error.message, /<nav> element/);
+    assert.match(error.message, /href="action:booking"/);
+    return true;
+  });
+});
+
 test("CSS parser blocks resource requests and prefixes every selector including sibling selectors", () => {
   const { profile } = workspace();
   const spec = generateDeterministicWebsiteSpec(profile);

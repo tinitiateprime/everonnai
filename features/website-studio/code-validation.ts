@@ -108,7 +108,13 @@ export function validateWebsiteHtml(source: string, spec: WebsiteSpec, profile: 
     if (serviceId && !spec.services.some((service) => service.id === serviceId)) fail("A section references an unoffered service.");
     if (path === "/" && preferences?.hiddenSections.includes(attr("data-section") as NonNullable<WebsitePreferences>["hiddenSections"][number])) fail("An owner-hidden homepage section is present.");
   });
-  if (h1 !== 1 || main !== 1 || !navigation || !actions) fail("Each page needs one main, one H1, navigation, and a working platform CTA.");
+  const structureProblems = [
+    ...(main !== 1 ? [`Use exactly one <main> element; found ${main}.`] : []),
+    ...(h1 !== 1 ? [`Use exactly one <h1> element; found ${h1}.`] : []),
+    ...(!navigation ? ["Add a <nav> element with the required site links."] : []),
+    ...(!actions ? ['Add a working platform CTA using an anchor with href="action:booking", href="action:chat", or href="action:voice".'] : []),
+  ];
+  if (structureProblems.length) fail(`Page ${path}: ${structureProblems.join(" ")}`);
   for (const required of ["/", "/services", "/about", "/contact"]) if (!links.includes(required)) fail(`Navigation must include ${required}.`);
   for (const href of links.filter((item) => item.startsWith("#"))) if (!ids.has(href.slice(1))) fail(`Broken anchor ${href}.`);
   const content = textContent(fragment).replace(/\s+/g, " ");

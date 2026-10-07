@@ -45,11 +45,12 @@ globalThis.fetch = async function(input, init) {
     const body = JSON.parse(String(init?.body || '{}'));
     if (!body.systemInstruction?.parts?.[0]?.text.includes('Website building')) return Response.json({error:{message:'Unexpected paid-provider request blocked'}},{status:503});
     if (!body.systemInstruction.parts[0].text.includes('Approved memory policy') || !body.systemInstruction.parts[0].text.includes('Available application actions') || !body.contents[0].parts[0].text.includes('DOMAIN_REFERENCE_CATALOG') || body.systemInstruction.parts[0].text.includes('website.memory-forget-and-concurrency')) return Response.json({error:{message:'Runtime instruction boundary failed'}},{status:503});
-    if (body.contents[0].parts[0].text.includes('WEBSITE_CODE_TASK')) {
+    if (/WEBSITE_(CODE|DESIGN)_TASK/.test(body.contents[0].parts[0].text)) {
       const concept = body.contents[0].parts[0].text.match(/Create the (editorial|momentum|aura) design/)[1];
       const code = JSON.parse(fs.readFileSync(process.env.HVAC_FIXTURE_CODE, 'utf8'))[concept];
-      const requested = body.generationConfig.responseSchema.properties.pages.items.properties.path.enum;
-      code.pages = code.pages.filter(page => requested.includes(page.path));
+      const requested = body.generationConfig.responseSchema.properties.pages?.items.properties.path.enum || [];
+      if (requested.length) code.pages = code.pages.filter(page => requested.includes(page.path));
+      else delete code.pages;
       if (requested.includes('/')) await new Promise(resolve => setTimeout(resolve, 250));
       return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(code)}]}}],usageMetadata:{promptTokenCount:100,candidatesTokenCount:200,totalTokenCount:300}});
     }
@@ -89,10 +90,20 @@ globalThis.fetch = async function(input, init) {
     // The production build may have a different baked public origin. Forward
     // local browser API traffic through Playwright's non-browser HTTP client.
     // Origin-policy behavior is independently covered by request-origin tests.
+    let droppedGenerationResponse = false;
     await context.route(`${baseURL}/api/**`, async (route) => {
       const headers = { ...await route.request().allHeaders() };
       delete headers.origin;
       const response = await route.fetch({ headers });
+      if (!droppedGenerationResponse && route.request().url() === `${baseURL}/api/website-studio` && route.request().method() === "POST"
+        && route.request().postDataJSON()?.operation === "advance" && response.status() === 202) {
+        const data = await response.json();
+        if (data.job?.progress.completedPages === 1) {
+          droppedGenerationResponse = true;
+          await route.fulfill({ status: 504, body: "" });
+          return;
+        }
+      }
       await route.fulfill({ response });
     });
     const setup = await context.request.post(`${baseURL}/api/auth/setup`, { data: { name: "HVAC Fixture Owner", email: "hvac-owner@example.test", password: "IsolatedSmoke123!", setupToken: "isolated-hvac-smoke" } });
@@ -119,6 +130,8 @@ globalThis.fetch = async function(input, init) {
     assert.equal(stored.aiMemory.length, 1);
     assert.equal(stored.aiMemory[0].value.imagery, "none");
     assert.ok(stored.websiteProject.spec.code.concepts.editorial.css);
+    assert.equal(droppedGenerationResponse, true);
+    assert.equal(stored.websiteGeneration, undefined, "Internal checkpoints cannot enter dashboard responses");
     assert.equal(stored.websiteProject.generation.skills.some((skill: { id: string }) => skill.id === "domain:hvac"), true);
     const screenshots = process.argv.includes("--screenshots");
     const artifactDirectory = path.join(process.cwd(), "artifacts", "hvac");
@@ -211,6 +224,27 @@ globalThis.fetch = async function(input, init) {
     assert.equal((await visitor.request.put(`${baseURL}/api/agent-runtime/memory`, { headers: { "x-everonn-workspace": workspace.workspaceId }, data: { preferences: {} } })).status(), 403);
     assert.deepEqual((await (await visitor.request.get(`${baseURL}/api/agent-runtime/memory`)).json()).memory, []);
     await visitor.close();
+    // A short request starts a saved build; a reload resumes its completed pages.
+    const buildHeaders = { "x-everonn-workspace": workspace.workspaceId };
+    const startedBuild = await context.request.post(`${baseURL}/api/website-studio`, { headers: buildHeaders, data: { workspaceId: workspace.workspaceId } });
+    assert.equal(startedBuild.status(), 202);
+    const startedJob = (await startedBuild.json()).job;
+    assert.ok(startedJob.id);
+    for (let step = 0; step < 4; step++) {
+      const advanced = await context.request.post(`${baseURL}/api/website-studio`, { headers: buildHeaders, data: { operation: "advance", jobId: startedJob.id } });
+      assert.equal(advanced.status(), 202, await advanced.text());
+      assert.match(advanced.headers()["content-type"], /application\/json/);
+    }
+    await page.reload();
+    await page.getByRole("button", { name: "Resume saved build", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Resume saved build", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('.eo-page-heading button')?.textContent?.includes('Regenerate concepts'), undefined, { timeout: 60000 });
+    const resumed = (await (await context.request.get(`${baseURL}/api/workspace`)).json()).workspace;
+    assert.notEqual(resumed.websiteProject.id, revised.websiteProject.id);
+    assert.equal(resumed.publishedWebsite.id, retained.publishedWebsite.id);
+    const storedBuild = JSON.parse(await readFile(dataFile, "utf8")).websiteGeneration;
+    assert.equal(storedBuild.status, "completed");
+    assert.equal(storedBuild.checkpoint, undefined);
     // Clear the current project's memory through the actual UI/API and retain the published release.
     await page.reload();
     await page.getByLabel("Request changes", { exact: true }).waitFor();
@@ -230,7 +264,7 @@ globalThis.fetch = async function(input, init) {
     await noSession.close();
     assert.deepEqual(errors, [], `Browser errors: ${errors.join(", ")}`);
     assert.deepEqual(JSON.parse(await readFile(dataFile, "utf8")).aiMemory, []);
-    console.log("HVAC smoke passed: generated HTML/CSS, owner revisions, live/draft isolation, real callback submission, visitor safety, three desktop/mobile concepts, publishing/rollback, scope/security, and stale-save protection. Gemini used a local fixture; no live provider was called.");
+    console.log("HVAC smoke passed: saved generation steps, empty gateway-response recovery, resume after reload, original HTML/CSS, owner revisions, live/draft isolation, callback submission, desktop/mobile concepts, publishing/rollback and scope/security. Gemini used a local fixture; no live provider was called.");
   } catch (error) { console.error(logs); console.error((await ownerPage?.locator("body").innerText().catch(() => ""))?.slice(-7000)); throw error; }
   finally {
     await browser?.close();

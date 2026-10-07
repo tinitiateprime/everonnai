@@ -8,9 +8,9 @@ For the full code map, see [CODE_PROFILE.md](CODE_PROFILE.md). For diagrams, see
 
 ### 1. From which API call is the website generated?
 
-**Short answer:** The owner calls `POST /api/website-studio`, with streamed progress in the dashboard. Gemini first plans grounded business content, then generates actual multi-page HTML and CSS for three independent design directions.
+**Short answer:** The owner starts a saved website build. Short authenticated JSON requests advance content, imagery, original stylesheets and each AI-generated page, then save the complete validated private draft. There is no dependence on a long streamed response.
 
-The route loads the saved profile and approved scoped preferences, composes Markdown skills, validates the content plan, resolves available Pexels photos, and requests the original website code. Invalid content receives one repair per model with its original output and the exact failed checks; each invalid code batch receives one bounded repair. Persistent failure shows the specific problem and preserves the previous website. A successful request saves a private draft; an existing published version stays live. All provider requests, repairs and rejected output are metered.
+The route loads the saved profile and approved scoped preferences, composes Markdown skills, validates the content plan, resolves available Pexels photos, and requests the original website code. Invalid content receives one repair per model with its original output and the exact failed checks; each invalid code batch receives one bounded repair. Persistent failure shows the specific problem and preserves the previous website. A completed build saves a private draft; an existing published version stays live. All provider requests, repairs and rejected output are metered.
 
 ### 2. Which exact external AI endpoint is called?
 
@@ -57,9 +57,9 @@ Exact duplicate artifacts are rejected. The industry skill, business facts and o
 
 **Short answer:** Gemini returns HTML, titles and descriptions for Home, Services, each active service, About and Contact.
 
-Each concept first generates its own CSS and homepage. Remaining pages are requested in batches of at most three, reusing that same design system. This avoids sending all 17 pages of a 13-service business in one response. Up to three code requests run concurrently; retries keep completed batches in memory. Validation checks every route exists, navigation works, the index links to each actual service, and detail pages identify the correct service. The server rewrites links for the exact private preview or public site. CSS is original to each concept, with responsive rules. Native details/summary provide menus and FAQs; platform actions connect to secure forms and the assistant.
+Each concept first generates its own original stylesheet. Interactive builds then request the homepage and each remaining page using that same design system. The server saves each validated result before continuing, so refreshes/server restarts retain completed pages. HTML/CSS guards still require complete navigation, active service coverage, truthful contacts and working platform actions. Standalone verification tools retain batches of up to three pages; neither mode uses fixed layouts.
 
-The progress stream reports planning, imagery, completed pages and saving. A timeout retry affects its page batch, not already completed pages. An exhausted retry identifies the concept and routes. There is no durable background job yet: hosting must allow the full request, and process loss still requires another build.
+Website Studio reports progress from saved job status. Lost, empty or truncated HTTP responses trigger a status read instead of a raw JSON parsing error or a new paid build. Resume saved build continues validated pages after a reload. Canonical fact/memory changes invalidate the old build. Generation advances while the page is open; an unattended queue/worker is not implemented by this change. [Amplify lists Next.js streaming as unsupported](https://docs.aws.amazon.com/amplify/latest/userguide/ssr-amplify-support.html), so this workflow returns ordinary JSON after each bounded unit.
 
 ### 8. Where do generated website images come from?
 
@@ -258,7 +258,7 @@ Debug in this order:
 
 1. `GET /api/website-studio` — is Gemini reported ready?
 2. Browser network response from `POST /api/website-studio` — what error was returned?
-3. Gemini model names and API key in the host environment. Content requests default to 150 seconds, configurable with `GEMINI_WEBSITE_TIMEOUT_MS` (10–240 seconds); code requests also default to 150 seconds, configurable with `GEMINI_WEBSITE_CODE_TIMEOUT_MS` (30–240 seconds). An existing explicit 55-second setting retains that shorter limit until changed. The host must allow the complete synchronous request, including repairs and model fallback.
+3. Gemini model names and API key in the host environment. Interactive builds cap each provider call at 20 seconds and save retries as separate steps. Standalone tools retain `GEMINI_WEBSITE_TIMEOUT_MS` / `GEMINI_WEBSITE_CODE_TIMEOUT_MS` with 150-second defaults; increasing those values does not extend the interactive step budget or hosting limits.
 4. `features/website-studio/ai-generator.ts` — provider or schema/QA failure.
 5. `features/website-studio/media.ts` — only if content succeeded but images are missing.
 6. `GET /api/workspace` — confirm the new project was saved.

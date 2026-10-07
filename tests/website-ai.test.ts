@@ -75,6 +75,20 @@ test("persistent grounding failures stop after one repair and identify the rejec
   assert.equal(requests, 2);
 });
 
+test("truncated Gemini content is rejected with a useful error before it can become a website", async () => {
+  const profile = createDemoWorkspace().profile;
+  const spec = generateDeterministicWebsiteSpec(profile);
+  for (const candidate of [
+    { finishReason: "MAX_TOKENS", content: { parts: [{ text: JSON.stringify(spec) }] } },
+    { finishReason: "STOP", content: { parts: [{ text: '{"seo":' }] } },
+  ]) {
+    await assert.rejects(generateWebsiteSpec(profile, {
+      config: { apiKey: "fixture", models: ["fixture-model"], timeoutMs: 10000, retryDelayMs: 0 },
+      fetchImpl: async () => Response.json({ candidates: [candidate] }),
+    }), /incomplete.*website content|incomplete or invalid website content JSON/);
+  }
+});
+
 test("generation progress survives split JSON/UTF-8 chunks and requires a final result", async () => {
   const profile = createDemoWorkspace().profile;
   const project = createWebsiteProject(profile, generateDeterministicWebsiteSpec(profile));

@@ -152,44 +152,38 @@ Only `approved: true` knowledge items are inserted into the receptionist prompt.
 sequenceDiagram
   participant O as Owner
   participant W as Website Studio API
+  participant S as Private workspace store
   participant G as Gemini
   participant P as Pexels
-  participant S as Workspace store
-  O->>W: Generate or apply remembered changes
-  W->>S: Read canonical facts, approved memory and draft
-  W->>G: Markdown + facts + content-plan schema
-  G-->>W: Grounded copy, brand, SEO and media direction
-  W->>W: Validate active services and factual QA
-  opt Content fails validation
-    W->>G: Original content + failed checks, one repair per model
-    G-->>W: Complete corrected content plan
-    W->>W: Rerun completeness and grounding checks
-  end
-  W->>P: Resolve approved photography when requested
-  P-->>W: Available image asset manifest
-  W->>G: Three parallel original CSS + homepage requests
-  G-->>W: Original stylesheet and Home per concept
-  loop Remaining routes in batches of up to three pages
-    W->>G: Requested routes + same CSS/Home design reference
-    G-->>W: Requested page fragments only
-    W->>W: Validate batch HTML/CSS/grounding
-    W-->>O: Stream completed-page counts
-    opt Timeout or transient provider failure
-      W->>G: Retry this batch with another configured Gemini model
+  O->>W: Start website build
+  W->>S: Save facts, memory, fingerprint and job
+  W-->>O: Job status (HTTP 202 JSON)
+  loop Short requests until all pages are validated
+    O->>W: Advance saved build
+    W->>S: Claim scoped lease; read checkpoint
+    alt Content, original CSS or one page required
+      W->>G: Markdown + approved context + requested unit
+      G-->>W: AI-generated content, CSS or HTML
+    else Photography required
+      W->>P: Approved image searches
+      P-->>W: Asset manifest or limited-media warning
     end
+    W->>W: Validate; prepare next unit or bounded retry
+    W->>S: Save checkpoint and release lease
+    W-->>O: Progress JSON
   end
-  W->>W: Recheck complete route coverage and grounding
-  W->>G: One bounded validation repair per invalid batch
-  W->>S: Compare original facts/memory/draft, save new private draft
-  Note over S: Published release remains live
-  W-->>O: Actual generated page preview + validation results
+  O->>W: Complete saved build
+  W->>W: Full route coverage, design and grounding QA
+  W->>S: Compare facts/memory/draft; save private preview
+  Note over S: Published release stays live
+  W-->>O: Completed draft JSON
 ```
 
-Gemini determines page structure and CSS, without hero/service template enums. The content plan remains structured to establish approved services, copy, routes, SEO and media facts. Each code artifact includes every required page. Scripts/handlers/embeds/forms, unknown contacts/routes/images, unsafe CSS resource loading and dependency execution are rejected. Safe inline declarations are parsed with the same stylesheet guards and moved into generated classes; stored HTML has no inline styles. CSS is parsed, all selectors are scoped under the generated surface, keyframes are renamed, and paint/layout containment isolates controls. Failed content validation receives one complete repair per model with the original output and exact check messages; each invalid code batch receives one repair with combined completeness/route/grounding feedback. The provider schema bounds each response to its exact requested page count; final validation still checks unique route coverage. Three concepts run independently, with at most three code requests active. CSS is created with each homepage and reused across its remaining page batches; configured-model fallbacks retry the affected batch while retaining completed pages in this request. Successful code model IDs are stored on each concept. A fatal code error cancels outstanding code requests. Code output is bounded to 16,384 tokens per call, with final whole-site coverage checked after assembly. Persistent errors expose their failed checks. QA inspects customer-visible content rather than internal design notes or structural selectors, while still checking SEO, accessible labels and CSS-generated text. Repairs do not relax rules. All provider attempts are metered.
+Gemini determines page structure and CSS, with no template layout menu. Interactive generation starts a server-owned `websiteGeneration` checkpoint in existing workspace storage. Content, photography, original stylesheets and individual pages run in separate ordinary JSON requests; each AI call is capped at 20 seconds. A 60-second lease prevents simultaneous tabs from charging for the same active unit, and a superseded lease cannot commit. Validation repairs/model fallbacks persist as next steps instead of extending the current request. Every validated page, stylesheet and successful model ID is saved before the next unit. Final assembly checks exact route coverage, distinct concepts, safe HTML/CSS and approved business facts. All provider attempts remain metered. A lost request may require retrying its uncommitted unit after lease expiry; committed pages remain saved. No worker continues automatically after the browser closes.
 
-The server renders validated fragments and generated CSS. Local route links are rewritten for the exact preview capability or public slug. Booking/chat/voice anchors are connected to application controls rather than generated integration code. Pexels failures leave an explicit limited asset manifest for Gemini; no-photography skips Pexels. Equipment filtering uses provider metadata, not visual recognition. Generated code is limited to sixteen services and bounded HTML/CSS/artifact sizes. Code calls default to 150 seconds via `GEMINI_WEBSITE_CODE_TIMEOUT_MS` (30–240 seconds); content calls have their separate timeout. Missing configuration uses the intended default, not the lower bound. Generation is synchronous; browser screenshot review is a separate local verification workflow, not an automatic production visual-evaluation worker. The dashboard opts into a no-store NDJSON progress stream with heartbeats, stage updates and completed-page counts. Authorization is checked before streaming; only a persisted final project counts as success. Non-stream requests retain JSON behavior. Completed batches are not durable across process loss, and streams still obey the host's absolute request-duration limit.
+The server renders validated fragments and original AI CSS, rewrites routes for the correct preview/public site, and connects booking/chat/voice to application controls. Script/HTML/CSS resource-loading guards remain enforced. Safe inline declarations become validated stylesheet classes; assets must be approved. Owner imagery rules and active service limits remain. Generic workspace autosaves preserve server-owned checkpoint/drafts/releases and API responses omit raw checkpoint contents. Final save compares canonical profile, memory and the old draft fingerprint; changed inputs fail without overwriting a website. The client recovers empty/incomplete responses through status reads and exposes Resume saved build after reload. Standalone tools retain separately configured longer provider timeouts. Full visual approval and an unattended generation worker remain separate work.
 
-Website-building skill version 1.3.0 specifies actual main/H1/nav/platform-action tags rather than similarly named classes or ordinary contact links. When these are incomplete, the validator reports the route, main/H1 counts and all missing requirements together. The same complete-page repair uses that specific feedback and preserves the existing execution/safety checks.
+Website-building skill version 1.4.0 specifies actual main/H1/nav/platform-action tags rather than similarly named classes or ordinary contact links. When these are incomplete, the validator reports the route, main/H1 counts and all missing requirements together. The same complete-page repair uses that specific feedback and preserves the existing execution/safety checks.
 
 ### Owner changes and scoped memory
 

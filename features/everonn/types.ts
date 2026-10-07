@@ -235,5 +235,6 @@ export type EverOnnWorkspace = {
   integrations: IntegrationState;
   team: TeamMember[];
   aiMemory?: ScopedMemory[];
+  websiteGeneration?: import("@/features/website-studio/job-types").WebsiteGenerationJob;
   automationLock?: { token: string; expiresAt: string };
 };

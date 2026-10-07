@@ -219,6 +219,13 @@ export function normalizeWebsiteCodeConcept(value: unknown, spec: WebsiteSpec, p
   return normalizeWebsiteCodeBatch(value, spec, profile, websitePaths(spec), preferences);
 }
 
+export function normalizeWebsiteDesignSystem(value: unknown): WebsiteCodeConcept {
+  const input = record(value);
+  const css = validateWebsiteCss(bounded(input.css, "CSS", 40_000));
+  if (!css.includes("var(--brand-primary)") || !css.includes("var(--brand-accent)")) fail("Use the supplied brand color variables in the design.");
+  return { name: bounded(input.name, "concept name", 100), rationale: bounded(input.rationale, "design rationale", 1200), css, pages: [] };
+}
+
 export function normalizeWebsiteCodeBatch(value: unknown, spec: WebsiteSpec, profile: BusinessProfile, requiredPaths: string[], preferences?: WebsitePreferences): WebsiteCodeConcept {
   const input = record(value);
   if (!requiredPaths.length || new Set(requiredPaths).size !== requiredPaths.length || requiredPaths.some((path) => !websitePaths(spec).includes(path))) fail("Invalid page batch routes.");

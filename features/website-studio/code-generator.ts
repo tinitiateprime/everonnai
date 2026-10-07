@@ -6,22 +6,36 @@ import type { WebsiteGenerationProgress } from "./progress";
 import { meteredGeminiRequest } from "@/features/usage/gemini";
 import { getGeminiWebsiteCodeTimeout, getGeminiWebsiteConfig } from "@/lib/provider-config";
 import { buildWebsitePrompt } from "./prompt";
-import { normalizeWebsiteCodeBatch, normalizeWebsiteCodeConcept, websiteAssets, websitePaths } from "./code-validation";
+import { normalizeWebsiteCodeBatch, normalizeWebsiteCodeConcept, normalizeWebsiteDesignSystem, websiteAssets, websitePaths } from "./code-validation";
 import { resolvedWebsitePreferences } from "@/features/agent-runtime/memory";
 import { runWebsiteQa, WEBSITE_CONCEPTS } from "./generator";
 
 const string = { type: "STRING" };
 const PAGE_BATCH_SIZE = 3;
-const responseSchema = (paths: string[], initial: boolean) => ({
-  type: "OBJECT", required: initial ? ["name", "rationale", "css", "pages"] : ["pages"],
-  propertyOrdering: initial ? ["name", "rationale", "css", "pages"] : ["pages"],
+const responseSchema = (paths: string[], initial: boolean, designOnly = false) => ({
+  type: "OBJECT", required: designOnly ? ["name", "rationale", "css"] : initial ? ["name", "rationale", "css", "pages"] : ["pages"],
+  propertyOrdering: designOnly ? ["name", "rationale", "css"] : initial ? ["name", "rationale", "css", "pages"] : ["pages"],
   properties: {
     ...(initial ? { name: string, rationale: string, css: string } : {}),
-    pages: { type: "ARRAY", minItems: String(paths.length), maxItems: String(paths.length), items: { type: "OBJECT", required: ["path", "title", "description", "html"], propertyOrdering: ["path", "title", "description", "html"], properties: { path: { ...string, enum: paths }, title: string, description: string, html: string } } },
+    ...(!designOnly ? { pages: { type: "ARRAY", minItems: String(paths.length), maxItems: String(paths.length), items: { type: "OBJECT", required: ["path", "title", "description", "html"], propertyOrdering: ["path", "title", "description", "html"], properties: { path: { ...string, enum: paths }, title: string, description: string, html: string } } } } : {}),
   },
 });
-type Options = { memory?: ScopedMemory[]; usage?: UsageContext; config?: ReturnType<typeof getGeminiWebsiteConfig>; fetchImpl?: typeof fetch; model?: string; onProgress?: (progress: WebsiteGenerationProgress) => void; signal?: AbortSignal };
-type Design = { code: WebsiteCodeConcept; model: string };
+export type WebsiteCodeAttempt = { modelIndex: number; validationAttempt: number; previous?: unknown; correction?: string };
+type Options = { memory?: ScopedMemory[]; usage?: UsageContext; config?: ReturnType<typeof getGeminiWebsiteConfig>; fetchImpl?: typeof fetch; model?: string; onProgress?: (progress: WebsiteGenerationProgress) => void; signal?: AbortSignal; timeoutMs?: number; attempt?: WebsiteCodeAttempt; singleRequest?: boolean; designOnly?: boolean };
+export type WebsiteCodeDesign = { code: WebsiteCodeConcept; model: string };
+type Design = WebsiteCodeDesign;
+
+export class WebsiteCodeRetry extends Error {
+  constructor(message: string, readonly attempt: WebsiteCodeAttempt) { super(message); this.name = "WebsiteCodeRetry"; }
+}
+
+export function generateWebsiteCodeStep(concept: WebsiteConcept, paths: string[], spec: WebsiteSpec, profile: BusinessProfile, options: Options, design?: Design) {
+  return generateBatch(concept, paths, spec, profile, { ...options, singleRequest: true }, design);
+}
+
+export function generateWebsiteDesignStep(concept: WebsiteConcept, spec: WebsiteSpec, profile: BusinessProfile, options: Options) {
+  return generateBatch(concept, [], spec, profile, { ...options, singleRequest: true, designOnly: true });
+}
 
 function timeout(error: unknown) {
   return ["TimeoutError", "AbortError"].includes((error as { name?: string })?.name || "");
@@ -34,13 +48,19 @@ async function generateBatch(concept: WebsiteConcept, paths: string[], spec: Web
   const preferences = resolvedWebsitePreferences(options.memory, profile.workspaceId);
   const models = [...new Set([design?.model || options.model || config.models[0], ...config.models])].filter(Boolean).slice(0, 3);
   const initial = !design;
-  const context = `${prompt.context}\n\nWEBSITE_CODE_TASK\nCreate the ${concept} design direction. This is a comparison label, not a predefined layout. Invent a business-specific composition.\nAPPROVED_CONTENT_AND_BRAND:\n${JSON.stringify({ ...spec, code: undefined })}\nREQUIRED_ROUTES (navigation manifest, not this response's page list):\n${JSON.stringify(websitePaths(spec))}\nREQUESTED_PAGE_BATCH (return ONLY these pages):\n${JSON.stringify(paths)}\nAPPROVED_ASSETS:\n${JSON.stringify(websiteAssets(spec))}\n${initial
+  let context = `${prompt.context}\n\nWEBSITE_CODE_TASK\nCreate the ${concept} design direction. This is a comparison label, not a predefined layout. Invent a business-specific composition.\nAPPROVED_CONTENT_AND_BRAND:\n${JSON.stringify({ ...spec, code: undefined })}\nREQUIRED_ROUTES (navigation manifest, not this response's page list):\n${JSON.stringify(websitePaths(spec))}\nREQUESTED_PAGE_BATCH (return ONLY these pages):\n${JSON.stringify(paths)}\nAPPROVED_ASSETS:\n${JSON.stringify(websiteAssets(spec))}\n${initial
     ? "Create the complete original reusable CSS design system and the HOME page only. The CSS must also cover service indexes, detail pages, about and contact sections that will follow in separate requests. Invent a coherent visual language and reusable classes for this actual business."
-    : `Continue this approved design. Return ONLY pages, without css/name/rationale. Reuse the supplied CSS and classes; never replace the design system.\nDESIGN_NAME: ${design.code.name}\nDESIGN_RATIONALE: ${design.code.rationale}\nEXISTING_CSS:\n${design.code.css}\nAPPROVED_HOME_PAGE (navigation and visual reference):\n${design.code.pages[0].html}`}\nReturn semantic HTML fragments for the requested pages. Use .site as the outer wrapper. Use var(--brand-primary) and var(--brand-accent) in the stylesheet. Images use supplied asset keys, truthful alt text and attribution; never fabricate URLs. Navigation always links exactly to /, /services, /about, /contact. The Services index links to every active service. Use EXACT root-relative routes, never .html or index.html links. CTAs use action:booking, action:chat or action:voice. Each page has one main, one H1, full native navigation and a working CTA; the Contact page includes the real tel/mailto links. Honour hidden homepage sections and the owner's priority service. Tag optional homepage sections with data-section="benefits|about|process|gallery|faq". No scripts, inline styles, forms, inputs, SVG, external fonts, CSS URLs, nesting, imports or dependencies. Use native details/summary for menus and FAQs. Provide responsive CSS, readable contrast, visible focus and reduced-motion styling. Keep CSS around 4000-6500 characters, home HTML around 4000-5500, and each other page around 2200-3500 characters with useful approved content. Return only response-schema JSON for this requested batch; other routes are built separately.`;
-  let correction = "";
-  let previous: unknown;
-  let modelIndex = 0;
-  for (let validationAttempt = 0; validationAttempt < 2; validationAttempt++) {
+    : `Continue this approved design. Return ONLY pages, without css/name/rationale. Reuse the supplied CSS and classes; never replace the design system.\nDESIGN_NAME: ${design.code.name}\nDESIGN_RATIONALE: ${design.code.rationale}\nEXISTING_CSS:\n${design.code.css}\nAPPROVED_HOME_PAGE (navigation and visual reference):\n${design.code.pages[0]?.html || "No homepage exists yet. Create it now using the approved stylesheet and classes."}`}\nReturn semantic HTML fragments for the requested pages. Use .site as the outer wrapper. Use var(--brand-primary) and var(--brand-accent) in the stylesheet. Images use supplied asset keys, truthful alt text and attribution; never fabricate URLs. Navigation always links exactly to /, /services, /about, /contact. The Services index links to every active service. Use EXACT root-relative routes, never .html or index.html links. CTAs use action:booking, action:chat or action:voice. Each page has one main, one H1, full native navigation and a working CTA; the Contact page includes the real tel/mailto links. Honour hidden homepage sections and the owner's priority service. Tag optional homepage sections with data-section="benefits|about|process|gallery|faq". No scripts, inline styles, forms, inputs, SVG, external fonts, CSS URLs, nesting, imports or dependencies. Use native details/summary for menus and FAQs. Provide responsive CSS, readable contrast, visible focus and reduced-motion styling. Keep CSS around 4000-6500 characters, home HTML around 4000-5500, and each other page around 2200-3500 characters with useful approved content. Return only response-schema JSON for this requested batch; other routes are built separately.`;
+  if (options.designOnly) {
+    context = context.replace("WEBSITE_CODE_TASK", "WEBSITE_DESIGN_TASK")
+      .replace("and the HOME page only", "only, without HTML or pages")
+      + "\nThis unit returns ONLY name, rationale and css. Describe your original visual language and reusable classes in the rationale. HTML and every page, including Home, are generated in later requests with this stylesheet. Keep the CSS concise and complete. Do not include pages or page HTML in this response.";
+  }
+  let correction = options.attempt?.correction || "";
+  let previous: unknown = options.attempt?.previous;
+  let modelIndex = options.attempt?.modelIndex || 0;
+  const timeoutMs = Math.min(options.timeoutMs || getGeminiWebsiteCodeTimeout(), getGeminiWebsiteCodeTimeout());
+  for (let validationAttempt = options.attempt?.validationAttempt || 0; validationAttempt < 2; validationAttempt++) {
     const contents = [{ role: "user", parts: [{ text: context }] }];
     if (validationAttempt && previous) {
       contents.push({ role: "model", parts: [{ text: JSON.stringify(previous) }] });
@@ -53,8 +73,8 @@ async function generateBatch(concept: WebsiteConcept, paths: string[], spec: Web
         options.signal?.throwIfAborted();
         const result = await meteredGeminiRequest(model, config.apiKey, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ systemInstruction: { parts: [{ text: prompt.systemInstruction }] }, contents, generationConfig: { responseMimeType: "application/json", responseSchema: responseSchema(paths, initial), temperature: .7, maxOutputTokens: 16384 } }),
-          signal: AbortSignal.any([AbortSignal.timeout(getGeminiWebsiteCodeTimeout()), ...(options.signal ? [options.signal] : [])]), cache: "no-store",
+          body: JSON.stringify({ systemInstruction: { parts: [{ text: prompt.systemInstruction }] }, contents, generationConfig: { responseMimeType: "application/json", responseSchema: responseSchema(paths, initial, options.designOnly), temperature: .7, maxOutputTokens: 16384 } }),
+          signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(options.signal ? [options.signal] : [])]), cache: "no-store",
         }, { fetchImpl: options.fetchImpl || fetch, usage: options.usage });
         if (!result.response.ok) {
           const status = result.response.status;
@@ -67,10 +87,11 @@ async function generateBatch(concept: WebsiteConcept, paths: string[], spec: Web
         const networkFailure = error instanceof TypeError && /fetch failed|failed to fetch|network/i.test(error.message);
         const canRetry = timeout(error) || (error as { retryable?: boolean })?.retryable || networkFailure;
         if (!canRetry || modelIndex >= models.length - 1) {
-          const reason = timeout(error) ? `The AI response exceeded ${getGeminiWebsiteCodeTimeout() / 1000} seconds.` : error instanceof Error ? error.message : "The provider could not be reached.";
+          const reason = timeout(error) ? `The AI response exceeded ${timeoutMs / 1000} seconds.` : error instanceof Error ? error.message : "The provider could not be reached.";
           throw new Error(`Website generation stopped while building ${concept}: ${paths.join(", ")}. ${reason}`);
         }
         modelIndex++;
+        if (options.singleRequest) throw new WebsiteCodeRetry("Trying another configured Gemini model for this saved page batch.", { modelIndex, validationAttempt, previous, correction });
         options.onProgress?.({ stage: "code", concept, message: `Retrying the ${concept} page batch with another configured Gemini model. Completed pages are retained.` });
       }
     }
@@ -90,7 +111,7 @@ async function generateBatch(concept: WebsiteConcept, paths: string[], spec: Web
       }
       const input = initial ? previous : { name: design!.code.name, rationale: design!.code.rationale, css: design!.code.css, pages: (previous as { pages?: unknown })?.pages };
       let normalized: WebsiteCodeConcept | undefined;
-      try { normalized = normalizeWebsiteCodeBatch(input, spec, profile, paths, preferences); }
+      try { normalized = options.designOnly ? normalizeWebsiteDesignSystem(input) : normalizeWebsiteCodeBatch(input, spec, profile, paths, preferences); }
       catch (error) { problems.push(error instanceof Error ? error.message : "Invalid page batch."); }
       // Collect grounding and completeness problems together, even when a page is missing.
       // Parsing raw HTML/CSS here is inert; only a fully normalized batch can be accepted.
@@ -106,8 +127,12 @@ async function generateBatch(concept: WebsiteConcept, paths: string[], spec: Web
       return { code: normalized, model: models[modelIndex] };
     } catch (error) {
       correction = error instanceof Error ? error.message.slice(0, 1800) : "Invalid website code.";
-      if (validationAttempt) throw new Error(`Gemini could not produce valid ${concept} pages (${paths.join(", ")}). ${correction}`);
+      if (validationAttempt) {
+        if (options.singleRequest && modelIndex < models.length - 1) throw new WebsiteCodeRetry("Trying another configured Gemini model after page validation.", { modelIndex: modelIndex + 1, validationAttempt: 0 });
+        throw new Error(`Gemini could not produce valid ${concept} pages (${paths.join(", ")}). ${correction}`);
+      }
       if (!previous) previous = { error: correction };
+      if (options.singleRequest) throw new WebsiteCodeRetry("Refining this saved page batch after validation.", { modelIndex, validationAttempt: 1, previous, correction });
       options.onProgress?.({ stage: "code", concept, message: `Refining the ${concept} page batch after validation.` });
     }
   }

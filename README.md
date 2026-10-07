@@ -22,7 +22,7 @@ The initial platform-owner setup requires `EVERONN_AUTH_SETUP_TOKEN`. Later cust
 
 ## Website generation
 
-Gemini plans grounded business content, then writes original CSS/homepages for three design directions and builds remaining pages in small batches using each design's stylesheet. Website Studio streams stage updates and completed-page counts; configured Gemini alternatives retry timed-out batches without rebuilding completed pages in the same request. Versioned Markdown under `ai/`, the business profile, and approved owner preferences guide generation. Server validation rejects unsafe or incomplete output. Booking/chat/voice connect to application controls.
+Gemini plans grounded business content and writes original CSS/HTML for three design directions. Website Studio starts a saved build and completes it through short JSON requests: content, photography, each original stylesheet, one page at a time, then final validation and private-draft save. Each AI request has a 20-second budget and saved retry/repair state. Completed pages survive refreshes and server restarts; Resume saved build continues them. Markdown under `ai/`, approved facts and owner preferences guide generation. The platform validates safe, grounded output and connects booking/chat/voice controls.
 
 New generations are private drafts. Publishing switches an approved live snapshot and keeps three earlier versions for rollback. Existing publications retain their compatibility renderer until replaced. Test fixtures under `tests/fixtures/` are used only by checks; production generation requires Gemini.
 
@@ -56,11 +56,13 @@ Additional focused checks are `smoke:booking`, `smoke:usage`, `smoke:auth-db`, a
 
 The optional `npm run verify:website:live -- --live` makes paid Gemini/Pexels calls for a fictional HVAC business and writes review artifacts under ignored `artifacts/hvac-live/`. `--review-existing` reviews the saved `website.json` without new generation calls. Neither mode changes customer workspaces, publications, or email.
 
+On 2026-10-07, the saved-step fix passed 143 tests, 16 deterministic AI evaluations, lint and the production build. The expanded browser regression recovered an empty gateway response and resumed after reload. Real fictional Gemini/Pexels generation resumed seven saved pages, completed all 21 pages and passed 42 desktop/mobile rendering checks. `npm run verify:website:live -- --live --saved-steps` starts this isolated check; `--live --resume-saved` continues its saved fictional checkpoint. These checks do not certify the deployed full workflow, premium design or full client acceptance.
+
 ## Persistence and deployment
 
 Configured Supabase PostgreSQL stores workspace, account, and provider records through private relational tables. A writable single-instance local setup can use JSON files; Netlify has its configured Blob adapter. Provider credentials are stored separately and encrypted. Database setup and deployment requirements are documented in the maintained guides.
 
-Website generation currently runs synchronously: hosting must allow content generation plus code and repair calls. Other domain packs, background website jobs, automatic visual evaluation, subscription billing, MFA, and forgotten-password recovery remain future work. Live Google/ElevenLabs permissions and the deployed request flow need separate production verification.
+Interactive generation advances while Website Studio is open; closing it pauses between steps, and the saved build can be resumed. No post-response task or streaming support is required. An unattended worker/general queue, further domain packs, automatic visual evaluation, subscriptions, MFA and password recovery remain future work. Standalone generation/review tools retain their separate configured provider timeouts. Live provider permissions and the complete deployed generation flow require their own verification.
 
 - [Code and implementation guide](CODE_PROFILE.md)
 - [Data flow](PROJECT_DATA_FLOW.md)

@@ -41,7 +41,8 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useConversation } from "@elevenlabs/react";
 import { useEverOnnWorkspace } from "@/features/everonn/workspace-provider";
 import type { BusinessProfile, Lead, TeamMember, TranscriptMessage, WebsiteProject } from "@/features/everonn/types";
-import { readWebsiteGeneration, type WebsiteGenerationProgress } from "@/features/website-studio/progress";
+import { readWebsiteGeneration, runWebsiteGeneration, type WebsiteGenerationProgress } from "@/features/website-studio/progress";
+import type { WebsiteJobStatus } from "@/features/website-studio/job-types";
 import { hasCapability } from "@/features/auth/rbac";
 import type { AuthActor } from "@/features/auth/types";
 import { extractCallerDetails } from "@/features/voice-agent/engine";
@@ -619,30 +620,47 @@ function WebsiteSection() {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState<WebsiteGenerationProgress | null>(null);
+  const [savedJob, setSavedJob] = useState<WebsiteJobStatus | undefined>();
+  const generationController = useRef<AbortController | null>(null);
+  const workspaceId = workspace.workspaceId;
 
-  async function generate() {
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/website-studio", { headers: { "x-everonn-workspace": workspaceId }, cache: "no-store", signal: controller.signal })
+      .then((response) => readWebsiteGeneration(response, () => {}))
+      .then((data) => { if (!generationController.current) setSavedJob(data.job); })
+      .catch(() => { /* The explicit generate/resume request reports any connection error. */ });
+    return () => { controller.abort(); generationController.current?.abort(); };
+  }, [workspaceId]);
+
+  async function generate(startNew = false) {
+    if (generationController.current) return false;
+    const controller = new AbortController();
+    generationController.current = controller;
     setGenerating(true); setError(""); setProgress({ stage: "content", message: "Starting your website build." });
     try {
       if (syncStatus === "loading" || syncStatus === "saving" || syncStatus === "error") throw new Error("Wait for your business profile to finish saving before generating a website.");
-      const response = await fetch("/api/website-studio", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/x-ndjson", "x-everonn-workspace": workspace.workspaceId }, body: JSON.stringify({ workspaceId: workspace.workspaceId }) });
-      const data = await readWebsiteGeneration(response, setProgress);
-      if (!response.ok || !data.project) throw new Error(data.error || "Unable to generate the website project.");
+      const data = await runWebsiteGeneration({ workspaceId, onProgress: setProgress, onJob: setSavedJob, signal: controller.signal,
+        existingJob: !startNew && savedJob?.canResume && savedJob.status !== "completed" ? savedJob : undefined });
+      if (!data.project) throw new Error(data.error || "Unable to generate the website project.");
+      setSavedJob(data.job);
       setWebsiteProject(data.project);
       await refreshWebsiteState();
       return true;
     } catch (generationError) {
-      setError(generationError instanceof Error ? generationError.message : "Unable to generate the website project.");
+      if (!controller.signal.aborted) setError(generationError instanceof Error ? generationError.message : "Unable to generate the website project.");
       return false;
-    } finally { setGenerating(false); }
+    } finally { generationController.current = null; if (!controller.signal.aborted) setGenerating(false); }
   }
 
   return <>
-    <PageHeading eyebrow="AI Website Studio" title="A website shaped around your business." copy="Explore three distinct design compositions, request changes in your own words, and review every new version before publishing." action={<button className="eo-primary-button" onClick={generate} disabled={generating || syncStatus !== "saved"}>{generating ? <><RefreshCw className="spin" /> Generating</> : <><Sparkles /> {project ? "Regenerate concepts" : "Generate three concepts"}</>}</button>} />
-    <WebsiteDesignEditor generating={generating} onGenerate={generate} />
+    <PageHeading eyebrow="AI Website Studio" title="A website shaped around your business." copy="Explore three distinct design compositions, request changes in your own words, and review every new version before publishing." action={<button className="eo-primary-button" onClick={() => void generate()} disabled={generating || syncStatus !== "saved"}>{generating ? <><RefreshCw className="spin" /> Generating</> : <><Sparkles /> {savedJob?.canResume && savedJob.status !== "completed" ? "Resume saved build" : project ? "Regenerate concepts" : "Generate three concepts"}</>}</button>} />
+    <WebsiteDesignEditor generating={generating} onGenerate={() => generate(true)} />
+    {!generating && savedJob?.canResume && savedJob.status !== "completed" && <div className="eo-notice" role="status"><div><strong>Your website build is saved.</strong><p>Resume to continue from the last completed page. Your published website stays live.</p>{savedJob.progress.completedPages ? <p>{savedJob.progress.completedPages} of {savedJob.progress.totalPages} pages complete.</p> : null}</div></div>}
     {generating && progress && <div className="eo-notice" role="status" aria-live="polite"><RefreshCw className="spin" /><div><strong>{progress.message}</strong><p>Your published website stays available while this private preview is built. Larger service catalogues take several minutes.</p>{progress.totalPages && <progress aria-label="Website pages complete" max={progress.totalPages} value={progress.completedPages || 0} />}</div></div>}
     <WebsiteReleaseView />
     {error && <div className="eo-error"><CircleAlert /> {error}</div>}
-    {!project ? <section className="eo-panel eo-empty-studio"><div><Globe2 /></div><h2>Your private website concepts begin here.</h2><p>EverOnn will use {workspace.profile.services.filter((item) => item.active).length} active services, {workspace.profile.knowledge.filter((item) => item.approved).length} approved answers, and your saved design direction.</p><button className="eo-primary-button" onClick={generate} disabled={generating || syncStatus !== "saved"}><Sparkles /> Generate website</button></section> : <WebsiteProjectView project={project} advance={advanceWebsiteProject} />}
+    {!project ? <section className="eo-panel eo-empty-studio"><div><Globe2 /></div><h2>Your private website concepts begin here.</h2><p>EverOnn will use {workspace.profile.services.filter((item) => item.active).length} active services, {workspace.profile.knowledge.filter((item) => item.approved).length} approved answers, and your saved design direction.</p><button className="eo-primary-button" onClick={() => void generate()} disabled={generating || syncStatus !== "saved"}><Sparkles /> Generate website</button></section> : <WebsiteProjectView project={project} advance={advanceWebsiteProject} />}
   </>;
 }
 

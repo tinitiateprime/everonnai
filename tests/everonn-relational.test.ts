@@ -30,6 +30,8 @@ async function workspace(id = "test_primary") {
   seed.publishedWebsite = { id: "release_1", project: { ...seed.websiteProject, status: "published", spec: { code: { schemaVersion: 1, concepts: { editorial: { css: ".site{display:grid}", pages: [{ path: "/", html: "<main>Saved generated page</main>" }] } } } } }, profile: structuredClone(seed.profile), publishedAt: "2026-10-04T01:00:00Z" };
   seed.websiteReleases = [{ ...structuredClone(seed.publishedWebsite), id: "release_0" }];
   seed.extraFixture = {keep:true};
+  seed.websiteGeneration = { version: 1, workspaceId: id, id: "00000000-0000-0000-0000-000000000001", status: "running",
+    progress: { stage: "code", completedPages: 1, totalPages: 21 }, checkpoint: { fingerprint: "retained", profile: structuredClone(seed.profile), models: ["fixture-model"], conceptIndex: 0, contentAttempt: { modelIndex: 0, validationAttempt: 0 }, designs: { editorial: { css: ".site{display:grid}", pages: [{ path: "/", html: "<main>Saved AI page</main>" }] } } } };
   seed.aiMemory = saveWebsiteMemory({ profile: seed.profile, actor: { workspaceId: id, role: "owner", userId: "fixture-owner" }, preferences: { ...EMPTY_WEBSITE_PREFERENCES, brief: "Black and gold", rejected: ["Technician stock photos"] } });
   return seed;
 }

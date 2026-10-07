@@ -88,7 +88,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         const response = await fetch("/api/workspace", {
           method: "PUT",
           headers: { "Content-Type": "application/json", "x-everonn-workspace": workspace.workspaceId },
-          body: JSON.stringify({ workspace: { ...workspace, websiteProject: null, publishedWebsite: undefined, websiteReleases: undefined } }),
+          body: JSON.stringify({ workspace: { ...workspace, websiteProject: null, websiteGeneration: undefined, publishedWebsite: undefined, websiteReleases: undefined } }),
           signal: controller.signal,
         });
         if (handleExpiredSession(response, router.replace)) return;

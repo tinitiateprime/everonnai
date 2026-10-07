@@ -7,6 +7,7 @@ import { createDemoWorkspace } from "@/features/everonn/demo-data";
 import { appDatabaseConfigured, appRecords } from "./app-records";
 import { validateMemoryScope } from "@/features/agent-runtime/memory";
 import { selectedDomains } from "@/features/agent-runtime/skill-registry";
+import { assertWebsiteJobScope } from "@/features/website-studio/job-types";
 
 type WorkspaceCollection = { version: 1; workspaces: EverOnnWorkspace[] };
 
@@ -76,6 +77,7 @@ function validateWorkspace(value: unknown): asserts value is EverOnnWorkspace {
   }
   selectedDomains(workspace.profile);
   validateMemoryScope(workspace.aiMemory, workspace.workspaceId);
+  assertWebsiteJobScope(workspace.websiteGeneration, workspace.workspaceId);
   const collections = [workspace.contacts, workspace.leads, workspace.conversations, workspace.appointments];
   if (collections.some((collection) => !Array.isArray(collection))) {
     throw new Error("The EverOnn JSON file is missing a required collection.");

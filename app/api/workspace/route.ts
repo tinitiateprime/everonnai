@@ -25,6 +25,7 @@ async function withRuntimeProviderState(workspace: EverOnnWorkspace) {
   const googleConnection = await getGoogleConnection(workspace.workspaceId).catch(() => null);
   return {
     ...workspace,
+    websiteGeneration: undefined,
     integrations: {
       ...workspace.integrations,
       gemini: getProviderReadiness().gemini ? "ready" as const : "not_configured" as const,
@@ -99,6 +100,7 @@ export async function PUT(request: Request) {
         automationLock: current.automationLock,
         // Generation and publication are server-owned, never trusted from generic autosaves.
         websiteProject: current.websiteProject,
+        websiteGeneration: current.websiteGeneration,
         publishedWebsite: current.publishedWebsite,
         websiteReleases: current.websiteReleases,
       };

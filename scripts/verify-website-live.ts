@@ -11,7 +11,9 @@ async function main() {
   const flags = process.argv.slice(2);
   const live = flags.includes("--live");
   const reviewExisting = flags.includes("--review-existing");
-  if (flags.some((flag) => !["--live", "--review-existing"].includes(flag)) || live === reviewExisting) {
+  const resumeSaved = flags.includes("--resume-saved");
+  const savedSteps = flags.includes("--saved-steps") || resumeSaved;
+  if (flags.some((flag) => !["--live", "--review-existing", "--saved-steps", "--resume-saved"].includes(flag)) || live === reviewExisting || (savedSteps && !live)) {
     throw new Error("Choose --live for paid Gemini/Pexels generation or --review-existing to inspect the saved fictional artifact without generation calls.");
   }
   loadEnvConfig(process.cwd());
@@ -46,6 +48,38 @@ async function main() {
     for (const concept of WEBSITE_CONCEPTS) {
       result.spec.code.concepts[concept] = normalizeWebsiteCodeConcept(result.spec.code.concepts[concept], result.spec, profile);
     }
+  } else if (savedSteps) {
+    const { createWebsiteJobRunner, WEBSITE_STEP_TIMEOUT_MS } = await import("../features/website-studio/jobs");
+    let workspace = { ...createDemoWorkspace(), workspaceId: profile.workspaceId, profile, aiMemory: memory, websiteProject: null,
+      contacts: [], leads: [], conversations: [], appointments: [] } as import("../features/everonn/types").EverOnnWorkspace;
+    const checkpointFile = path.join(output, "job-checkpoint.json");
+    if (resumeSaved) {
+      workspace = JSON.parse(await readFile(checkpointFile, "utf8"));
+      if (workspace.workspaceId !== "isolated_hvac_live_review" || workspace.profile?.workspaceId !== workspace.workspaceId || !workspace.websiteGeneration) throw new Error("Only the saved fictional HVAC review can be resumed.");
+      profile = workspace.profile;
+    }
+    const store: import("../features/website-studio/jobs").WebsiteJobStore = {
+      read: async () => JSON.parse(await readFile(checkpointFile, "utf8")),
+      update: async (_id, change) => {
+        workspace = change(workspace);
+        await writeFile(checkpointFile, JSON.stringify(workspace));
+        return structuredClone(workspace);
+      },
+      slugUsed: async () => false,
+    };
+    const actor = { workspaceId: profile.workspaceId, role: "owner" as const };
+    let status = resumeSaved ? await createWebsiteJobRunner({ store }).resume(actor, workspace.websiteGeneration!.id) : await createWebsiteJobRunner({ store }).start(actor);
+    const id = status.job!.id;
+    for (let step = 0; step < 500 && !status.project; step++) {
+      // Reconstruct state from its saved checkpoint between every provider request.
+      workspace = await store.read(actor.workspaceId);
+      status = await createWebsiteJobRunner({ store }).advance(actor, id);
+      console.log(JSON.stringify({ step, status: status.job?.status, progress: status.job?.progress, providerCallBudgetMs: WEBSITE_STEP_TIMEOUT_MS }));
+      if (status.job?.status === "failed") throw new Error(status.job.error);
+    }
+    if (!status.project) throw new Error("The saved generation steps did not produce a completed draft.");
+    result = { profile, spec: status.project.spec, model: status.project.generation?.model };
+    await writeFile(path.join(output, "website.json"), JSON.stringify(result, null, 2));
   } else {
     console.log("Generating fictional HVAC content with Gemini; metering is isolated.");
     const content = await generateWebsiteSpec(profile, { memory, usage });
@@ -79,7 +113,7 @@ async function main() {
     }
   } finally { await browser.close(); }
   await writeFile(path.join(output, "browser-review.json"), JSON.stringify(review, null, 2));
-  console.log(JSON.stringify({ mode: reviewExisting ? "existing-artifact" : "live-generation", model: result.model || null, reviewedPages: review.length, overflowFailures: review.filter((item) => item.overflow), imageFailures: review.filter((item) => item.brokenImages), artifacts: output, isolatedUsage: usageDir }));
+  console.log(JSON.stringify({ mode: reviewExisting ? "existing-artifact" : savedSteps ? "live-saved-steps" : "live-generation", model: result.model || null, reviewedPages: review.length, overflowFailures: review.filter((item) => item.overflow), imageFailures: review.filter((item) => item.brokenImages), artifacts: output, isolatedUsage: usageDir }));
   if (review.some((item) => item.overflow)) throw new Error("The live-generated website has viewport overflow. Review the generated artifact before publishing.");
   if (review.some((item) => item.brokenImages)) throw new Error("Some Pexels photographs did not load. Inspect browser-review.json and retry the review before publishing.");
 }

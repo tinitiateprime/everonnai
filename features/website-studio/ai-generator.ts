@@ -10,7 +10,7 @@ import type { UsageContext } from "@/features/usage/types";
 import type { WebsiteGenerationProgress } from "./progress";
 
 type GeminiConfig = ReturnType<typeof getGeminiWebsiteConfig>;
-type GenerationResult = {
+export type GenerationResult = {
   spec: WebsiteSpec;
   provider: "gemini";
   model: string;
@@ -218,14 +218,17 @@ function normalizeGeneratedSpec(value: unknown, profile: BusinessProfile): Websi
 }
 
 function extractGeminiJson(payload: unknown) {
-  const response = payload as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-  const source = response.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
+  const response = payload as { candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: string; thought?: boolean }> } }> };
+  const candidate = response.candidates?.[0];
+  if (candidate?.finishReason && candidate.finishReason !== "STOP") throw new Error(`Gemini returned incomplete website content (${candidate.finishReason}).`);
+  const source = candidate?.content?.parts?.filter((part) => !part.thought).map((part) => part.text || "").join("").trim();
   if (!source) throw new Error("Gemini returned no website content.");
   const cleaned = source.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-  return JSON.parse(cleaned) as unknown;
+  try { return JSON.parse(cleaned) as unknown; }
+  catch { throw new Error("Gemini returned incomplete or invalid website content JSON."); }
 }
 
-async function requestGemini(model: string, profile: BusinessProfile, config: GeminiConfig, fetchImpl: typeof fetch, usage?: UsageContext, memory?: ScopedMemory[], correction?: { generated: unknown; feedback: string }) {
+export async function requestWebsiteContent(model: string, profile: BusinessProfile, config: GeminiConfig, fetchImpl: typeof fetch, usage?: UsageContext, memory?: ScopedMemory[], correction?: { generated: unknown; feedback: string }) {
   const prompt = buildWebsitePrompt(profile, memory);
   const contents = [{ role: "user", parts: [{ text: `${prompt.context}\n\nCONTENT_PLAN_TASK\nPlan the complete grounded website content, brand colors, photography direction, and design rationale matching the response schema. Include every active service exactly once, at least three benefits, three process steps, four FAQs, and two detailed sections per service. Actual HTML and CSS are generated in the next stage; do not choose from a layout menu.` }] }];
   if (correction) {
@@ -245,10 +248,18 @@ async function requestGemini(model: string, profile: BusinessProfile, config: Ge
   }, { fetchImpl, usage });
   if (!response.ok) {
     const message = (payload as { error?: { message?: string } } | null)?.error?.message;
-    throw new Error(message || `Gemini returned HTTP ${response.status}.`);
+    throw Object.assign(new Error(message || `Gemini returned HTTP ${response.status}.`), { httpStatus: response.status });
   }
   const generated = extractGeminiJson(payload);
   return { generated, skills: prompt.trace };
+}
+
+export function validateWebsiteContent(generated: unknown, profile: BusinessProfile, memory?: ScopedMemory[]) {
+  assertCompleteAiSpec(generated, profile);
+  const spec = applyWebsitePreferences(normalizeGeneratedSpec(generated, profile), resolvedWebsitePreferences(memory, profile.workspaceId));
+  const qa = runWebsiteQa(spec, profile);
+  if (!qa.passed) throw new Error(`Generated content did not pass EverOnn grounding QA. ${qa.checks.filter((check) => !check.passed).map((check) => check.message).join(" ")}`);
+  return spec;
 }
 
 export async function generateWebsiteSpec(input: BusinessProfile, options: { config?: GeminiConfig; fetchImpl?: typeof fetch; usage?: UsageContext; memory?: ScopedMemory[]; onProgress?: (progress: WebsiteGenerationProgress) => void } = {}): Promise<GenerationResult> {
@@ -259,22 +270,18 @@ export async function generateWebsiteSpec(input: BusinessProfile, options: { con
   for (const [index, model] of config.models.entries()) {
     try {
       options.onProgress?.({ stage: "content", message: "Planning website content from your saved business knowledge." });
-      let result = await requestGemini(model, input, config, options.fetchImpl || fetch, options.usage, options.memory);
+      let result = await requestWebsiteContent(model, input, config, options.fetchImpl || fetch, options.usage, options.memory);
       for (let attempt = 0; attempt < 2; attempt++) {
         let feedback: string;
         try {
-          assertCompleteAiSpec(result.generated, input);
-          const preferences = resolvedWebsitePreferences(options.memory, input.workspaceId);
-          const spec = applyWebsitePreferences(normalizeGeneratedSpec(result.generated, input), preferences);
-          const qa = runWebsiteQa(spec, input);
-          if (!qa.passed) throw new Error(`Generated content did not pass EverOnn grounding QA. ${qa.checks.filter((check) => !check.passed).map((check) => check.message).join(" ")}`);
+          const spec = validateWebsiteContent(result.generated, input, options.memory);
           return { spec, provider: "gemini", model, skills: result.skills };
         } catch (error) {
           feedback = error instanceof Error ? error.message : "The website content is incomplete.";
           if (attempt) throw error;
         }
         options.onProgress?.({ stage: "content", message: "Refining website content after factual checks." });
-        result = await requestGemini(model, input, config, options.fetchImpl || fetch, options.usage, options.memory, { generated: result.generated, feedback: feedback.slice(0, 2000) });
+        result = await requestWebsiteContent(model, input, config, options.fetchImpl || fetch, options.usage, options.memory, { generated: result.generated, feedback: feedback.slice(0, 2000) });
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : lastError;

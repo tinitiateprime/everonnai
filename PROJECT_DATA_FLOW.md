@@ -461,7 +461,7 @@ flowchart LR
   API --> Viewer
 ```
 
-`/workspace` loads only the actor workspace's safe repository summaries. Choosing a repository reads its stored catalog, then fetches a registered immutable GitHub blob. Tokens are decrypted only on the server and are bound to the workspace/repository. Private images use the same authenticated scope and a registered raster asset; arbitrary URLs/files are not proxied. Filename search and theme/selected-document state stay in the browser.
+`/workspace` loads only the actor workspace's safe repository summaries and displays every connection as a button below the search field. Clicking a repository clears the previous filename search, reads its stored catalog, then fetches a registered immutable GitHub blob and shows that repository's file tree. The repository buttons remain visible while documents are filtered and after a page reload. Tokens are decrypted only on the server and are bound to the workspace/repository. Private images use the same authenticated scope and a registered raster asset; arbitrary URLs/files are not proxied. Filename search and theme/selected-document state stay in the browser.
 
 A connection validates GitHub access, imports a bounded complete manifest and encrypts any supplied token before saving. Manual Sync validates a fresh tree and conditionally replaces that repository's manifest; the previous record remains on provider failure. Connect/disconnect require owner/manager configuration capability, while team members can read and sync. Same-origin checks protect mutations. Disconnect uses the displayed revision and removes the local connection/credential. Customer workspace records, other repositories, Google connections and GitHub files are unchanged.
 

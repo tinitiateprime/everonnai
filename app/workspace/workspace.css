@@ -16,8 +16,8 @@
 .pw-search { display:flex; align-items:center; gap:8px; margin:0 16px 16px; padding:10px; background:var(--pw-bg); border:1px solid var(--pw-line); border-radius:8px; color:var(--pw-muted); }
 .pw-search input { border:0; outline:0; background:transparent; color:var(--pw-text); min-width:0; width:100%; font-size:12px; }
 .pw-search input::placeholder { color:var(--pw-muted); }
-.pw-document-count { padding:18px 22px 9px; color:var(--pw-muted); font-size:11px; }
-.pw-tree-scroll { flex:1; overflow:auto; padding:0 8px 20px; }
+.pw-document-count { padding:0 22px 9px; color:var(--pw-muted); font-size:11px; }
+.pw-tree-scroll { flex:1; min-height:0; overflow:auto; padding:0 8px 20px; }
 .pw-root .file-tree ul { list-style:none; padding:0; margin:0; }
 .pw-root .tree-row { display:flex; align-items:center; gap:7px; width:100%; min-height:34px; border:0; border-radius:6px; background:transparent; color:var(--pw-muted); text-align:left; font-size:12px; padding-right:8px; }
 .pw-root .tree-row>span:first-of-type { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -104,9 +104,18 @@
 
 .pw-root .mermaid-error pre { white-space:pre-wrap; font-size:11px; color:var(--pw-muted); }
 
-.pw-repository-picker { padding:0 16px 16px; display:grid; gap:8px; }
-.pw-repository-picker label { color:var(--pw-muted); font-size:11px; }
-.pw-repository-picker select { width:100%; padding:10px; border:1px solid var(--pw-line); border-radius:6px; background:var(--pw-panel); color:var(--pw-text); font-size:12px; }
+.pw-repository-controls { padding:0 16px 16px; display:grid; }
+.pw-repositories ul { list-style:none; margin:0; padding:0 8px; display:grid; gap:8px; }
+.pw-repository-button { display:flex; align-items:flex-start; gap:9px; width:100%; padding:12px 10px; border:1px solid var(--pw-line); border-radius:8px; background:var(--pw-panel); color:var(--pw-text); text-align:left; }
+.pw-repository-button>svg { flex-shrink:0; margin-top:1px; color:var(--pw-accent); }
+.pw-repository-button:hover { border-color:var(--pw-accent); background:var(--pw-bg); }
+.pw-repository-button.is-active { border-color:var(--pw-accent); background:var(--pw-tint); }
+.pw-repository-name { display:grid; gap:5px; min-width:0; line-height:1.4; overflow-wrap:anywhere; }
+.pw-repository-name strong { font-size:12px; font-weight:700; }
+.pw-repository-name>span { color:var(--pw-muted); font-size:10px; }
+.pw-repositories-empty { margin:0; padding:6px 14px; color:var(--pw-muted); font-size:12px; line-height:1.5; }
+.pw-repository-documents { margin-top:16px; padding-top:12px; border-top:1px solid var(--pw-line); }
+.pw-repository-document-count { padding:0 14px 8px; color:var(--pw-muted); font-size:11px; }
 .pw-connect-button { display:flex; gap:6px; align-items:center; justify-content:center; border:1px solid var(--pw-line); border-radius:6px; padding:8px; background:var(--pw-tint); color:var(--pw-accent); font-size:12px; }
 .pw-repository-details { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-bottom:26px; padding:12px 0; border-bottom:1px solid var(--pw-line); font-size:12px; }
 .pw-repository-details>a { display:flex; align-items:center; gap:6px; overflow-wrap:anywhere; }

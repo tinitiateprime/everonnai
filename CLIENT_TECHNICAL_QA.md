@@ -323,7 +323,7 @@ Dashboard Inbox filters now select real subsets, and authorized operators can up
 
 **Short answer:** Customers can connect their own GitHub repositories and browse Markdown guides, task lists and Mermaid diagrams inside their business workspace.
 
-Open **Project workspace** in the dashboard. It includes repository selection, filename/path search, code copying, private repository images, manual sync and mobile/light/dark viewing. Public repositories work without a token; private repositories require a customer token with Contents read access. Tokens are encrypted on the server and never returned in the viewer. [GitHub permission details](https://docs.github.com/en/rest/git/trees#get-a-tree).
+Open **Project workspace** in the dashboard. Connected repositories are visible directly below the search box; click a repository to open its documents. The selected repository is highlighted, its files appear underneath, and names remain visible while searching files. The viewer also includes code copying, private repository images, manual sync and mobile/light/dark viewing. Public repositories work without a token; private repositories require a customer token with Contents read access. Tokens are encrypted on the server and never returned in the viewer. [GitHub permission details](https://docs.github.com/en/rest/git/trees#get-a-tree).
 
 ### Who can manage a customer's repositories?
 

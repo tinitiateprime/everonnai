@@ -71,10 +71,21 @@ export function ProjectWorkspace({ initialRepositories, canManage, businessName,
     <aside className={`pw-sidebar ${sidebarOpen ? "pw-sidebar-open" : ""}`} aria-label="Project navigation">
       <Link className="pw-brand" href="/dashboard"><span>&infin;</span><strong>EverOnn<span>.Ai</span></strong></Link>
       <div className="pw-sidebar-heading"><span>Project workspace</span><button className="pw-mobile-only" onClick={() => setSidebarOpen(false)} aria-label="Close project navigation"><X size={18} /></button></div>
-      <div className="pw-repository-picker"><label htmlFor="project-repository">Repository</label><select id="project-repository" value={activeId} disabled={loading} onChange={(event) => { if (event.target.value) { setQuery(""); void load(event.target.value); } }}><option value="" disabled>Choose a repository</option>{repositories.map((row) => <option key={row.id} value={row.id}>{row.owner}/{row.name}</option>)}</select>{canManage && <button className="pw-connect-button" onClick={() => setConnecting(true)} disabled={loading || repositories.length >= 12}><Plus size={15} /> Connect repository</button>}</div>
+      {canManage && <div className="pw-repository-controls"><button className="pw-connect-button" onClick={() => setConnecting(true)} disabled={loading || repositories.length >= 12}><Plus size={15} /> Connect repository</button></div>}
       <label className="pw-search"><Search size={16} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a file or path" aria-label="Search project documents" /></label>
-      <div className="pw-document-count">{currentCatalog ? `${currentCatalog.documents.length} documents / ${currentCatalog.repository.branch}` : `${repositories.length} connected repositories`}</div>
-      <div className="pw-tree-scroll" inert={loading}>{currentCatalog && <FileTree nodes={currentCatalog.nodes} activePath={selectedPath} query={query} onSelect={openDocument} />}</div>
+      <div className="pw-document-count">{repositories.length} connected {repositories.length === 1 ? "repository" : "repositories"}</div>
+      <div className="pw-tree-scroll" inert={loading}>
+        <nav className="pw-repositories" aria-label="Connected repositories">
+          <ul>{repositories.map((row) => <li key={row.id}>
+            <button className={`pw-repository-button ${row.id === activeId ? "is-active" : ""}`} disabled={loading} aria-label={`Open repository ${row.owner}/${row.name}`} aria-pressed={row.id === activeId} title={`${row.owner}/${row.name}`} onClick={() => { setQuery(""); void load(row.id); }}>
+              <FolderGit2 size={18} aria-hidden="true" />
+              <span className="pw-repository-name"><strong>{row.name}</strong><span>{row.owner} · {row.branch}</span></span>
+            </button>
+          </li>)}</ul>
+          {!repositories.length && <p className="pw-repositories-empty">No connected repositories yet.</p>}
+        </nav>
+        {currentCatalog && <div className="pw-repository-documents"><div className="pw-repository-document-count">{currentCatalog.documents.length} documents / {currentCatalog.repository.branch}</div><FileTree key={activeId} nodes={currentCatalog.nodes} activePath={selectedPath} query={query} onSelect={openDocument} /></div>}
+      </div>
       <div className="pw-sidebar-footer"><strong>{businessName}</strong><span>GitHub documentation shared with your workspace team.</span></div>
     </aside>
     {sidebarOpen && <button className="pw-scrim" onClick={() => setSidebarOpen(false)} aria-label="Close project navigation" />}

@@ -18,8 +18,11 @@ process.env.NETLIFY = "false"; process.env.USAGE_BACKGROUND_MODE = "external";
 process.env.USAGE_REQUIRE_DURABLE_STORAGE = "false";
 after(() => rmSync(usageDirectory, { recursive: true, force: true }));
 
-function fixture() {
+function fixture(serviceCount = 3) {
+  let time = Date.now();
+  const now = () => new Date(time);
   let saved = createDemoWorkspace();
+  if (serviceCount !== 3) saved.profile.services = Array.from({ length: serviceCount }, (_, index) => ({ ...saved.profile.services[index % 3], id: `service-${index}`, name: `Home comfort service ${index + 1}` }));
   const spec = generateDeterministicWebsiteSpec(saved.profile);
   saved.websiteProject = createWebsiteProject(saved.profile, spec);
   saved.websiteProject.status = "published";
@@ -44,11 +47,13 @@ function fixture() {
       return Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(code) }] } }] });
     }
     requests.push({ model, repair: body.contents.length > 1 });
-    return Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(spec) }] } }] });
+    const serviceId = body.generationConfig.responseSchema.properties.service?.properties.id.enum[0];
+    const content = serviceId ? { service: spec.services.find((item) => item.id === serviceId) } : spec;
+    return Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(content) }] } }] });
   }) as typeof fetch;
   const config = { apiKey: "fixture-only", models: ["fixture-model"], timeoutMs: 10000, retryDelayMs: 0 };
-  const runner = () => createWebsiteJobRunner({ store, fetchImpl, config });
-  return { actor, store, fetchImpl, requests, config, runner, read: () => saved, change: (edit: (workspace: EverOnnWorkspace) => void) => edit(saved) };
+  const runner = () => createWebsiteJobRunner({ store, fetchImpl, config, now });
+  return { actor, store, fetchImpl, requests, config, runner, now, advanceTime: (milliseconds: number) => { time += milliseconds; }, read: () => saved, change: (edit: (workspace: EverOnnWorkspace) => void) => edit(saved) };
 }
 
 test("saved page units survive runner restarts and replace only the private draft after final QA", async () => {
@@ -74,7 +79,7 @@ test("saved page units survive runner restarts and replace only the private draf
   assert.equal(f.requests.filter((call) => call.paths?.length === 0).length, 3);
   assert.ok(f.requests.filter((call) => call.paths?.length).every((call) => call.paths!.length === 1));
   assert.equal((await f.runner().advance(f.actor, id)).project!.id, result.project!.id);
-  assert.equal(f.requests.length, 25, "Completed requests cannot charge again");
+  assert.equal(f.requests.length, 28, "Completed requests cannot charge again");
 });
 
 test("workspace lease prevents duplicate AI calls from concurrent tabs and rejects unauthorized access", async () => {
@@ -137,6 +142,7 @@ test("model fallback and a page repair are separate saved requests with unchange
   result = await runner.advance(f.actor, id);
   assert.equal(f.read().websiteGeneration!.checkpoint!.contentAttempt.modelIndex, 1);
   result = await runner.advance(f.actor, id);
+  for (let service = 0; service < 3; service++) result = await runner.advance(f.actor, id);
   assert.equal(result.job!.progress.stage, "media");
   await runner.advance(f.actor, id);
   await runner.advance(f.actor, id);
@@ -152,9 +158,13 @@ test("model fallback and a page repair are separate saved requests with unchange
 test("exhausted provider failures can resume a saved build without rebuilding completed pages", async () => {
   const f = fixture();
   const id = (await f.runner().start(f.actor)).job!.id;
-  for (let step = 0; step < 5; step++) await f.runner().advance(f.actor, id);
+  for (let step = 0; step < 8; step++) await f.runner().advance(f.actor, id);
   const page = structuredClone(f.read().websiteGeneration!.checkpoint!.designs.editorial!.pages[0]);
-  const offline = createWebsiteJobRunner({ store: f.store, config: f.config, fetchImpl: async () => Response.json({ error: { message: "Offline" } }, { status: 503 }) });
+  const offline = createWebsiteJobRunner({ store: f.store, config: f.config, now: f.now, fetchImpl: async () => Response.json({ error: { message: "Offline" } }, { status: 503 }) });
+  const coolingDown = await offline.advance(f.actor, id);
+  assert.equal(coolingDown.job!.status, "running");
+  assert.ok(coolingDown.job!.retryAfterMs! >= 2000);
+  f.advanceTime(3000);
   const failed = await offline.advance(f.actor, id);
   assert.equal(failed.job!.status, "failed");
   assert.equal(failed.job!.canResume, true);
@@ -179,9 +189,10 @@ test("an expired lease can be recovered and the old request cannot overwrite the
   await entered;
   time += 61_000;
   const next = await createWebsiteJobRunner({ store: f.store, config: f.config, fetchImpl: f.fetchImpl, now }).advance(f.actor, id);
-  assert.equal(next.job!.progress.stage, "media");
+  assert.equal(next.job!.progress.stage, "content");
+  assert.deepEqual(f.read().websiteGeneration!.checkpoint!.contentParts!.services, []);
   release(); await assertion;
-  assert.equal(f.read().websiteGeneration!.progress.stage, "media");
+  assert.equal(f.read().websiteGeneration!.progress.stage, "content");
 });
 
 test("billing and permission errors stop without calling another model or substituting a template", async () => {
@@ -226,5 +237,84 @@ test("browser recovery reads saved state after a lost response and never restart
   const result = await runWebsiteGeneration({ workspaceId: f.actor.workspaceId, onProgress: () => {}, fetchImpl });
   assert.ok(result.project?.qa.passed);
   assert.equal(starts, 1);
-  assert.equal(f.requests.length, 25);
+  assert.equal(f.requests.length, 28);
+});
+
+test("a thirteen-service catalogue saves separate AI content units and resumes without rewriting accepted copy", async () => {
+  const f = fixture(13);
+  const runner = f.runner();
+  const id = (await runner.start(f.actor)).job!.id;
+  for (let unit = 0; unit < 6; unit++) await runner.advance(f.actor, id);
+  const accepted = structuredClone(f.read().websiteGeneration!.checkpoint!.contentParts!);
+  assert.equal(accepted.services.length, 5);
+  const timeoutRunner = createWebsiteJobRunner({ store: f.store, config: f.config, now: f.now, fetchImpl: async () => { throw new DOMException("The operation was aborted due to timeout", "TimeoutError"); } });
+  await timeoutRunner.advance(f.actor, id);
+  f.advanceTime(3000);
+  const stopped = await timeoutRunner.advance(f.actor, id);
+  assert.equal(stopped.job!.status, "failed");
+  assert.match(stopped.job!.error!, /Gemini did not finish.*Resume saved build/);
+  assert.deepEqual(f.read().websiteGeneration!.checkpoint!.contentParts, accepted);
+  await runner.resume(f.actor, id);
+  for (let unit = 5; unit < 13; unit++) await f.runner().advance(f.actor, id);
+  assert.equal(f.read().websiteGeneration!.progress.stage, "media");
+  assert.equal(f.requests.length, 14);
+  assert.deepEqual(f.read().websiteGeneration!.checkpoint!.spec!.services.slice(0, 5), accepted.services);
+  assert.equal(f.read().websiteGeneration!.checkpoint!.spec!.services.length, 13);
+  assert.equal(f.read().websiteProject!.status, "published");
+});
+
+test("a rejected service content unit is repaired before extending the saved content plan", async () => {
+  const f = fixture();
+  const id = (await f.runner().start(f.actor)).job!.id;
+  await f.runner().advance(f.actor, id);
+  const fetchImpl = (async (...args: Parameters<typeof fetch>) => {
+    const response = await f.fetchImpl(...args);
+    const payload = await response.json();
+    const content = JSON.parse(payload.candidates[0].content.parts[0].text);
+    content.service.pageHeadline = "Certified heating care";
+    return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(content) }] } }] });
+  }) as typeof fetch;
+  await createWebsiteJobRunner({ store: f.store, config: f.config, fetchImpl }).advance(f.actor, id);
+  assert.equal(f.read().websiteGeneration!.checkpoint!.contentParts!.services.length, 0);
+  assert.match(f.read().websiteGeneration!.checkpoint!.contentAttempt.feedback!, /unsupported claims/);
+  await f.runner().advance(f.actor, id);
+  assert.equal(f.read().websiteGeneration!.checkpoint!.contentParts!.services.length, 1);
+  assert.ok(f.requests.at(-1)!.repair);
+});
+
+test("a timeout while checking saved status does not expose a raw browser abort or restart generation", async () => {
+  const f = fixture();
+  let starts = 0;
+  const fetchImpl = (async (_url, init) => {
+    const body = JSON.parse(String(init?.body || "{}"));
+    if (body.operation === "start") { starts++; return Response.json(await f.runner().start(f.actor)); }
+    throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+  }) as typeof fetch;
+  await assert.rejects(runWebsiteGeneration({ workspaceId: f.actor.workspaceId, onProgress: () => {}, fetchImpl }), /connection to Website Studio timed out.*Resume saved build/);
+  assert.equal(starts, 1);
+  assert.equal(f.requests.length, 0);
+  assert.equal(f.read().websiteGeneration!.status, "running");
+});
+
+test("transient content failure has one durable cooldown retry and cannot charge again during the pause", async () => {
+  const f = fixture();
+  let calls = 0;
+  const fetchImpl = (async (...args: Parameters<typeof fetch>) => {
+    if (++calls === 1) return Response.json({ error: { message: "Temporarily overloaded" } }, { status: 503 });
+    return f.fetchImpl(...args);
+  }) as typeof fetch;
+  const runner = () => createWebsiteJobRunner({ store: f.store, config: f.config, fetchImpl, now: f.now });
+  const id = (await runner().start(f.actor)).job!.id;
+  const paused = await runner().advance(f.actor, id);
+  assert.equal(paused.job!.status, "running");
+  assert.ok(paused.job!.retryAfterMs! >= 2000);
+  assert.equal(f.read().websiteGeneration!.checkpoint!.contentAttempt.providerRound, 1);
+  await runner().advance(f.actor, id);
+  assert.equal(calls, 1);
+  f.advanceTime(3000);
+  const recovered = await runner().advance(f.actor, id);
+  assert.equal(recovered.job!.status, "running");
+  assert.ok(f.read().websiteGeneration!.checkpoint!.contentParts);
+  assert.equal(f.read().websiteGeneration!.retryAt, undefined);
+  assert.equal(calls, 2);
 });

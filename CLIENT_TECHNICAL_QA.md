@@ -10,7 +10,7 @@ For the full code map, see [CODE_PROFILE.md](CODE_PROFILE.md). For diagrams, see
 
 **Short answer:** The owner starts a saved website build. Short authenticated JSON requests advance content, imagery, original stylesheets and each AI-generated page, then save the complete validated private draft. There is no dependence on a long streamed response.
 
-The route loads the saved profile and approved scoped preferences, composes Markdown skills, validates the content plan, resolves available Pexels photos, and requests the original website code. Invalid content receives one repair per model with its original output and the exact failed checks; each invalid code batch receives one bounded repair. Persistent failure shows the specific problem and preserves the previous website. A completed build saves a private draft; an existing published version stays live. All provider requests, repairs and rejected output are metered.
+The route loads the saved profile and approved scoped preferences and explicitly composes Markdown skills. Gemini writes the main content and each service content object in separate saved requests, then creates original stylesheets and individual page HTML. This prevents a large catalogue from requiring one oversized content response. The server checks facts, service identities, copy completeness and unique routes as content is saved, and checks the complete site before accepting a draft. Invalid output receives one bounded repair per model with the exact failed checks. Temporary provider errors receive a limited second model round after a short saved cooldown. Permanent errors and exhausted factual repairs stop. Persistent provider failure shows a specific resumable error and preserves accepted work and the previous website. All provider attempts, repairs and rejected output are metered.
 
 ### 2. Which exact external AI endpoint is called?
 
@@ -24,7 +24,7 @@ The API key is read on the server from `GEMINI_API_KEY` or the `GOOGLE_API_KEY` 
 
 ### 3. Which Gemini model is used?
 
-**Short answer:** Models are tried in the order configured in `GEMINI_WEBSITE_MODELS`, then `GEMINI_WEBSITE_MODEL`, then `GEMINI_MODEL`, with `gemini-3.8-flash` as the default fallback. The code stage starts with the model that produced the content plan, then uses configured Gemini alternatives if a page batch times out or encounters a transient provider error. Each concept records its successful code models separately.
+**Short answer:** Initial models are tried in the order configured in `GEMINI_WEBSITE_MODELS`, then `GEMINI_WEBSITE_MODEL`, then `GEMINI_MODEL`, with `gemini-3.8-flash` as the default fallback. Later content units prefer the model that succeeded. The code stage starts with the successful content model and uses configured Gemini alternatives for transient failures. Each concept records its successful code models. Known 3.x Flash models use supported low reasoning effort for these bounded requests; 3.5/3.1 Flash Lite uses minimal effort. Other model families retain defaults. Gemini alternatives still generate content and code; there is no template fallback.
 
 The successful model is saved in `websiteProject.generation.model`, so the dashboard can show which model generated that site.
 

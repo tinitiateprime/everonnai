@@ -21,6 +21,7 @@ export type WebsiteGenerationJob = {
   updatedAt: string;
   progress: WebsiteGenerationProgress;
   error?: string;
+  retryAt?: string;
   lease?: { token: string; expiresAt: string };
   completedProjectId?: string;
   checkpoint?: {
@@ -28,7 +29,8 @@ export type WebsiteGenerationJob = {
     memory?: ScopedMemory[];
     fingerprint: string;
     models: string[];
-    contentAttempt: { modelIndex: number; validationAttempt: number; generated?: unknown; feedback?: string };
+    contentAttempt: { modelIndex: number; validationAttempt: number; providerRound?: number; generated?: unknown; feedback?: string };
+    contentParts?: WebsiteSpec;
     spec?: WebsiteSpec;
     contentModel?: string;
     skills?: SkillTrace[];
@@ -49,7 +51,8 @@ export function assertWebsiteJobScope(job: WebsiteGenerationJob | undefined, wor
       || !job.checkpoint.models.length || job.checkpoint.models.length > 5
       || job.checkpoint.models.some((model) => !/^[a-z0-9_.-]{1,100}$/i.test(model))
       || !Number.isInteger(job.checkpoint.conceptIndex) || job.checkpoint.conceptIndex < 0 || job.checkpoint.conceptIndex > 3))
-    || (job.lease && (!job.lease.token || !Number.isFinite(Date.parse(job.lease.expiresAt))))) {
+    || (job.lease && (!job.lease.token || !Number.isFinite(Date.parse(job.lease.expiresAt))))
+    || (job.retryAt && !Number.isFinite(Date.parse(job.retryAt)))) {
     throw new Error("Invalid website generation checkpoint or workspace scope.");
   }
 }

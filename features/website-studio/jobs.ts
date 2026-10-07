@@ -5,7 +5,7 @@ import { authorizeWorkspaceAction } from "@/features/auth/rbac";
 import { resolvedWebsitePreferences, validateMemoryScope } from "@/features/agent-runtime/memory";
 import { readWorkspaceJson, updateWorkspaceJson, findWorkspaceJson } from "@/lib/json-workspace-store";
 import { getGeminiWebsiteConfig } from "@/lib/provider-config";
-import { requestWebsiteContent, validateWebsiteContent } from "./ai-generator";
+import { requestWebsiteContent, validateWebsiteContent, validateWebsiteContentPart } from "./ai-generator";
 import { generateWebsiteCodeStep, generateWebsiteDesignStep, WebsiteCodeRetry } from "./code-generator";
 import { normalizeWebsiteCodeConcept, websitePaths } from "./code-validation";
 import { createWebsiteProject, normalizeWebsiteBusinessProfile, runWebsiteQa, WEBSITE_CONCEPTS } from "./generator";
@@ -33,7 +33,9 @@ function fingerprint(workspace: EverOnnWorkspace) {
   return createHash("sha256").update(JSON.stringify([workspace.profile, workspace.aiMemory, workspace.websiteProject])).digest("hex");
 }
 function message(error: unknown) {
-  let value = error instanceof Error ? error.message : "Website generation could not complete.";
+  let value = error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name)
+    ? "Gemini did not finish this generation step before its deadline. Use Resume saved build to retry; completed content and pages are retained."
+    : error instanceof Error ? error.message : "Website generation could not complete.";
   for (const key of [process.env.GEMINI_API_KEY, process.env.GOOGLE_API_KEY, process.env.PEXELS_API_KEY]) if (key) value = value.replaceAll(key, "[redacted]");
   return value.slice(0, 2000);
 }
@@ -43,13 +45,13 @@ function getJob(workspace: EverOnnWorkspace, id?: string) {
   if (id && job?.id !== id) throw Object.assign(new Error("This website build was replaced. Refresh Website Studio to continue."), { status: 409 });
   return job;
 }
-function publicResult(workspace: EverOnnWorkspace): WebsiteGenerationResult {
+function publicResult(workspace: EverOnnWorkspace, timestamp = Date.now()): WebsiteGenerationResult {
   const saved = getJob(workspace);
   if (!saved) return {};
   const job: WebsiteJobStatus = {
     id: saved.id, status: saved.status, progress: saved.progress,
     canResume: Boolean(saved.checkpoint && saved.checkpoint.fingerprint === fingerprint(workspace)),
-    ...(saved.lease ? { retryAfterMs: 1000 } : {}), ...(saved.error ? { error: saved.error } : {}),
+    ...(saved.lease || saved.retryAt ? { retryAfterMs: saved.lease ? 1000 : Math.max(100, Date.parse(saved.retryAt!) - timestamp) } : {}), ...(saved.error ? { error: saved.error } : {}),
   };
   const project = workspace.websiteProject;
   return { job, ...(saved.status === "completed" && project && project.id === saved.completedProjectId
@@ -96,8 +98,8 @@ export function createWebsiteJobRunner(options: Options = {}) {
         const job = getJob(current, id)!;
         if (job.status !== "failed") return current;
         if (!job.checkpoint || job.checkpoint.fingerprint !== fingerprint(current)) throw Object.assign(new Error("Business information changed. Start a new website build using the latest facts."), { status: 409 });
-        return { ...current, websiteGeneration: { ...job, status: "running", error: undefined, lease: undefined, updatedAt: now().toISOString(),
-          checkpoint: { ...job.checkpoint, contentAttempt: { modelIndex: 0, validationAttempt: 0 }, codeAttempt: undefined } } };
+        return { ...current, websiteGeneration: { ...job, status: "running", error: undefined, lease: undefined, retryAt: undefined, updatedAt: now().toISOString(),
+          checkpoint: { ...job.checkpoint, contentAttempt: { modelIndex: Math.max(0, job.checkpoint.models.indexOf(job.checkpoint.contentModel || "")), validationAttempt: 0 }, codeAttempt: undefined } } };
       });
       return publicResult(workspace);
     },
@@ -110,11 +112,11 @@ export function createWebsiteJobRunner(options: Options = {}) {
         claimed = await store.update(actor.workspaceId, (current) => {
           authorizeWorkspaceAction(actor, current, "website:publish");
           const job = getJob(current, id)!;
-          if (job.status !== "running" || (job.lease && Date.parse(job.lease.expiresAt) > now().getTime())) throw new BusyStep();
-          return { ...current, websiteGeneration: { ...job, lease: { token, expiresAt: new Date(now().getTime() + LEASE_MS).toISOString() } } };
+          if (job.status !== "running" || (job.lease && Date.parse(job.lease.expiresAt) > now().getTime()) || (job.retryAt && Date.parse(job.retryAt) > now().getTime())) throw new BusyStep();
+          return { ...current, websiteGeneration: { ...job, retryAt: undefined, lease: { token, expiresAt: new Date(now().getTime() + LEASE_MS).toISOString() } } };
         });
       } catch (error) {
-        if (error instanceof BusyStep) return publicResult(await read(actor, id));
+        if (error instanceof BusyStep) return publicResult(await read(actor, id), now().getTime());
         throw error;
       }
       const job = structuredClone(claimed.websiteGeneration!);
@@ -131,12 +133,16 @@ export function createWebsiteJobRunner(options: Options = {}) {
           const model = checkpoint.models[attempt.modelIndex];
           try {
             const result = await requestWebsiteContent(model, profile, { ...config, timeoutMs: Math.min(config.timeoutMs, WEBSITE_STEP_TIMEOUT_MS) }, options.fetchImpl || fetch, usage, checkpoint.memory,
-              attempt.generated ? { generated: attempt.generated, feedback: attempt.feedback || "Repair the complete content." } : undefined);
+              attempt.generated ? { generated: attempt.generated, feedback: attempt.feedback || "Repair this content unit." } : undefined, checkpoint.contentParts || null);
             try {
-              checkpoint.spec = validateWebsiteContent(result.generated, profile, checkpoint.memory);
+              const parts = validateWebsiteContentPart(result.generated, profile, checkpoint.contentParts);
+              if (parts.services.length === profile.services.length) checkpoint.spec = validateWebsiteContent(parts, profile, checkpoint.memory);
+              checkpoint.contentParts = parts;
               checkpoint.contentModel = model; checkpoint.skills = result.skills;
+              checkpoint.models = [model, ...checkpoint.models.filter((item) => item !== model)];
               checkpoint.contentAttempt = { modelIndex: 0, validationAttempt: 0 };
-              job.progress = { stage: "media", message: "Finding suitable photography for your services." };
+              job.progress = checkpoint.spec ? { stage: "media", message: "Finding suitable photography for your services." }
+                : { stage: "content", message: `Planning service content: ${parts.services.length} of ${profile.services.length} complete.` };
             } catch (error) {
               if (!attempt.validationAttempt) {
                 checkpoint.contentAttempt = { ...attempt, validationAttempt: 1, generated: result.generated, feedback: message(error) };
@@ -145,9 +151,18 @@ export function createWebsiteJobRunner(options: Options = {}) {
             }
           } catch (error) {
             const status = (error as { httpStatus?: number }).httpStatus;
-            if ([401, 402, 403].includes(status || 0) || attempt.modelIndex >= checkpoint.models.length - 1) throw error;
-            checkpoint.contentAttempt = { modelIndex: attempt.modelIndex + 1, validationAttempt: 0 };
-            job.progress.message = "Trying another configured Gemini model for the content plan.";
+            const transient = ["TimeoutError", "AbortError"].includes((error as { name?: string })?.name || "")
+              || [408, 429].includes(status || 0) || (status || 0) >= 500
+              || (error instanceof TypeError && /fetch failed|failed to fetch|network/i.test(error.message));
+            if (transient && attempt.modelIndex >= checkpoint.models.length - 1 && (attempt.providerRound || 0) < 1) {
+              checkpoint.contentAttempt = { modelIndex: 0, validationAttempt: 0, providerRound: 1 };
+              job.retryAt = new Date(now().getTime() + 2000 + Math.floor(Math.random() * 1000)).toISOString();
+              job.progress.message = "Gemini is temporarily unavailable. Retrying this saved content unit after a short pause.";
+            } else {
+              if ([401, 402, 403].includes(status || 0) || attempt.modelIndex >= checkpoint.models.length - 1) throw error;
+              checkpoint.contentAttempt = { modelIndex: attempt.modelIndex + 1, validationAttempt: 0, providerRound: attempt.providerRound };
+              job.progress.message = "Trying another configured Gemini model for the content plan.";
+            }
           }
         } else if (job.progress.stage === "media") {
           const media = await resolveWebsiteMedia(checkpoint.spec!, profile, { apiKey: options.mediaApiKey, fetchImpl: options.fetchImpl, preferences: resolvedWebsitePreferences(checkpoint.memory, actor.workspaceId) });
@@ -176,6 +191,7 @@ export function createWebsiteJobRunner(options: Options = {}) {
           } catch (error) {
             if (!(error instanceof WebsiteCodeRetry)) throw error;
             checkpoint.codeAttempt = error.attempt; job.progress.message = error.message;
+            if (error.retryAfterMs) job.retryAt = new Date(now().getTime() + error.retryAfterMs).toISOString();
           }
         } else {
           const spec = checkpoint.spec!;
@@ -206,7 +222,7 @@ export function createWebsiteJobRunner(options: Options = {}) {
         return { ...current, websiteGeneration: job, websiteProject: project,
           publishedWebsite: current.publishedWebsite || (legacy ? { id: randomUUID(), project: structuredClone(legacy), profile: structuredClone(current.profile), publishedAt: legacy.updatedAt } : null) };
       });
-      return { ...publicResult(saved), mediaWarning: saved.websiteGeneration?.status === "completed" ? checkpoint.mediaWarning : undefined };
+      return { ...publicResult(saved, now().getTime()), mediaWarning: saved.websiteGeneration?.status === "completed" ? checkpoint.mediaWarning : undefined };
     },
   };
 }

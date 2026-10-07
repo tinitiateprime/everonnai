@@ -12,8 +12,9 @@ async function main() {
   const live = flags.includes("--live");
   const reviewExisting = flags.includes("--review-existing");
   const resumeSaved = flags.includes("--resume-saved");
+  const largeCatalogue = flags.includes("--large-catalogue");
   const savedSteps = flags.includes("--saved-steps") || resumeSaved;
-  if (flags.some((flag) => !["--live", "--review-existing", "--saved-steps", "--resume-saved"].includes(flag)) || live === reviewExisting || (savedSteps && !live)) {
+  if (flags.some((flag) => !["--live", "--review-existing", "--saved-steps", "--resume-saved", "--large-catalogue"].includes(flag)) || live === reviewExisting || (savedSteps && !live)) {
     throw new Error("Choose --live for paid Gemini/Pexels generation or --review-existing to inspect the saved fictional artifact without generation calls.");
   }
   loadEnvConfig(process.cwd());
@@ -32,16 +33,40 @@ async function main() {
   const { resolveWebsiteMedia } = await import("../features/website-studio/media");
   const { EMPTY_WEBSITE_PREFERENCES, saveWebsiteMemory } = await import("../features/agent-runtime/memory");
   let profile = createDemoWorkspace().profile;
-  profile.workspaceId = "isolated_hvac_live_review";
-  const memory = saveWebsiteMemory({ profile, actor: { workspaceId: profile.workspaceId, role: "owner", userId: "isolated-review" }, preferences: { ...EMPTY_WEBSITE_PREFERENCES, brief: "A premium, distinctive heating and cooling website. Clear practical service choices, sophisticated typography and calm composition. Make each concept feel like an independently designed website. Use equipment and home interior photography, with no invented claims.", imagery: "equipment" } });
+  profile.workspaceId = largeCatalogue ? "isolated_carpentry_live_review" : "isolated_hvac_live_review";
+  if (largeCatalogue) {
+    const services = [
+      ["Kitchen cabinetry", "Made-to-measure kitchen storage, with layout, measurements and finish choices reviewed with the customer."],
+      ["Wardrobes", "Bedroom storage designed around the room and the customer's preferred hanging and shelf arrangements."],
+      ["Wooden doors", "Wooden door fitting requests, with sizes, opening direction and finish confirmed before work is agreed."],
+      ["Door frame repairs", "Assessment and repair requests for worn wooden door frames and their fit."],
+      ["Window frame repairs", "Assessment and repair requests for existing wooden window frames."],
+      ["Bookshelves", "Custom shelving requests for books and display, sized for the customer's available space."],
+      ["Storage units", "Storage unit requests for household items, with dimensions and compartments agreed with the customer."],
+      ["Furniture repairs", "Repair assessment requests for wooden chairs, tables and other wooden furniture."],
+      ["Office partitions", "Wooden partition requests for offices, with dimensions and access needs reviewed before a quote."],
+      ["Wooden wall panels", "Interior wooden panel requests, with wall measurements and finish preferences reviewed."],
+      ["Custom desks", "Desk requests based on the customer's workspace dimensions and storage preferences."],
+      ["On-site fitting", "Fitting requests for agreed wooden fixtures, subject to a site review and schedule confirmation."],
+      ["Utility room cabinets", "Cabinet requests for utility rooms, sized around existing equipment and storage requirements."],
+    ];
+    profile = { ...profile, businessName: "Workshop & Grain", businessType: "Carpentry", skillId: "general",
+      description: "A residential and small-office carpentry business in Denver. Customers can request made-to-measure cabinets, wardrobes, doors, shelving, furniture repairs, partitions and wooden interior fixtures. Measurements, design choices, material options, pricing and scheduling are confirmed by the team after reviewing each request.",
+      email: "hello@workshop-grain.example", hours: "Monday to Friday, 8 AM to 6 PM", greeting: "Welcome to Workshop & Grain.",
+      services: services.map(([name, description], index) => ({ id: `carpentry_${index}`, name, description, active: true })),
+      knowledge: services.map(([name, description], index) => ({ id: `knowledge_${index}`, category: "faq" as const, question: `How do I request ${name.toLowerCase()}?`,
+        answer: `${description} Please share the room or item dimensions if known, photographs of the existing space, a description of the problem or desired use, and any finish preferences. The team reviews these details and may ask for further measurements or a site visit. Material availability, final scope, pricing and an installation date are confirmed by a person. Customers should describe access constraints and existing fixtures before a visit. No price or completion time is promised until the details have been reviewed.`, approved: true, updatedAt: profile.updatedAt })) };
+  }
+  const memory = saveWebsiteMemory({ profile, actor: { workspaceId: profile.workspaceId, role: "owner", userId: "isolated-review" }, preferences: { ...EMPTY_WEBSITE_PREFERENCES, brief: `A premium, distinctive ${largeCatalogue ? "carpentry" : "heating and cooling"} website. Clear practical service choices, sophisticated typography and calm composition. Make each concept feel like an independently designed website. Use equipment and home interior photography, with no invented claims.`, imagery: "equipment" } });
   const usage = { workspaceId: profile.workspaceId, feature: "website_generation" as const };
-  const output = path.join(process.cwd(), "artifacts", "hvac-live");
+  const output = path.join(process.cwd(), "artifacts", largeCatalogue ? "website-live-large" : "hvac-live");
+  const reviewWorkspaceId = profile.workspaceId;
   await mkdir(output, { recursive: true });
   let result: { profile: BusinessProfile; spec: WebsiteSpec; model?: string };
   if (reviewExisting) {
     console.log("Reviewing the saved fictional website without new generation calls.");
     result = JSON.parse(await readFile(path.join(output, "website.json"), "utf8"));
-    if (!result.spec?.code || result.profile?.workspaceId !== "isolated_hvac_live_review") {
+    if (!result.spec?.code || result.profile?.workspaceId !== reviewWorkspaceId) {
       throw new Error("A complete fictional HVAC review artifact is required. Generate it with --live first.");
     }
     profile = result.profile;
@@ -55,7 +80,7 @@ async function main() {
     const checkpointFile = path.join(output, "job-checkpoint.json");
     if (resumeSaved) {
       workspace = JSON.parse(await readFile(checkpointFile, "utf8"));
-      if (workspace.workspaceId !== "isolated_hvac_live_review" || workspace.profile?.workspaceId !== workspace.workspaceId || !workspace.websiteGeneration) throw new Error("Only the saved fictional HVAC review can be resumed.");
+      if (workspace.workspaceId !== reviewWorkspaceId || workspace.profile?.workspaceId !== workspace.workspaceId || !workspace.websiteGeneration) throw new Error("Only the matching saved fictional review can be resumed.");
       profile = workspace.profile;
     }
     const store: import("../features/website-studio/jobs").WebsiteJobStore = {

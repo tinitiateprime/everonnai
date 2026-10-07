@@ -74,10 +74,15 @@ export async function runWebsiteGeneration(input: {
     input.signal?.addEventListener("abort", abort, { once: true });
   });
   async function request(operation?: string, jobId?: string): Promise<WebsiteGenerationResult> {
-    const response = await fetchImpl(operation ? "/api/website-studio" : `/api/website-studio${jobId ? `?jobId=${encodeURIComponent(jobId)}` : ""}`, {
+    let response: Response;
+    try { response = await fetchImpl(operation ? "/api/website-studio" : `/api/website-studio${jobId ? `?jobId=${encodeURIComponent(jobId)}` : ""}`, {
       ...(operation ? { method: "POST", headers, body: JSON.stringify({ workspaceId: input.workspaceId, operation, jobId }) } : { headers }),
       cache: "no-store", signal: input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(40_000)]) : AbortSignal.timeout(40_000),
-    });
+    }); } catch (error) {
+      input.signal?.throwIfAborted();
+      if (["TimeoutError", "AbortError"].includes((error as { name?: string })?.name || "")) throw new Error("The connection to Website Studio timed out. Use Resume saved build to continue; completed content and pages are retained.");
+      throw error;
+    }
     const result = await readWebsiteGeneration(response, input.onProgress);
     if (!response.ok) throw Object.assign(new Error(result.error || "Website Studio could not complete this request."), { httpStatus: response.status });
     return result;

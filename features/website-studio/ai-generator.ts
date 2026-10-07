@@ -8,6 +8,7 @@ import { getGeminiWebsiteConfig } from "@/lib/provider-config";
 import { meteredGeminiRequest } from "@/features/usage/gemini";
 import type { UsageContext } from "@/features/usage/types";
 import type { WebsiteGenerationProgress } from "./progress";
+import { websiteThinkingConfig } from "./gemini-settings";
 
 type GeminiConfig = ReturnType<typeof getGeminiWebsiteConfig>;
 export type GenerationResult = {
@@ -228,12 +229,23 @@ function extractGeminiJson(payload: unknown) {
   catch { throw new Error("Gemini returned incomplete or invalid website content JSON."); }
 }
 
-export async function requestWebsiteContent(model: string, profile: BusinessProfile, config: GeminiConfig, fetchImpl: typeof fetch, usage?: UsageContext, memory?: ScopedMemory[], correction?: { generated: unknown; feedback: string }) {
+export async function requestWebsiteContent(model: string, profile: BusinessProfile, config: GeminiConfig, fetchImpl: typeof fetch, usage?: UsageContext, memory?: ScopedMemory[], correction?: { generated: unknown; feedback: string }, parts?: WebsiteSpec | null) {
   const prompt = buildWebsitePrompt(profile, memory);
-  const contents = [{ role: "user", parts: [{ text: `${prompt.context}\n\nCONTENT_PLAN_TASK\nPlan the complete grounded website content, brand colors, photography direction, and design rationale matching the response schema. Include every active service exactly once, at least three benefits, three process steps, four FAQs, and two detailed sections per service. Actual HTML and CSS are generated in the next stage; do not choose from a layout menu.` }] }];
+  const service = parts ? profile.services.filter((item) => item.active)[parts.services.length] : undefined;
+  if (parts && !service) throw new Error("No remaining service content unit.");
+  const { services: serviceSchema, ...coreProperties } = responseSchema.properties;
+  const schema = parts === undefined ? responseSchema : service
+    ? { type: "OBJECT", required: ["service"], properties: { service: { ...serviceSchema.items, properties: { ...serviceSchema.items.properties, id: { ...string, enum: [service.id] }, name: { ...string, enum: [service.name] } } } } }
+    : { ...responseSchema, required: responseSchema.required.filter((key) => key !== "services"), properties: coreProperties };
+  const task = service
+    ? `CONTENT_SERVICE_TASK\nWrite ONLY this service's complete content object, preserving its exact ID/name. Include at least two useful details and two detailed page sections. Match the approved brand voice. Do not repeat other services or the main content plan.\nREQUESTED_SERVICE:\n${JSON.stringify(service)}\nAPPROVED_BRAND:\n${JSON.stringify({ brand: parts!.brand, hero: parts!.hero, visualDirection: parts!.visualDirection })}\nEXISTING_SERVICE_SLUGS (choose a different slug):\n${JSON.stringify(parts!.services.map((item) => item.slug))}`
+    : parts === null
+      ? "CONTENT_CORE_TASK\nWrite the main grounded website content, brand colors, photography direction and rationale, without service detail objects. Consider the complete approved service catalogue. Include at least three benefits, three process steps and four FAQs. Each title should be concise; write useful, specific copy without repetition. Service details are generated in separate saved requests."
+      : "CONTENT_PLAN_TASK\nPlan the complete grounded website content, brand colors, photography direction, and design rationale matching the response schema. Include every active service exactly once, at least three benefits, three process steps, four FAQs, and two detailed sections per service.";
+  const contents = [{ role: "user", parts: [{ text: `${prompt.context}\n\n${task}\nActual HTML and CSS are generated in the next stage; do not choose from a layout menu. Return only the requested response-schema JSON.` }] }];
   if (correction) {
     contents.push({ role: "model", parts: [{ text: JSON.stringify(correction.generated) }] });
-    contents.push({ role: "user", parts: [{ text: `Repair the complete content plan and return the full response-schema JSON. Validation feedback: ${correction.feedback}\nUse only supplied business facts. Remove unsupported claims everywhere, including SEO and service pages. Do not change service IDs/names, invent evidence, or weaken the validation rules.` }] });
+    contents.push({ role: "user", parts: [{ text: `Repair this content unit and return its full response-schema JSON. Validation feedback: ${correction.feedback}\nUse only supplied business facts. Remove unsupported claims everywhere, including SEO and service pages. Do not change service IDs/names, invent evidence, or weaken the validation rules.` }] });
   }
   const { response, payload } = await meteredGeminiRequest(model, config.apiKey, {
     method: "POST",
@@ -241,7 +253,7 @@ export async function requestWebsiteContent(model: string, profile: BusinessProf
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: prompt.systemInstruction }] },
       contents,
-      generationConfig: { responseMimeType: "application/json", responseSchema, temperature: 0.55, maxOutputTokens: 16384 },
+      generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 1, maxOutputTokens: 16384, ...websiteThinkingConfig(model) },
     }),
     signal: AbortSignal.timeout(config.timeoutMs),
     cache: "no-store",
@@ -252,6 +264,19 @@ export async function requestWebsiteContent(model: string, profile: BusinessProf
   }
   const generated = extractGeminiJson(payload);
   return { generated, skills: prompt.trace };
+}
+
+export function validateWebsiteContentPart(generated: unknown, profile: BusinessProfile, parts?: WebsiteSpec) {
+  const services = profile.services.filter((item) => item.active);
+  const combined = parts ? { ...parts, services: [...parts.services, record(generated).service] } : { ...record(generated), services: [] };
+  const partialProfile = { ...profile, services: services.slice(0, parts ? parts.services.length + 1 : 0) };
+  assertCompleteAiSpec(combined, partialProfile);
+  const spec = normalizeGeneratedSpec(combined, partialProfile);
+  // Only catalogue coverage is deferred. Claim, route uniqueness and copy checks
+  // still use all approved business facts, and final assembly runs every check.
+  const problems = runWebsiteQa(spec, profile).checks.filter((check) => !check.passed && check.key !== "verified-services");
+  if (problems.length) throw new Error(`Generated content did not pass EverOnn grounding QA. ${problems.map((check) => check.message).join(" ")}`);
+  return spec;
 }
 
 export function validateWebsiteContent(generated: unknown, profile: BusinessProfile, memory?: ScopedMemory[]) {

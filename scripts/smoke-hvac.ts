@@ -57,7 +57,9 @@ globalThis.fetch = async function(input, init) {
     const spec = JSON.parse(fs.readFileSync(process.env.HVAC_FIXTURE_SPEC, 'utf8'));
     const context = body.contents[0].parts[0].text;
     spec.visualDirection = {primaryColor:'#111111',accentColor:context.includes('Use green instead')?'#93BC86':'#D4AF37',mood:'premium'};
-    return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(spec)}]}}],usageMetadata:{promptTokenCount:100,candidatesTokenCount:200,totalTokenCount:300}});
+    const serviceId = body.generationConfig.responseSchema.properties.service?.properties.id.enum[0];
+    const content = serviceId ? {service:spec.services.find(service=>service.id===serviceId)} : spec;
+    return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(content)}]}}],usageMetadata:{promptTokenCount:100,candidatesTokenCount:200,totalTokenCount:300}});
   }
   if (/^https:\/\/(?:api\.elevenlabs\.io|api\.pexels\.com|[^/]*googleapis\.com)/.test(url)) throw new Error('Live provider blocked by isolated smoke fixture');
   return originalFetch(input, init);
@@ -230,7 +232,7 @@ globalThis.fetch = async function(input, init) {
     assert.equal(startedBuild.status(), 202);
     const startedJob = (await startedBuild.json()).job;
     assert.ok(startedJob.id);
-    for (let step = 0; step < 4; step++) {
+    for (let step = 0; step < 7; step++) {
       const advanced = await context.request.post(`${baseURL}/api/website-studio`, { headers: buildHeaders, data: { operation: "advance", jobId: startedJob.id } });
       assert.equal(advanced.status(), 202, await advanced.text());
       assert.match(advanced.headers()["content-type"], /application\/json/);

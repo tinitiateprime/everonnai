@@ -55,7 +55,12 @@ export async function POST(request: Request) {
         knowledge,
         discovery,
         record.artifact,
-        pages.map(({ slug, title, purpose }) => ({ slug, title, purpose })),
+        pages.map(({ slug, title, purpose, sources }) => ({
+          slug,
+          title,
+          purpose,
+          sources,
+        })),
         page,
         request.signal,
         data.model,

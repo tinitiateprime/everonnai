@@ -33,14 +33,32 @@ type SessionResponse = {
   greeting?: string;
   fallbackReady?: boolean;
 };
-const unavailable = () =>
-  JSON.stringify({
-    saved: false,
-    booked: false,
-    available: null,
-    message:
-      "Callbacks, appointments, email delivery and transfers are not connected on this website. Nothing has been submitted or confirmed. Offer the supplied business contact details.",
-  });
+// Runs one of the agent's client tools on the server (validation, Google Calendar,
+// Gmail). The tool result is returned to the agent verbatim as JSON.
+const bookingTool =
+  (
+    identity: { business: string; version: string; revision: string },
+    tool: string,
+  ) =>
+  async (args: Record<string, unknown> = {}) => {
+    try {
+      const response = await fetch("/api/site-assistant/booking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ ...identity, tool, args }),
+      });
+      return JSON.stringify(await response.json());
+    } catch {
+      return JSON.stringify({
+        saved: false,
+        booked: false,
+        available: null,
+        message:
+          "The booking service could not be reached. Nothing was booked or saved. Offer the supplied business contact details.",
+      });
+    }
+  };
 
 export function WebsiteAssistant({
   business,
@@ -167,13 +185,15 @@ export function WebsiteAssistant({
       controller.signal.throwIfAborted();
       const callbacks = {
         dynamicVariables: data?.dynamicVariables,
-        clientTools: {
-          capture_lead: unavailable,
-          prepare_appointment: unavailable,
-          check_availability: unavailable,
-          book_appointment: unavailable,
-          request_human_handoff: unavailable,
-        },
+        clientTools: Object.fromEntries(
+          [
+            "capture_lead",
+            "prepare_appointment",
+            "check_availability",
+            "book_appointment",
+            "request_human_handoff",
+          ].map((tool) => [tool, bookingTool(identity, tool)]),
+        ),
         onMessage: ({
           message,
           role,

@@ -277,6 +277,7 @@ const sitePagesSchema = z.object({
         slug: z.string().trim().toLowerCase().regex(PAGE_SLUG),
         title: z.string().trim().min(2).max(40),
         purpose: z.string().trim().min(10).max(600),
+        sources: z.array(z.string().max(2048)).max(6).default([]),
       }),
     )
     .min(1)
@@ -306,9 +307,15 @@ export async function planSitePages(
         .replace(/^```(?:json)?\s*/i, "")
         .replace(/\s*```$/, "")
         .trim();
+      // Keep only source URLs that were actually crawled.
+      const crawled = new Set(discovery?.pages.map((p) => p.url) ?? []);
       const pages = sitePagesSchema
         .parse(JSON.parse(raw))
-        .pages.filter((p) => p.slug !== HOME_PAGE);
+        .pages.filter((p) => p.slug !== HOME_PAGE)
+        .map((p) => ({
+          ...p,
+          sources: p.sources.filter((url) => crawled.has(url)),
+        }));
       const unique = pages.filter(
         (p, i) => pages.findIndex((q) => q.slug === p.slug) === i,
       );
@@ -369,6 +376,7 @@ export async function makeSitePage(
     slug: page.slug,
     title: page.title,
     purpose: page.purpose,
+    ...(page.sources?.length ? { sources: page.sources } : {}),
     html: result.html,
     model: result.model,
     warnings: result.warnings,

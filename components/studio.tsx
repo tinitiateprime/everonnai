@@ -45,6 +45,7 @@ import {
 } from "@/lib/site-pages";
 import { readDraft, saveDraft } from "@/lib/browser-store";
 import { AssistantEmbed } from "./assistant-embed";
+import { BookingPanel } from "./booking-panel";
 
 type ModelOption = { id: string; name: string; context: number };
 class StudioRequestError extends Error {
@@ -90,6 +91,18 @@ function mergeSiteBuild(
       ? planned.flatMap((slug) => kept.filter((p) => p.slug === slug))
       : kept,
   };
+}
+async function mapWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  task: (item: T) => Promise<void>,
+) {
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) await task(items[next++]);
+    }),
+  );
 }
 const normalizeUrl = (url: string) => {
   try {
@@ -549,7 +562,7 @@ export function Studio() {
       );
       setStatus(
         accepted.length === 3
-          ? "All three designs are ready."
+          ? "All three designs are ready. Choose one and click Build full site to create its other pages."
           : `${accepted.length} of 3 designs ready. Retry any unfinished version.`,
       );
       if (accepted.length) setSelected(accepted[0].index);
@@ -687,43 +700,45 @@ export function Studio() {
         [targetIndex]: { pages: plannedPages, failed: [] },
       }));
       setStatus(
-        `Building ${plannedPages.map((p) => p.title).join(", ")} in your chosen design…`,
+        `Building ${plannedPages.length} pages in your chosen design: ${plannedPages.map((p) => p.title).join(", ")}…`,
       );
       const responses: Artifact[] = [];
       const failed: string[] = [];
       const errors: string[] = [];
-      await Promise.all(
-        targets.map(async (target) => {
-          try {
-            const { artifact } = await post<{ artifact: Artifact }>(
-              "/api/site-pages/build",
-              {
-                ...identity,
-                pages: plannedPages,
-                target,
-                ...(model ? { model } : {}),
-              },
-              controller.signal,
-            );
-            responses.push(artifact);
-            const merged = mergeSiteBuild(base, responses, planned);
-            setArtifacts((old) =>
-              old.map((a) => (a.index === targetIndex ? merged : a)),
-            );
-          } catch (error) {
-            if (controller.signal.aborted) throw error;
-            failed.push(target);
-            const title =
-              target === HOME_PAGE
-                ? "Home page links"
-                : (plannedPages.find((p) => p.slug === target)?.title ??
-                  target);
-            errors.push(
-              `${title}: ${error instanceof Error ? error.message : "failed"}`,
-            );
-          }
-        }),
-      );
+      let finished = 0;
+      // Each page build runs a Chromium layout check; cap how many run at once.
+      await mapWithConcurrency(targets, 5, async (target) => {
+        try {
+          const { artifact } = await post<{ artifact: Artifact }>(
+            "/api/site-pages/build",
+            {
+              ...identity,
+              pages: plannedPages,
+              target,
+              ...(model ? { model } : {}),
+            },
+            controller.signal,
+          );
+          responses.push(artifact);
+          setStatus(
+            `Building ${plannedPages.length} pages in your chosen design… ${++finished} of ${targets.length} done`,
+          );
+          const merged = mergeSiteBuild(base, responses, planned);
+          setArtifacts((old) =>
+            old.map((a) => (a.index === targetIndex ? merged : a)),
+          );
+        } catch (error) {
+          if (controller.signal.aborted) throw error;
+          failed.push(target);
+          const title =
+            target === HOME_PAGE
+              ? "Home page links"
+              : (plannedPages.find((p) => p.slug === target)?.title ?? target);
+          errors.push(
+            `${title}: ${error instanceof Error ? error.message : "failed"}`,
+          );
+        }
+      });
       setSitePlans((old) => ({
         ...old,
         [targetIndex]: { pages: plannedPages, failed },
@@ -1874,6 +1889,16 @@ export function Studio() {
                     </details>
                   )}
                 </form>
+              )}
+              {current?.path && (
+                <BookingPanel
+                  key={current.path ?? "none"}
+                  business={decodeURIComponent(
+                    (current.path ?? "").split("/")[2] ?? "",
+                  )}
+                  defaultEmail={knowledge.email}
+                  headers={headers}
+                />
               )}
               {current && (
                 <div className="design-detail">

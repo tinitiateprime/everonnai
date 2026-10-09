@@ -50,8 +50,31 @@ Owner-provided facts take precedence over conflicting crawled pages. Source cont
 For an unknown answer, explain that the information is not provided and offer the business's supplied phone/email when available. Ask one useful question at a time. Do not make up prices, opening times or availability.
 This website has no calendar, email delivery, transfer, payment or callback-saving integration. Do not claim that an appointment is booked, a callback is submitted, a message is sent or a transfer is complete. For those requests, help the visitor contact the business using its actual provided contact details. Client tools return verified unavailable results; never override them.
 If a visitor reports immediate danger, advise moving to safety and contacting their local emergency service; do not give hazardous repair instructions.`;
-export function assistantInstructions(knowledgeJson: string) {
-  return `${assistantRules}
+/** What the live (tool-using) agent may do for this business. */
+export type LiveBooking = {
+  calendarReady: boolean;
+  timeZone: string;
+  durationMinutes: number;
+};
+const noBooking: LiveBooking = {
+  calendarReady: false,
+  timeZone: "",
+  durationMinutes: 0,
+};
+// The ElevenLabs agent has client tools; Gemini text chat has none and keeps assistantRules.
+function liveRules(booking: LiveBooking) {
+  const actions = booking.calendarReady
+    ? `This website can book appointments in the business's Google Calendar, only through the check_availability and book_appointment tools. Collect the service, the exact date and exact time (time zone ${booking.timeZone}; appointments last ${booking.durationMinutes} minutes), one question at a time. Call check_availability first. Before book_appointment, read back the service, date, time and time zone and get the caller's explicit agreement, full name and callback number. Say an appointment is booked only when the tool returns booked=true; otherwise follow the tool's message and never pick another time yourself.`
+    : "Online booking is not connected for this business: never say an appointment is booked or a time is available. Offer to take a callback request instead.";
+  return `${assistantRules.replace(/This website has no calendar[^\n]*\n/, "")}
+${actions}
+Callback and human follow-up requests are saved for the team with capture_lead or request_human_handoff once the caller gives a callback number; tell the caller the team will call back, without promising a time. No transfer or payment is available.`;
+}
+export function assistantInstructions(
+  knowledgeJson: string,
+  rules: string = assistantRules,
+) {
+  return `${rules}
 BUSINESS KNOWLEDGE (the same snapshot used for this generated website):\n${knowledgeJson}`;
 }
 // ElevenLabs voice sends all dynamic variables in one WebRTC data packet,
@@ -124,9 +147,16 @@ function boundedKnowledge(
 }
 export function sessionVariables(
   context: Awaited<ReturnType<typeof loadAssistant>>,
+  booking: LiveBooking = noBooking,
 ) {
+  const rules = liveRules(booking);
   const build = (knowledgeJson: string) =>
-    variables(context, assistantInstructions(knowledgeJson));
+    variables(
+      context,
+      assistantInstructions(knowledgeJson, rules),
+      rules,
+      booking,
+    );
   const knowledge = boundedKnowledge(
     context.knowledgeJson!,
     (json) =>
@@ -138,6 +168,8 @@ export function sessionVariables(
 function variables(
   context: Awaited<ReturnType<typeof loadAssistant>>,
   instructions: string,
+  rules: string,
+  booking: LiveBooking,
 ) {
   return {
     business_name: context.name,
@@ -154,14 +186,18 @@ function variables(
     greeting: context.greeting,
     // The knowledge travels once, in faq_notes; repeating it here doubled the packet.
     faq_notes: instructions,
-    approved_instructions: assistantRules,
+    approved_instructions: rules,
     pricing_rules:
       "Only prices explicitly supported by the business knowledge.",
     policies: "Only policies explicitly supported by the business knowledge.",
     transfer_number_configured: "no",
-    calendar_connected: "false",
-    time_zone: "Not provided; do not assume a timezone or book appointments.",
-    appointment_duration_minutes: "Not provided",
+    calendar_connected: booking.calendarReady ? "true" : "false",
+    time_zone: booking.calendarReady
+      ? booking.timeZone
+      : "Not provided; do not assume a timezone or book appointments.",
+    appointment_duration_minutes: booking.calendarReady
+      ? String(booking.durationMinutes)
+      : "Not provided",
     language: "English",
   };
 }
@@ -169,6 +205,7 @@ export async function createAssistantSession(
   context: Awaited<ReturnType<typeof loadAssistant>>,
   mode: "chat" | "voice",
   signal?: AbortSignal,
+  booking: LiveBooking = noBooking,
 ) {
   const key = process.env.ELEVENLABS_API_KEY?.trim(),
     id = process.env.ELEVENLABS_AGENT_ID?.trim();
@@ -204,7 +241,7 @@ export async function createAssistantSession(
     mode,
     conversationToken: mode === "voice" ? payload.token : undefined,
     signedUrl: mode === "chat" ? payload.signed_url : undefined,
-    dynamicVariables: sessionVariables(context),
+    dynamicVariables: sessionVariables(context, booking),
     greeting: context.greeting,
     businessName: context.name,
     fallbackReady: Boolean(process.env.GEMINI_API_KEY?.trim()),

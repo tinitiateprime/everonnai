@@ -4,7 +4,8 @@
 
 export const HOME_PAGE = "home";
 export const PAGE_SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/;
-export const MAX_EXTRA_PAGES = 4;
+// Enough to mirror a typical small-business site page for page (home + 12).
+export const MAX_EXTRA_PAGES = 12;
 const PAGE_LINK = /\bhref\s*=\s*(["'])page:([a-z0-9-]+)(#[^"']*)?\1/gi;
 
 export function pageLinks(html: string) {

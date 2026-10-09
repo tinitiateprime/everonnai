@@ -99,6 +99,7 @@ export const sitePageBuildInput = siteVersionInput.extend({
         slug: pageSlug.refine((slug) => slug !== HOME_PAGE),
         title: z.string().trim().min(2).max(40),
         purpose: z.string().trim().min(10).max(600),
+        sources: z.array(z.string().max(2048)).max(6).optional(),
       }),
     )
     .min(1)

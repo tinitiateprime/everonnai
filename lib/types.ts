@@ -120,13 +120,20 @@ export type SitePage = {
   slug: string;
   title: string;
   purpose: string;
+  sources?: string[];
   html: string;
   model: string;
   createdAt: string;
   warnings: string[];
   edits?: { prompt: string; createdAt: string }[];
 };
-export type SitePagePlan = { slug: string; title: string; purpose: string };
+export type SitePagePlan = {
+  slug: string;
+  title: string;
+  purpose: string;
+  /** Crawled source page URLs whose content this page presents in full. */
+  sources?: string[];
+};
 export type Artifact = {
   id: string;
   index: number;

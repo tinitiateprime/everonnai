@@ -3,6 +3,7 @@ import {
   createAssistantSession,
   loadAssistant,
 } from "@/lib/assistant";
+import { bookingStatus } from "@/lib/booking";
 import {
   errorMessage,
   jsonResponse,
@@ -10,6 +11,14 @@ import {
   readJson,
 } from "@/lib/api";
 export const runtime = "nodejs";
+async function liveBooking(business: string) {
+  const status = await bookingStatus(business).catch(() => null);
+  return {
+    calendarReady: Boolean(status?.calendarReady),
+    timeZone: status?.settings.timeZone ?? "",
+    durationMinutes: status?.settings.durationMinutes ?? 0,
+  };
+}
 export async function POST(request: Request) {
   try {
     protectRequest(request, "assistant-session", 8);
@@ -17,7 +26,12 @@ export async function POST(request: Request) {
     const context = await loadAssistant(input);
     try {
       return jsonResponse(
-        await createAssistantSession(context, input.mode, request.signal),
+        await createAssistantSession(
+          context,
+          input.mode,
+          request.signal,
+          await liveBooking(input.business),
+        ),
       );
     } catch (error) {
       return jsonResponse(

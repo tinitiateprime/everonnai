@@ -61,6 +61,17 @@ export function apiKey(request: Request) {
     throw new Error(
       `Website generation is not configured. Set ${name} in the server environment and restart the app.`,
     );
+  requireStudioAccess(
+    request,
+    "A studio access token is required to use the server's website generation key.",
+  );
+  return key;
+}
+/** Studio-only actions need STUDIO_ACCESS_TOKEN when configured, and always in production. */
+export function requireStudioAccess(
+  request: Request,
+  message = "A studio access token is required for this action.",
+) {
   if (
     process.env.STUDIO_ACCESS_TOKEN ||
     process.env.NODE_ENV === "production"
@@ -72,11 +83,8 @@ export function apiKey(request: Request) {
       Buffer.byteLength(expected) !== Buffer.byteLength(provided) ||
       !timingSafeEqual(Buffer.from(expected), Buffer.from(provided))
     )
-      throw new Error(
-        "A studio access token is required to use the server's website generation key.",
-      );
+      throw new Error(message);
   }
-  return key;
 }
 export async function readJson(request: Request, max = 4_000_000) {
   const reader = request.body?.getReader();

@@ -21,7 +21,7 @@ export const maxDuration = 300;
 // home page. The studio calls this once per target, concurrently ("Build full site", step 2).
 export async function POST(request: Request) {
   try {
-    protectRequest(request, "site-pages", 30);
+    protectRequest(request, "site-pages", 60);
     const key = apiKey(request);
     const data = sitePageBuildInput.parse(await readJson(request, 40000));
     const site = await readEditableSite(

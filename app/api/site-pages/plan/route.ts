@@ -15,7 +15,7 @@ export const maxDuration = 300;
 // Chooses the inner pages for one saved version ("Build full site", step 1).
 export async function POST(request: Request) {
   try {
-    protectRequest(request, "site-pages", 30);
+    protectRequest(request, "site-pages", 60);
     const key = apiKey(request);
     const data = sitePagesPlanInput.parse(await readJson(request, 20000));
     const site = await readEditableSite(

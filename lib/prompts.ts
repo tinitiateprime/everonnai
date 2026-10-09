@@ -141,13 +141,22 @@ export async function sitePagesPlanPrompt(
     {
       role: "system",
       content: `${await readWebsiteSkill()}\n${factualRules}
-Current stage: PLAN PAGES. The selected design is the home page. Choose between 1 and ${MAX_EXTRA_PAGES} additional inner pages that turn it into a multi-page website, based on the source website's main sections and the owner's services and details. Only propose a page when the evidence has enough real, specific content to fill it; never propose a page for unknown facts (for example no testimonials, pricing or team page without evidence). Do not propose a home page.
-Return ONLY JSON: {"pages":[{"slug":"about","title":"About","purpose":"Which supported facts and source content this page presents"}, ...]}. Slugs are short lowercase words or hyphenated words. Titles are short navigation labels.`,
+Current stage: PLAN PAGES. The selected design is the home page. Plan the additional inner pages (at most ${MAX_EXTRA_PAGES}) that turn it into a multi-page website.
+When a source website was captured, mirror its page structure: propose one inner page for every source page (listed in sourcePageIndex) that has its own real content, such as about, menu, services, reservations, gallery, contact, blog, terms or privacy, so the new site has as many pages as the source site. Only the source home page maps to the existing home page. Keep pages separate whenever they have their own text or images, including category sub-pages (for example gallery/food and gallery/drink each become their own page); merge a page only when it duplicates another page or has neither text nor images. The goal is one new page per source page. List each page's source URLs exactly as given in sourcePageIndex.
+Without a source website, derive 1 to 4 pages from the owner's services and details. Never propose a page for unknown facts (for example no testimonials, pricing or team page without evidence). Do not propose a home page.
+Return ONLY JSON: {"pages":[{"slug":"about","title":"About","purpose":"Which supported facts and source content this page presents","sources":["https://example.com/about"]}, ...]}. Slugs are short lowercase words or hyphenated words. Titles are short navigation labels.`,
     },
     {
       role: "user",
       content: JSON.stringify({
         homePageOutline: homeOutline(homeHtml),
+        sourcePageIndex: (discovery?.pages ?? []).map((p) => ({
+          url: p.url,
+          title: p.title.slice(0, 120),
+          headings: p.headings.slice(0, 5).map((h) => h.slice(0, 100)),
+          textCharacters: p.text.length,
+          images: p.images.length,
+        })),
         evidence: JSON.parse(knowledgePacket(knowledge, discovery)),
       }),
     },
@@ -181,6 +190,20 @@ Current stage: ${refinement ? `REFINE the existing "${page.title}" inner page` :
           })),
         ],
         homePageHtml: withoutCsp(home.html),
+        // The full captured content of the source pages this page presents.
+        primarySourcePages: (discovery?.pages ?? [])
+          .filter((p) => page.sources?.includes(p.url))
+          .map((p) => ({
+            url: p.url,
+            title: p.title,
+            description: p.description,
+            headings: p.headings,
+            text: p.text,
+            phones: p.phones,
+            emails: p.emails,
+            images: p.images.slice(0, 12),
+            structuredData: p.structuredData,
+          })),
         evidence: JSON.parse(knowledgePacket(knowledge, discovery)),
         approvedPhotos: photos,
         ...(refinement

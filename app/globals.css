@@ -1433,6 +1433,65 @@ h1 {
   }
 }
 /* Selected-version design refinement. */
+.booking-panel {
+  margin-top: 24px;
+}
+.booking-panel .panel-title {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.booking-state {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f0f3e9;
+  color: #6f7c63;
+}
+.booking-state.live {
+  background: var(--lime);
+  color: var(--green);
+  font-weight: 600;
+}
+.booking-connect {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+  font-size: 13px;
+  color: var(--accent);
+}
+.booking-connect span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.booking-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  align-items: end;
+}
+.booking-note,
+.booking-message,
+.booking-error {
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 12px 0 0;
+  overflow-wrap: anywhere;
+}
+.booking-note {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fbf6e8;
+  color: #6b5a2a;
+}
+.booking-message {
+  color: var(--accent);
+}
+.booking-error {
+  color: var(--red);
+}
 .change-panel {
   margin-top: 24px;
 }

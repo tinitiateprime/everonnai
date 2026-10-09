@@ -185,7 +185,11 @@ test("build full site plans pages, builds them concurrently with home links and 
     const planned = await post(planPages, "plan", identity);
     assert.equal(planned.status, 200);
     const { pages } = await planned.json();
-    assert.deepEqual(pages, plannedPages);
+    // No crawl in this fixture, so no source URLs survive the crawled-URL filter.
+    assert.deepEqual(
+      pages,
+      plannedPages.map((p) => ({ ...p, sources: [] })),
+    );
 
     const [about, home] = await Promise.all(
       ["about", "home"].map((target) =>

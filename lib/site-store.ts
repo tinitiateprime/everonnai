@@ -25,6 +25,7 @@ export class SiteRevisionConflict extends Error {
 const writes = new Map<string, Promise<void>>();
 
 const validSlug = /^[\p{L}\p{N}][\p{L}\p{N}\p{M}-]{0,99}$/u;
+export const isValidSlug = (slug: string) => validSlug.test(slug);
 export function businessSlug(businessName: string, description: string) {
   let slug = businessName
     .normalize("NFKD")

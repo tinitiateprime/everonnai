@@ -8,3 +8,5 @@ test-results/
 playwright-report/
 data/generated-sites/
 data/crawls/
+# Per-business booking settings, activity and encrypted Google tokens.
+data/integrations/

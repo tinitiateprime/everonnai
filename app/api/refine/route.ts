@@ -14,7 +14,7 @@ import {
 } from "@/lib/site-store";
 
 export const runtime = "nodejs";
-export const maxDuration = 240;
+export const maxDuration = 300;
 export async function POST(request: Request) {
   let identity: { business: string; version: string } | undefined;
   try {

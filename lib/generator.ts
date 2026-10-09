@@ -18,6 +18,9 @@ import { validateWebsite } from "./validation";
 import { inspectWebsite } from "./visual-check";
 import { prepareMedia } from "./pexels";
 
+// Leaves room for one validation repair or a fallback model inside the route's maxDuration.
+const GENERATION_BUDGET_MS = 285000;
+
 const planSchema = z.object({
   directions: z
     .array(
@@ -34,8 +37,8 @@ export async function makePlan(
   signal?: AbortSignal,
 ) {
   signal = signal
-    ? AbortSignal.any([signal, AbortSignal.timeout(210000)])
-    : AbortSignal.timeout(210000);
+    ? AbortSignal.any([signal, AbortSignal.timeout(GENERATION_BUDGET_MS)])
+    : AbortSignal.timeout(GENERATION_BUDGET_MS);
   const models = await getModels(signal);
   let lastError: unknown;
   for (const model of models.slice(0, 3)) {
@@ -92,8 +95,8 @@ export async function makeWebsite(
   onInvalidOutput?: (html: string) => Promise<void>,
 ): Promise<Artifact> {
   signal = signal
-    ? AbortSignal.any([signal, AbortSignal.timeout(210000)])
-    : AbortSignal.timeout(210000);
+    ? AbortSignal.any([signal, AbortSignal.timeout(GENERATION_BUDGET_MS)])
+    : AbortSignal.timeout(GENERATION_BUDGET_MS);
   const models = await getModels(signal);
   const preferred = selectedModel
     ? models.find((m) => m.id === resolveModelId(selectedModel))

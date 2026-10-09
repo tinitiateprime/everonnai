@@ -200,6 +200,20 @@ test("website validation preserves original design and injects CSP", () => {
     /duplicates/,
   );
 });
+test("website validator allows scroll-behavior but rejects legacy CSS behaviors", () => {
+  const withStyle = (rule: string) =>
+    website().replace("</style>", `${rule}</style>`);
+  assert.doesNotThrow(() =>
+    validateWebsite(withStyle("html{scroll-behavior:smooth}"), brief),
+  );
+  assert.doesNotThrow(() =>
+    validateWebsite(withStyle("main{overscroll-behavior: contain}"), brief),
+  );
+  assert.throws(
+    () => validateWebsite(withStyle("main{behavior:url(x.htc)}"), brief),
+    /Unsafe CSS/,
+  );
+});
 test("website validator rejects executable content, invented contacts, lost services and dead anchors", () => {
   for (const changed of [
     website().replace("</body>", "<script>alert(1)</script></body>"),

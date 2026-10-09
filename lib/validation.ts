@@ -80,7 +80,8 @@ export function validateWebsite(
   } catch {
     throw new Error("Fix invalid CSS syntax.");
   }
-  if (/expression\s*\(|behavior\s*:|-moz-binding/i.test(allCss))
+  // Legacy IE `behavior:` only; `scroll-behavior` and other prefixed properties are safe.
+  if (/expression\s*\(|(?<![\w-])behavior\s*:|-moz-binding/i.test(allCss))
     throw new Error("Unsafe CSS is not allowed.");
   const approvedImages = new Set([
     ...(discovery?.pages.flatMap((p) =>

@@ -11,7 +11,7 @@ import { saveGeneratedSite } from "@/lib/site-store";
 import { resolvePhotos } from "@/lib/pexels";
 import { generationDiscovery } from "@/lib/discovery-store";
 export const runtime = "nodejs";
-export const maxDuration = 240;
+export const maxDuration = 300;
 export async function POST(request: Request) {
   try {
     protectRequest(request, "generate", 18);

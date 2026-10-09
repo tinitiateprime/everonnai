@@ -444,51 +444,59 @@ export function Studio() {
               (index) => !accepted.some((a) => a.index === index),
             );
       if (!indexes.length) indexes.push(0, 1, 2);
-      for (const index of indexes) {
-        setSelected(index);
-        setStatus(
-          `Designing ${index + 1} of 3 — ${currentPlan.directions[index].name}…`,
-        );
-        try {
-          const response = await post<{ artifact: Artifact }>(
-            "/api/generate",
-            {
-              knowledge: snapshot,
-              ...(currentPlan.sourceSnapshotId
-                ? { sourceSnapshotId: currentPlan.sourceSnapshotId }
-                : source?.crawl
-                  ? { discoveryId: source.crawl.id }
-                  : { discovery: source }),
-              direction: currentPlan.directions[index],
-              index,
-              previous: accepted.filter((a) => a.index !== index).slice(0, 2),
-              photoIds:
-                currentPlan.media?.[index]?.photos.map((p) => p.id) ?? [],
-              ...(modelChoices[index] ? { model: modelChoices[index] } : {}),
-            },
-            controller.signal,
-          );
-          accepted = [
-            ...accepted.filter((a) => a.index !== index),
-            response.artifact,
-          ].sort((a, b) => a.index - b.index);
-          setArtifacts(accepted);
-          setVariantErrors((old) => {
-            const next = { ...old };
-            delete next[index];
-            return next;
-          });
-        } catch (error) {
-          if (controller.signal.aborted) throw error;
-          setVariantErrors((old) => ({
-            ...old,
-            [index]:
-              error instanceof Error
-                ? error.message
-                : "This version could not be generated.",
-          }));
-        }
-      }
+      // Versions are independent (the plan already makes directions distinct), so generate
+      // them concurrently: total wait is the slowest version, not the sum of all three.
+      const activePlan = currentPlan;
+      const previous = accepted;
+      setSelected(indexes[0]);
+      setStatus(
+        indexes.length === 1
+          ? `Designing ${indexes[0] + 1} of 3 — ${activePlan.directions[indexes[0]].name}…`
+          : `Designing ${indexes.length} versions in parallel…`,
+      );
+      await Promise.all(
+        indexes.map(async (index) => {
+          try {
+            const response = await post<{ artifact: Artifact }>(
+              "/api/generate",
+              {
+                knowledge: snapshot,
+                ...(activePlan.sourceSnapshotId
+                  ? { sourceSnapshotId: activePlan.sourceSnapshotId }
+                  : source?.crawl
+                    ? { discoveryId: source.crawl.id }
+                    : { discovery: source }),
+                direction: activePlan.directions[index],
+                index,
+                previous: previous.filter((a) => a.index !== index).slice(0, 2),
+                photoIds:
+                  activePlan.media?.[index]?.photos.map((p) => p.id) ?? [],
+                ...(modelChoices[index] ? { model: modelChoices[index] } : {}),
+              },
+              controller.signal,
+            );
+            accepted = [
+              ...accepted.filter((a) => a.index !== index),
+              response.artifact,
+            ].sort((a, b) => a.index - b.index);
+            setArtifacts(accepted);
+            setVariantErrors((old) => {
+              const next = { ...old };
+              delete next[index];
+              return next;
+            });
+          } catch (error) {
+            if (controller.signal.aborted) throw error;
+            setVariantErrors((old) => ({
+              ...old,
+              [index]:
+                error instanceof Error
+                  ? error.message
+                  : "This version could not be generated.",
+            }));
+          }
+        }),
+      );
       setStatus(
         accepted.length === 3
           ? "All three designs are ready."

@@ -9,7 +9,7 @@ import { planInput } from "@/lib/input";
 import { makePlan } from "@/lib/generator";
 import { generationDiscovery, snapshotDiscovery } from "@/lib/discovery-store";
 export const runtime = "nodejs";
-export const maxDuration = 240;
+export const maxDuration = 300;
 export async function POST(request: Request) {
   try {
     protectRequest(request, "plan");

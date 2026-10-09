@@ -109,8 +109,8 @@ export async function completion(
   schema?: object,
 ) {
   const outputTokens = Math.min(
-    schema ? 5000 : 20000,
-    model.top_provider?.max_completion_tokens ?? 18000,
+    schema ? 5000 : 12000,
+    model.top_provider?.max_completion_tokens ?? 12000,
   );
   // Conservative context guard: never silently drop the owner's knowledge.
   const estimatedInputTokens = Math.ceil(
@@ -125,8 +125,8 @@ export async function completion(
     {
       method: "POST",
       signal: signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(160000)])
-        : AbortSignal.timeout(160000),
+        ? AbortSignal.any([signal, AbortSignal.timeout(150000)])
+        : AbortSignal.timeout(150000),
       headers: {
         Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",

@@ -13,6 +13,7 @@ import {
   assistantReply,
   createAssistantSession,
   loadAssistant,
+  SESSION_VARIABLES_MAX_BYTES,
   sessionVariables,
   unavailableActionResult,
 } from "../lib/assistant";
@@ -279,4 +280,46 @@ test("microphone denial and device failures provide an actionable error", () => 
     /used by another app/,
   );
   assert.match(assistantConnectionError("Not supported", "voice"), /Use chat/);
+});
+
+test("voice session variables fit one WebRTC data packet while keeping owner facts", () => {
+  const page = (index: number) => ({
+    url: `https://northline.example/page-${index}`,
+    title: `Page ${index}`,
+    description: "Northline heating page",
+    headings: ["Heading"],
+    text: `Page ${index} evidence. `.repeat(600),
+    phones: ["+1 212 555 0124"],
+    emails: [],
+    images: Array.from({ length: 12 }, (_, i) => ({
+      url: `https://northline.example/${i}.jpg`,
+      alt: "Photo",
+    })),
+    design: {
+      colors: ["#123456"],
+      fonts: ["Serif"],
+      css: "body{}".repeat(150),
+    },
+  });
+  const knowledgeJson = JSON.stringify({
+    ownerKnowledge: { ...brief, hours: "Saturday hours: 10am to 4pm" },
+    sourceWebsite: {
+      origin: "https://northline.example",
+      pages: Array.from({ length: 40 }, (_, i) => page(i)),
+    },
+  });
+  assert.ok(knowledgeJson.length > 300_000);
+  const variables = sessionVariables({
+    knowledgeJson,
+    knowledge: brief,
+    name: brief.businessName,
+    greeting: "Hi",
+  } as Parameters<typeof sessionVariables>[0]);
+  assert.ok(
+    Buffer.byteLength(JSON.stringify(variables)) <= SESSION_VARIABLES_MAX_BYTES,
+  );
+  assert.ok(variables.faq_notes.includes(brief.description));
+  assert.ok(variables.faq_notes.includes("Saturday hours: 10am to 4pm"));
+  assert.ok(variables.faq_notes.includes("Page 0 evidence."));
+  assert.ok(!variables.approved_instructions.includes(brief.description));
 });

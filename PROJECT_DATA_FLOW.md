@@ -466,3 +466,31 @@ flowchart LR
 A connection validates GitHub access, imports a bounded complete manifest and encrypts any supplied token before saving. Manual Sync validates a fresh tree and conditionally replaces that repository's manifest; the previous record remains on provider failure. Connect/disconnect require owner/manager configuration capability, while team members can read and sync. Same-origin checks protect mutations. Disconnect uses the displayed revision and removes the local connection/credential. Customer workspace records, other repositories, Google connections and GitHub files are unchanged.
 
 Persistence uses private `everonn.project_repositories`, a per-workspace Netlify Blob, or an ignored local file. Repository bodies are fetched on demand instead of cloned or persisted as a disk cache. Migration `202610060004` adds the private table/function and is included in the existing safe database migration command; it was applied to the configured shared PostgreSQL database on 2026-10-06. The migration preserved the verified 95 other-project tables. Rolled-back live checks verified encrypted persistence, conditional writes, disconnect and tenant isolation without retaining probe data. Hosted UI availability still depends on deploying the updated application code. Repository skill files are documentation, separate from the platform's approved AI runtime and customer memory.
+
+## Live Agent Desk (call center)
+
+```mermaid
+flowchart LR
+  AI[AI runtime / demo simulator] -->|POST /api/call-center/intake| Intake[Line resolution]
+  Intake -->|unknown or conflicting line| Incident[(unresolved_line_incidents)]
+  Intake --> Esc[(conversations · messages · requests · escalations)]
+  Esc --> Router[EscalationRouter: grant · presence · heartbeat · capacity · language]
+  Router --> Offer[(call_offers: one pending per escalation)]
+  Offer -->|offer.accept CAS| Handling[(desk_handlings)]
+  Offer -->|decline / timeout| Router
+  Handling -->|wrapup.submit| Done[Resolved escalation · usage_events hitl_minutes]
+  Sweep[Sweep: offers · cascade · heartbeats · grants · wrap-up] --> Router
+  Esc & Offer & Handling --> Journal[(escalation_events · handling_events · outbox_events · audit_log)]
+```
+
+All desk data lives in the separate MySQL database named by `CALL_CENTER_DATABASE_URL`; it does not read or write the business workspace JSON/PostgreSQL records. `tenants.workspace_ref` can hold an EverOnn workspace id for a future link, but no flow uses it yet.
+
+1. **Intake.** The AI runtime posts `escalation.create` with a bearer `CALL_CENTER_INTAKE_SECRET`. The dialed number plus every `To`/`Diversion`/`History-Info` number must resolve to exactly one client line (chat uses the widget key). Otherwise an `unresolved_line_incidents` row is created and shown in every operator's queue as UNKNOWN LINE with a neutral greeting — no client data is attached. A resolved intake upserts the contact (by E.164 per client), creates the conversation, transcript messages, structured request and escalation (severity SLA: P1 20 s, P2 60 s, P3 15 min, P4 24 h), then routes immediately. `escalation.end` handles caller-left / AI-recovered (`auto_resolved` with a reason, or wrap-up if an operator is connected); `conversation.message` appends caller chat/SMS text.
+2. **Routing.** Eligible operators hold a certified, unexpired, unrevoked grant for the client, are Available with a heartbeat in the last 30 s, have no other ringing offer, and have capacity (one voice; up to three chats with no live call). Step 0 requires the caller's language; ties go to the longest-idle operator. Declines are final for that escalation; timeouts only yield to others. When nobody is eligible the cascade advances: overflow (any language) → owner notified (outbox event) → message capture (a `tasks` callback with a severity-based deadline). Clients outside their operator coverage window skip to the owner step.
+3. **Desk.** `/desk` polls `GET /api/call-center/snapshot?session=…` every 1.5 s; each poll is the heartbeat. The snapshot builds offers and active interactions from the client's desk profile (greeting script by language and hours mode, authority matrix, instructions, masked transfer numbers, playbook slots, caller history, visible captured fields only). Commands go to `POST /api/call-center/commands` as `{ type, id, payload }` with header `x-desk-session`; the id is the idempotency key stored in `idempotency_keys`, and the response carries a fresh snapshot.
+4. **Acceptance and handling.** `offer.accept` locks the offer, rejects a different `tenant_id` (`client_mismatch`), checks grant and capacity, then wins with `UPDATE … WHERE outcome = 'pending'`. Voice handlings go `connecting → active ⇄ on_hold → wrap_up → completed`; chats start `active`. Hold time, mute, greeting delivery, transfers (target looked up by the interaction's own client), hand-back instructions, request edits (version-checked, only visible/playbook fields), authority actions and approvals are all recorded as `handling_events` and audit rows.
+5. **Wrap-up and metering.** `wrapup.submit` validates the client's required fields, optionally creates a follow-up/callback task, completes the handling, writes an idempotent `usage_events` row (`hitl_minutes`, talk + wrap time), resolves the escalation and emits `handling.client_summary` for the client inbox. Unsubmitted wrap-ups auto-release when `wrap_due_at` passes.
+6. **Sweep.** Every poll/command (and the optional `POST /api/call-center/jobs/sweep` with `CALL_CENTER_CRON_SECRET`) expires offers, sets repeat-miss operators Away, cascades waiting escalations, marks silent operators offline and re-queues their live work, enforces grant revocations/expiry, and releases overdue wrap-ups. A MySQL named lock keeps instances from sweeping concurrently.
+7. **Lead flows.** Wall board, roster and quality data come from `GET /api/call-center/wallboard` and `/roster`; grant changes, revocations (which move the operator out of open interactions in the same transaction), owner-approval recording, QA reviews (`resolved → reviewed`) and demo simulation are desk commands restricted to `operator_lead`.
+
+Every state change writes, in the same transaction, its event row, an `outbox_events` domain event (Appendix C names) and a hash-chained `audit_log` entry. Nothing publishes the outbox yet.

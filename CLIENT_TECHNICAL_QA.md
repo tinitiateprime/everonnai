@@ -336,3 +336,33 @@ The authenticated server-side workspace ID selects repository records. Browser h
 **Short answer:** It displays repository documents; edits remain in GitHub, and the customer uses Sync to refresh the manifest.
 
 Task checkboxes reflect Markdown content. Viewing `SKILL.md` does not replace the platform's approved instructions, run code, change AI memory or publish websites. Only useful viewer/source-read functionality was integrated; no standalone server, imported GitHub credentials, clone cache or unrelated source features were copied. Local tests use disposable stores and mocked GitHub; a real private repository needs separate credential/deployment verification.
+
+## Live Agent Desk (call center)
+
+### What is the Live Agent Desk?
+
+**Short answer:** The shared workspace where EverOnn operators take over calls and chats for many client businesses, always seeing which client the interaction is for and greeting in that client's name.
+
+Open `/desk` (also linked from the dashboard sidebar). Operators start a shift (network check, optional microphone test, notice acknowledgement), go Available and receive offers. The offer card shows the client name on its brand color, line, pronunciation, the exact greeting, caller, why the AI escalated, what the AI captured (unconfirmed fields marked) and what the operator may do. After acceptance the operator works the interaction (hold, mute, transfer with briefing, hand back to the AI, schedule a callback, edit the request, request owner approval) and completes a wrap-up. Leads also get a wall board, roster/grants, quality review and a clearly labelled demo simulator.
+
+### Which database does it use?
+
+**Short answer:** A dedicated MySQL 8 database (`CALL_CENTER_DATABASE_URL`) built from the specification's §21 desk tables.
+
+Run `npm run call-center:db:migrate`. Keys follow the spec: UUIDv7 binary IDs, client (`tenant_id`) first in every key and foreign key, so the database itself rejects linking one client's data to another's. The audit log is hash-chained and verifiable; HITL minutes are metered per handling.
+
+### How do you prevent operators mixing up clients?
+
+**Short answer:** One client per interaction, enforced on the server, visible everywhere on screen.
+
+Every command names the client it acts on; the server rejects a mismatch. Operators only see clients they hold a certified grant for — in the queue, offers and directory. The client name and color are in the banner, every panel, the browser tab title and the announcement. Switching between open interactions asks for confirmation. A one-click "Wrong client" report logs an incident and re-routes the caller. Unknown dialed numbers never show client data.
+
+### Is it connected to real phone calls today?
+
+**Short answer:** Not yet. The workflow, data and rules are real; audio is not.
+
+There is no telephony/WebRTC media layer, so call controls change server state without bridging audio, and the AI runtime does not yet call the intake API. Leads can create realistic test escalations with the simulator, which uses the same intake path. The desk polls every 1.5 s rather than using a WebSocket. Owner notifications and approvals are recorded (outbox events; a lead records the owner's decision) but not sent to the owner's phone.
+
+### How do we try it locally?
+
+Set `CALL_CENTER_DATABASE_URL`, run the migration, then `npm run call-center:db:seed -- --lead-email <your sign-in email>` to create three **sample** clients and operators. Sign in with that email, open `/desk`, start a shift, and use Wall board → Demo intake.

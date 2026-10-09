@@ -135,6 +135,7 @@ export function EverOnnDashboard({ initialSection, actor }: { initialSection: st
         </div>
         <nav aria-label="Dashboard navigation">
           <Link className="eo-project-workspace-link" href="/workspace"><FolderGit2 /><span>Project workspace</span></Link>
+          {hasCapability(actor.role, "calls:operate") && <Link className="eo-project-workspace-link" href="/desk"><Headphones /><span>Live Agent Desk</span></Link>}
           {sections.filter(([key]) => canOpenSection(actor, key)).map(([key, label, Icon]) => (
             <button className={active === key ? "active" : ""} onClick={() => navigate(key)} key={key}>
               <Icon /><span>{label}</span>{key === "inbox" && <b>{workspace.leads.filter((lead) => lead.status === "new").length}</b>}

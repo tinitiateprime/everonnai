@@ -24,7 +24,9 @@
     "usage:scheduler": "node --import tsx scripts/configure-usage-scheduler.ts",
     "ai:eval": "node --conditions=react-server --import tsx scripts/evaluate-ai.ts",
     "check": "npm run lint && npm test && npm run ai:eval && npm run build",
-    "smoke:project": "node --import tsx scripts/smoke-project-workspace.ts"
+    "smoke:project": "node --import tsx scripts/smoke-project-workspace.ts",
+    "call-center:db:migrate": "node --import tsx scripts/migrate-call-center-database.ts",
+    "call-center:db:seed": "node --import tsx scripts/seed-call-center.ts"
   },
   "dependencies": {
     "@elevenlabs/client": "^1.25.0",
@@ -33,6 +35,7 @@
     "css-tree": "^3.2.1",
     "lucide-react": "^0.468.0",
     "mermaid": "11.17.2",
+    "mysql2": "^3.24.5",
     "next": "^16.3.6",
     "parse5": "^8.0.1",
     "postgres": "^3.4.9",

@@ -49,6 +49,31 @@ The additive migration is `supabase/migrations/202610060004_project_repositories
 
 `tests/project-workspace.test.ts` verifies GitHub URL/file guards, provider limits/errors, encrypted credential scope, local/SQL persistence, conditional writes and private-table permissions. `npm run smoke:project` uses mocked GitHub and disposable account/workspace stores to test public/private connections, customer/team isolation, sync, Markdown/images, diagrams and desktop/mobile navigation. A separate read-only live probe also fetched a public GitHub repository manifest and README without storing a connection. Customer private tokens and deployment still need their own verification.
 
+### Live Agent Desk (call center, MySQL)
+
+`/desk` is the multi-client operator workspace from the platform specification (§16 HIL/DSK). It is separate from the per-business dashboard: operators are platform-level records in their own MySQL database, linked to an existing EverOnn sign-in by `operators.auth_user_id` (or, on first sign-in only, by an unlinked row with the same email). A signed-in user with no active operator row sees a "not an operator" page. Dashboard users with `calls:operate` see a **Live Agent Desk** sidebar link.
+
+Storage is MySQL 8 (`CALL_CENTER_DATABASE_URL`), schema `mysql/migrations/202610080001_call_center.sql`, applied by `npm run call-center:db:migrate` (checksummed, refuses edited migrations). It follows spec §21.2: UUIDv7 `BINARY(16)` keys exposed as prefixed IDs (`esc_…`, `hdl_…`; `features/call-center/ids.ts`), `tenant_id`-leading composite primary and foreign keys so cross-client references fail in the database, `DATETIME(3)` UTC, optimistic `version` columns, validated JSON. Generated-column unique keys enforce one pending offer per escalation and one open handling per escalation. Tables: `tenants`, `phone_numbers`, `channel_endpoints` (lines), `client_desk_profiles`, `greeting_scripts` (versioned), `client_transfer_contacts`, `operator_orgs`, `operators`, `operator_client_grants`, `operator_presence`, `operator_shifts`, `contacts`, `conversations`, `messages`, `requests`, `escalations`, `escalation_events`, `call_offers`, `desk_handlings`, `handling_events`, `approvals`, `tasks`, `wrong_client_incidents`, `unresolved_line_incidents`, `qa_reviews`, `usage_events`, `outbox_events`, `idempotency_keys`, `audit_log` + `audit_chain_head`, and views `v_desk_queue_by_client`, `v_handling_metrics`. `mysql/hardening/call_center_privileges.sql` is an optional DBA script that makes `audit_log`/`usage_events` append-only by privilege.
+
+Code layout:
+
+| Path | Responsibility |
+| --- | --- |
+| `features/call-center/types.ts` | Snapshot, offer, interaction, queue, wall board and roster shapes shared with the UI |
+| `features/call-center/workflow.ts` | Pure rules: §16.6 state machines, SLAs and cascade, routing selection, authority, coverage windows, greetings, masking, wrap-up validation |
+| `features/call-center/server/unit.ts` | Transaction unit: escalation/handling events, outbox events, hash-chained audit append and verification |
+| `features/call-center/server/intake.ts` | Escalation intake with line resolution (unknown or conflicting lines become `unresolved_line_incidents`), caller-left/AI-recovered endings, caller messages |
+| `features/call-center/server/routing.ts` | EscalationRouter (grant + presence + heartbeat + capacity, skills-first then longest-idle) and the durable-timer sweep |
+| `features/call-center/server/commands.ts` | Appendix J commands with idempotency keys, single desk session, client-lock checks, grant checks and authority enforcement |
+| `features/call-center/server/snapshot.ts` | Operator snapshot (offers, active work, queue, stats), wall board, roster, client directory |
+| `features/call-center/server/simulation.ts` | **Demonstration only**: lead-triggered sample escalations through the real intake path |
+| `lib/call-center-mysql.ts` | `mysql2` pool (UTC sessions), transactions with deadlock retry |
+| `components/call-center/` | Desk UI: shift start, screen-pop offer card, active workspace, wrap-up, queue, client directory, lead console |
+
+The sweep (`runSweep`) runs on every desk poll and after every command, guarded by a MySQL named lock, and is also exposed at `POST /api/call-center/jobs/sweep` for a scheduler. It times out offers (15 s default; repeated misses set the operator Away), cascades escalations (skills pool → overflow → owner notified → message capture with a promised callback task), marks operators offline after 30 s without a heartbeat (live interactions return to the queue), moves operators out of interactions when a grant is revoked or expires, and auto-releases wrap-ups.
+
+`npm run call-center:db:seed -- --lead-email you@example.com` creates **demo** data: three sample clients (Acme Locksmith, Bright Plumbing, Delta HVAC) with lines, profiles, greetings and transfer contacts, the lead operator and two sample operators. `tests/call-center.test.ts` runs the pure rules always and the full MySQL workflow when `CALL_CENTER_TEST_DATABASE_URL` points at a disposable database (it drops and recreates the desk tables there).
+
 ### Provider usage meter
 
 The owner/manager `/dashboard/usage` shows workspace-scoped Gemini requests/tokens, ElevenLabs voice/chat conversations, reported credits/USD, and estimated Gemini token costs. All chargeable attempts, including retries and output rejected by QA, remain in the ledger. Provider metadata reads do not count as feature consumption. Local clarification, marketing demos, and browser speech synthesis make no provider calls.
@@ -135,6 +160,8 @@ Read these files in this order when learning the product:
 | `features/website-studio/` | Gemini prompt/schema, output normalization, QA, project creation, and Pexels selection |
 | `features/voice-agent/` | Receptionist prompt, contact extraction, Gemini replies, appointment extraction, and timezone conversion |
 | `features/integrations/` | Google OAuth, Calendar/Gmail clients, a per-workspace automation queue, and a testable automation core with a durable workspace lease |
+| `features/call-center/` | Live Agent Desk domain rules, MySQL service layer, intake, routing and desk commands |
+| `mysql/` | MySQL migrations and optional hardening for the Live Agent Desk |
 | `features/auth/` | Authentication types, password hashing, session helpers, role capabilities, and workspace-scope guards |
 | `lib/` | Workspace/auth JSON persistence, provider readiness, and encrypted credential storage |
 | `data/` | Primary workspace JSON plus ignored customer-workspace, auth, and encrypted provider-connection files |
@@ -154,6 +181,7 @@ Read these files in this order when learning the product:
 | `/dashboard/ai-agent` | same dashboard component | Tests Gemini text or ElevenLabs voice and captures leads |
 | `/dashboard/website` | same dashboard component | Generates, previews, approves, and publishes the customer website |
 | `/dashboard/settings` | same dashboard component | Account password, provider status, and owner-only team access controls |
+| `/desk` | `app/desk/page.tsx` | Live Agent Desk for EverOnn operators (requires an operator row in the call center database) |
 | `/preview/[token]/*` | `app/preview/[token]/...` | Private, `noindex` generated-site preview |
 | `/sites/[slug]/*` | `app/sites/[slug]/...` | Server-rendered published customer website |
 
@@ -350,6 +378,11 @@ Secrets never belong in workspace JSON files.
 | `EVERONN_CONNECTIONS_FILE` | Optional local encrypted token-store path |
 | `EVERONN_AUTH_FILE` | Optional local authentication JSON path |
 | `EVERONN_AUTH_SETUP_TOKEN` | Required in production before creating the first owner account |
+| `CALL_CENTER_DATABASE_URL`, `CALL_CENTER_DATABASE_SSL`, `CALL_CENTER_DATABASE_POOL_SIZE` | Live Agent Desk MySQL connection (`mysql://…/everonn_call_center`), TLS switch, pool size |
+| `CALL_CENTER_INTAKE_SECRET` | Bearer secret (32+ chars) for `POST /api/call-center/intake` from the AI runtime |
+| `CALL_CENTER_CRON_SECRET` | Bearer secret (32+ chars) for `POST /api/call-center/jobs/sweep` |
+| `CALL_CENTER_OFFER_TTL_SECONDS` | Offer ring time before cascading (default 15, minimum 5) |
+| `CALL_CENTER_TEST_DATABASE_URL` | Tests only: disposable MySQL database for the desk workflow suite |
 
 Runtime details that commonly cause confusion:
 
@@ -372,6 +405,7 @@ Runtime details that commonly cause confusion:
 - Google OAuth with encrypted refresh tokens.
 - Credential login, separate new-customer registration, HttpOnly server sessions, password changes, first-owner setup, secure invitation acceptance, and API-level RBAC.
 - Role-aware dashboard navigation and actions for owner, manager, agent, and viewer.
+- Live Agent Desk workflow on MySQL: escalation intake API, routing, offers with atomic acceptance, handling state machine, authority enforcement, approvals, callbacks, wrap-up, HITL minute metering, grants and revocation, QA reviews, wall board, outbox and hash-chained audit.
 
 ### Demonstration or incomplete production boundary
 
@@ -384,6 +418,7 @@ Runtime details that commonly cause confusion:
 - Self-service forgotten-password recovery and MFA are not implemented. Signed-in users can change their password in Settings.
 - Contacts can be created from the dashboard with validated callback details and persisted through the workspace API.
 - In-memory API rate limits reset when the server process restarts and are not shared between instances.
+- Live Agent Desk: no telephony or WebRTC media layer is connected. Accept, hold, mute, transfer, conference and hand-back change server state and are logged, but no audio is bridged; the operator announcement and caller hold message are shown as text. The desk polls every 1.5 s instead of using the Appendix J WebSocket. Owner notification at the cascade's owner step is an outbox event only; owner approvals are recorded by an operator lead on the owner's behalf until an owner approval UI exists. The AI runtime does not yet call the intake API; leads use the labelled demo simulator. Outbox events are written but no publisher consumes them. Presence lives in MySQL rather than Redis.
 - Local file JSON is suitable for one writable server instance. Netlify uses strongly consistent Blob records for the primary workspace, additional workspaces, auth, and credentials.
 
 ## 11. Safe change checklist

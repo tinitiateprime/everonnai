@@ -74,6 +74,10 @@ The default version order is [Claude Opus Latest](https://openrouter.ai/~anthrop
 
 Generation uses [OpenRouter chat completions](https://openrouter.ai/docs/api/reference/overview). Plans request JSON Schema when supported and are validated locally. Reasoning uses an advertised medium effort when available, otherwise low/minimal, a supported 3,000-token budget or the supported default. Optional reasoning without advertised controls is disabled. Website output allows up to 12,000 tokens, including reasoning, bounded by model limits; the skill targets approximately 6,000 visible tokens. Plans allow 5,000 tokens. Invalid HTML gets one repair per candidate within a 285-second operation budget; each completion is bounded to 150 seconds. The studio requests the three versions concurrently. The CSS safety check rejects legacy `behavior:`/`expression()`/`-moz-binding` but allows standard properties such as `scroll-behavior`. Rate limits, insufficient credits, missing keys and incomplete output are reported. Accepted designs remain saved when another fails; retry generates the requested/missing version.
 
+### Direct Gemini provider
+
+Set `WEBSITE_PROVIDER=gemini` to send planning, generation and refinement straight to the Gemini API with `GEMINI_API_KEY`; OpenRouter keys and `OPENROUTER_MODELS` stay configured but unused. `GEMINI_WEBSITE_MODELS` lists models in version order (default `gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash`); each version starts on its own model so free-tier per-model request quotas do not collide, and the other listed models are fallbacks. Thinking is set to a low level (a 2,048-token budget on Gemini 2.5). Requests retry 500/503 overload responses with backoff and 429 per-minute quota responses after Gemini's `retryDelay` (up to 60 seconds); daily-quota exhaustion fails with an explicit message. Free-tier keys have no Gemini Pro quota. Validation drops Google Fonts `preconnect`/`dns-prefetch` hints instead of requesting a repair. Unset `WEBSITE_PROVIDER` to return to OpenRouter.
+
 ## Checks
 
 ```sh

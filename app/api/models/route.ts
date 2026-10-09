@@ -1,5 +1,5 @@
 import { getModels } from "@/lib/openrouter";
-import { errorMessage, jsonResponse } from "@/lib/api";
+import { errorMessage, jsonResponse, websiteKeyName } from "@/lib/api";
 export const runtime = "nodejs";
 export async function GET() {
   try {
@@ -9,7 +9,7 @@ export async function GET() {
         name: m.name,
         context: m.context_length,
       })),
-      serverKeyConfigured: Boolean(process.env.OPENROUTER_API_KEY),
+      serverKeyConfigured: Boolean(process.env[websiteKeyName()]?.trim()),
       accessTokenRequired:
         Boolean(process.env.STUDIO_ACCESS_TOKEN) ||
         process.env.NODE_ENV === "production",

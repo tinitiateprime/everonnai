@@ -1,4 +1,6 @@
 import type { Model } from "./types";
+import { websiteProvider } from "./api";
+import { geminiCompletion, geminiWebsiteModels } from "./gemini";
 
 export const DEFAULT_WEBSITE_MODELS = [
   "~anthropic/claude-opus-latest",
@@ -63,6 +65,7 @@ function reasoningConfig(model: Model) {
     : {};
 }
 export async function getModels(signal?: AbortSignal) {
+  if (websiteProvider() === "gemini") return geminiWebsiteModels();
   if (catalogue && catalogue.expires > Date.now())
     return configuredModels(catalogue.models);
   const response = await fetch("https://openrouter.ai/api/v1/models", {
@@ -89,15 +92,19 @@ function configuredModels(models: Model[]) {
   return selected;
 }
 export class ProviderError extends Error {
-  constructor(public status: number) {
+  constructor(
+    public status: number,
+    message?: string,
+  ) {
     super(
-      status === 401
-        ? "OpenRouter rejected the server API key. Check OPENROUTER_API_KEY and restart the app."
-        : status === 402
-          ? "OpenRouter reports insufficient credit. Add credit to the account used by OPENROUTER_API_KEY."
-          : status === 429
-            ? "The OpenRouter model is rate limited. Wait and retry this version."
-            : `OpenRouter could not complete the request (HTTP ${status}). Retry this version.`,
+      message ??
+        (status === 401
+          ? "OpenRouter rejected the server API key. Check OPENROUTER_API_KEY and restart the app."
+          : status === 402
+            ? "OpenRouter reports insufficient credit. Add credit to the account used by OPENROUTER_API_KEY."
+            : status === 429
+              ? "The OpenRouter model is rate limited. Wait and retry this version."
+              : `OpenRouter could not complete the request (HTTP ${status}). Retry this version.`),
     );
   }
 }
@@ -119,6 +126,15 @@ export async function completion(
   if (estimatedInputTokens + outputTokens > model.context_length)
     throw new Error(
       "This model's context is too small for all the business evidence. Choose a larger-context model.",
+    );
+  if (websiteProvider() === "gemini")
+    return geminiCompletion(
+      key,
+      model,
+      messages,
+      signal,
+      Boolean(schema),
+      outputTokens,
     );
   const response = await fetch(
     "https://openrouter.ai/api/v1/chat/completions",

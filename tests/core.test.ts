@@ -214,6 +214,25 @@ test("website validator allows scroll-behavior but rejects legacy CSS behaviors"
     /Unsafe CSS/,
   );
 });
+test("website validator drops Google Fonts preconnect hints instead of rejecting", () => {
+  const html = website().replace(
+    "</head>",
+    '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin></head>',
+  );
+  const validated = validateWebsite(html, brief);
+  assert.ok(!validated.html.includes("preconnect"));
+  assert.throws(
+    () =>
+      validateWebsite(
+        website().replace(
+          "</head>",
+          '<link rel="preconnect" href="https://tracker.example"></head>',
+        ),
+        brief,
+      ),
+    /Google Fonts/,
+  );
+});
 test("website validator rejects executable content, invented contacts, lost services and dead anchors", () => {
   for (const changed of [
     website().replace("</body>", "<script>alert(1)</script></body>"),

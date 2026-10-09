@@ -42,11 +42,24 @@ export function protectRequest(request: Request, kind: string, limit = 12) {
     current.count++;
   } else requests.set(key, { count: 1, expires: now + 300000 });
 }
+// WEBSITE_PROVIDER=gemini sends planning/generation/refinement straight to the Gemini API
+// with GEMINI_API_KEY; anything else (default) uses OpenRouter with OPENROUTER_API_KEY.
+export function websiteProvider() {
+  return process.env.WEBSITE_PROVIDER?.trim().toLowerCase() === "gemini"
+    ? "gemini"
+    : "openrouter";
+}
+export function websiteKeyName() {
+  return websiteProvider() === "gemini"
+    ? "GEMINI_API_KEY"
+    : "OPENROUTER_API_KEY";
+}
 export function apiKey(request: Request) {
-  const key = process.env.OPENROUTER_API_KEY?.trim();
+  const name = websiteKeyName();
+  const key = process.env[name]?.trim();
   if (!key)
     throw new Error(
-      "Website generation is not configured. Set OPENROUTER_API_KEY in the server environment and restart the app.",
+      `Website generation is not configured. Set ${name} in the server environment and restart the app.`,
     );
   if (
     process.env.STUDIO_ACCESS_TOKEN ||
@@ -60,7 +73,7 @@ export function apiKey(request: Request) {
       !timingSafeEqual(Buffer.from(expected), Buffer.from(provided))
     )
       throw new Error(
-        "A studio access token is required to use the server's OpenRouter key.",
+        "A studio access token is required to use the server's website generation key.",
       );
   }
   return key;

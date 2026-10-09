@@ -232,6 +232,15 @@ export function validateWebsite(
       throw new Error(
         "Remove invented phone numbers. Use only an owner-provided or source-supported phone.",
       );
+  // Models routinely add Google Fonts preconnect hints; they are optional, so drop them
+  // rather than spending a full repair round trip on them.
+  $("link[rel~='preconnect'],link[rel~='dns-prefetch']")
+    .filter((_, el) =>
+      /^https:\/\/fonts\.(googleapis|gstatic)\.com\/?$/.test(
+        $(el).attr("href") ?? "",
+      ),
+    )
+    .remove();
   if (
     $("link")
       .toArray()

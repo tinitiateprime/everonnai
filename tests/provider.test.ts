@@ -7,6 +7,7 @@ import {
   eligibleWebsiteModels,
   prioritizeModels,
   DEFAULT_WEBSITE_MODELS,
+  getModels,
 } from "../lib/openrouter";
 import { apiKey, protectRequest } from "../lib/api";
 import { brief, model, website } from "./fixtures";
@@ -160,6 +161,35 @@ test("same-origin mutation guard and environment-only API key rules", () => {
     else process.env.OPENROUTER_API_KEY = originalKey;
     if (originalToken === undefined) delete process.env.STUDIO_ACCESS_TOKEN;
     else process.env.STUDIO_ACCESS_TOKEN = originalToken;
+  }
+});
+test("WEBSITE_PROVIDER=gemini uses GEMINI_API_KEY and direct Gemini models", async () => {
+  const saved = {
+    provider: process.env.WEBSITE_PROVIDER,
+    gemini: process.env.GEMINI_API_KEY,
+    models: process.env.GEMINI_WEBSITE_MODELS,
+  };
+  const request = new Request("http://localhost:3000/api/plan");
+  try {
+    process.env.WEBSITE_PROVIDER = "gemini";
+    delete process.env.GEMINI_API_KEY;
+    assert.throws(() => apiKey(request), /GEMINI_API_KEY/);
+    process.env.GEMINI_API_KEY = "gemini-server-test";
+    assert.equal(apiKey(request), "gemini-server-test");
+    process.env.GEMINI_WEBSITE_MODELS =
+      "gemini-3.8-flash, models/gemini-3.6-flash";
+    assert.deepEqual(
+      (await getModels()).map((m) => m.id),
+      ["gemini-3.8-flash", "gemini-3.6-flash"],
+    );
+  } finally {
+    for (const [name, value] of [
+      ["WEBSITE_PROVIDER", saved.provider],
+      ["GEMINI_API_KEY", saved.gemini],
+      ["GEMINI_WEBSITE_MODELS", saved.models],
+    ] as const)
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
   }
 });
 test("only available configured models are selected, paid models and latest aliases are supported", () => {

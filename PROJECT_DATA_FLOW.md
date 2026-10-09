@@ -11,7 +11,7 @@ flowchart TD
   Evidence -->|Coverage and source URLs| User
   User -->|Generation request, optional studio access token| Plan[POST /api/plan]
   ServerEnv[Server environment API key and configured model allowlist] --> Plan
-  Plan --> Router[OpenRouter, configured Claude / Gemini / GPT models]
+  Plan --> Router[OpenRouter Claude / Gemini / GPT, or Gemini API direct when WEBSITE_PROVIDER=gemini]
   Router --> Directions[Three AI-created art directions]
   Skill[Runtime website-building SKILL.md] --> Plan
   Skill --> Generate
@@ -83,3 +83,5 @@ A URL starts a persisted crawl identified by an unguessable UUID. Each streamed 
 The generation client submits a discovery reference. POST /api/plan freezes the loaded source into an immutable snapshot and returns sourceSnapshotId with its design plan. All three POST /api/generate calls use that snapshot even if later crawling adds more pages. This preserves consistent website/assistant facts. Sources above 40 pages receive a bounded, prioritized AI packet with explicit context coverage; the full captured records remain in source storage and browser review. Provider context/output limits remain enforced.
 
 Reasoning uses an advertised medium effort when available, otherwise low/minimal, a supported 3,000-token budget or the supported default. Optional reasoning without advertised controls is disabled. Website responses allow up to 12,000 output tokens including reasoning, bounded by model limits; plans allow 5,000 tokens. Document repair identifies missing/unsupported elements. Obsolete X-UA-Compatible metadata is removed without changing AI layout/CSS. Photo-credit checks normalize whitespace consistently. The explicit website verifier supports `--resume` and `--model=ID` and saves ignored fictional-business artifacts; running it consumes configured OpenRouter credits.
+
+With `WEBSITE_PROVIDER=gemini`, `lib/openrouter.ts` routes the model list and every plan/generate/refine completion to `lib/gemini.ts`, which calls Gemini `generateContent` with `GEMINI_API_KEY` and the `GEMINI_WEBSITE_MODELS` list (one model per version, the rest as fallbacks). System messages become `systemInstruction`; plans request `application/json`. Overload (500/503) and per-minute quota (429 with `retryDelay` up to 60 seconds) responses are retried; validation, repair, storage and serving are unchanged.

@@ -17,7 +17,9 @@ Website generation receives one direction, evidence, approved photos and summari
 
 ## Photography
 
-Use only supplied source-image URLs or the exact approved Pexels photo URLs. Choose images for relevance and composition, with meaningful alt text and deliberate cropping, appropriate object positioning and responsive sizes. Do not invent an image URL or use an unrelated image to fill space. Relevant approved photography should play a considered role when available. Original CSS or inline SVG motifs can supplement photography or support a requested design without photos.
+Use only supplied source-image URLs or the exact approved Pexels photo URLs. Choose images for relevance and composition, with meaningful alt text and deliberate cropping, appropriate object positioning and responsive sizes. Do not invent an image URL or use an unrelated image to fill space.
+
+Present photographs cleanly. Do not add captions, labels, tags, badges, overlay text, caption bars, frames styled as catalogue or specimen cards, numbering (such as "Specimen No. 01", "Plate 02", "Fig. 3") or decorative descriptors on, under or beside images. Image text of this kind reads as an unsupported product claim and is not wanted. The only text attached to a photo is its required photographer credit, kept small and unobtrusive. Relevant approved photography should play a considered role when available. Original CSS or inline SVG motifs can supplement photography or support a requested design without photos.
 
 Pexels photos are illustrative stock, never evidence of this company's employees, customers, premises, completed jobs or equipment. Do not falsely label them as such. When any Pexels photo is used, include a visible, accessible link to https://www.pexels.com/ and credit each photographer with their exact name linked to the supplied photo's sourceUrl or photographerUrl. Integrate credits elegantly; never hide them or place them outside the document. Retain credits in refinements whenever the corresponding photo remains used.
 

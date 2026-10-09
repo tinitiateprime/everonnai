@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
@@ -53,6 +53,38 @@ async function main() {
     warnings: [],
     createdAt: new Date().toISOString(),
   });
+  for (const index of [1, 2])
+    await saveGeneratedSite(knowledge, {
+      ...artifact,
+      id: randomUUID(),
+      index,
+    });
+  const audioOption = process.argv.find((arg) => arg.startsWith("--audio="));
+  let audioFile = audioOption ? path.resolve(audioOption.slice(8)) : null;
+  if (process.argv.includes("--speech")) {
+    assert.equal(
+      process.platform,
+      "win32",
+      "Use --audio=/path/question.wav for speech checks outside Windows.",
+    );
+    audioFile = path.join(directory, "question.wav");
+    execFileSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-WindowStyle",
+        "Hidden",
+        "-File",
+        "scripts/make-assistant-test-audio.ps1",
+        "-OutputPath",
+        audioFile,
+      ],
+      { windowsHide: true, stdio: "pipe" },
+    );
+  }
+  if (audioFile)
+    assert.ok(existsSync(audioFile), "The speech WAV file could not be found.");
   for (let i = 0; i < 60; i++) {
     try {
       if ((await fetch(base)).ok) break;
@@ -67,6 +99,7 @@ async function main() {
     args: [
       "--use-fake-device-for-media-stream",
       "--use-fake-ui-for-media-stream",
+      ...(audioFile ? [`--use-file-for-fake-audio-capture=${audioFile}`] : []),
     ],
   });
   try {
@@ -77,6 +110,23 @@ async function main() {
     const page = await context.newPage();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
+    for (const version of [1, 2, 3]) {
+      const response = await page.goto(
+        `${base}/service/assistant-verification-studio/${version}`,
+      );
+      assert.equal(response?.status(), 200);
+      await page
+        .frameLocator("iframe[title='Business voice and chat assistant']")
+        .getByRole("button", { name: "Talk to us", exact: true })
+        .waitFor();
+      await page
+        .frameLocator("iframe[title='Business voice and chat assistant']")
+        .getByRole("button", { name: "Chat with us", exact: true })
+        .waitFor();
+    }
+    console.log(
+      "Verified assistant launchers on all three generated website URLs.",
+    );
     await page.goto(base + artifact.path);
     const frame = page.frameLocator(
       "iframe[title='Business voice and chat assistant']",
@@ -124,6 +174,46 @@ async function main() {
     await frame
       .getByRole("button", { name: "End conversation", exact: true })
       .waitFor({ timeout: 45000 });
+    const assistantFrame = page
+      .frames()
+      .find((candidate) => candidate.url().includes("/assistant/"));
+    assert.ok(assistantFrame, "The trusted assistant frame is missing.");
+    await assistantFrame.waitForFunction(
+      () =>
+        [...document.querySelectorAll("audio")].some(
+          (audio) =>
+            !!audio.srcObject &&
+            !audio.paused &&
+            audio.currentTime > 0 &&
+            audio.readyState >= 2,
+        ),
+      undefined,
+      { timeout: 15000 },
+    );
+    console.log(
+      "Verified incoming voice audio is playing in the trusted assistant frame.",
+    );
+    if (audioFile) {
+      await frame
+        .locator(".agent-message.visitor")
+        .filter({ hasText: /saturday/i })
+        .last()
+        .waitFor({ timeout: 45000 });
+      await frame
+        .locator(".agent-message.assistant")
+        .filter({ hasText: /11.*3|eleven.*three|11.*15/i })
+        .last()
+        .waitFor({ timeout: 45000 });
+      assert.match(
+        (
+          await frame.locator(".agent-message.assistant").allTextContents()
+        ).join(" "),
+        /wheel|straighten/i,
+      );
+      console.log(
+        "Verified spoken microphone question recognition and a live voice answer grounded in the saved hours and services.",
+      );
+    }
     await frame.getByRole("button", { name: "Mute", exact: true }).click();
     await frame.getByRole("button", { name: "Unmute", exact: true }).waitFor();
     await frame
@@ -132,6 +222,16 @@ async function main() {
     console.log(
       "Verified live ElevenLabs WebRTC voice connection with a synthetic microphone; mute and end controls worked.",
     );
+    await frame
+      .getByRole("button", { name: "Reconnect voice", exact: true })
+      .click();
+    await frame
+      .getByRole("button", { name: "End conversation", exact: true })
+      .waitFor({ timeout: 45000 });
+    await frame
+      .getByRole("button", { name: "End conversation", exact: true })
+      .click();
+    console.log("Verified voice reconnect after ending a conversation.");
     const fallback = await context.request.post(
       `${base}/api/site-assistant/message`,
       {

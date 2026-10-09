@@ -20,6 +20,7 @@ import {
 import type { Conversation } from "@elevenlabs/client";
 import "./website-assistant.css";
 import { assistantConnectionError } from "@/lib/assistant-errors";
+import { connectAssistant } from "@/lib/assistant-connection";
 
 type Mode = "chat" | "voice";
 type Phase = "idle" | "connecting" | "live" | "fallback" | "error" | "ended";
@@ -109,12 +110,13 @@ export function WebsiteAssistant({
   );
 
   async function end() {
-    epoch.current++;
+    const endingRun = ++epoch.current;
     operation.current?.abort();
     operation.current = null;
     const active = session.current;
     session.current = null;
     if (active) await active.endSession().catch(() => {});
+    if (endingRun !== epoch.current) return;
     setMuted(false);
     setReplying(false);
     setActivity("");
@@ -227,25 +229,33 @@ export function WebsiteAssistant({
         },
         onDisconnect: () => {
           if (run !== epoch.current) return;
+          epoch.current++;
+          operation.current?.abort();
           session.current = null;
+          setMuted(false);
+          setReplying(false);
           setActivity("Conversation ended");
           setPhase("ended");
         },
       };
-      const connection =
+      const pendingConnection =
         nextMode === "voice"
-          ? await Conversation.startSession({
+          ? Conversation.startSession({
               conversationToken: data!.conversationToken!,
               connectionType: "webrtc",
               textOnly: false,
               ...callbacks,
             })
-          : await Conversation.startSession({
+          : Conversation.startSession({
               signedUrl: data!.signedUrl!,
               connectionType: "websocket",
               textOnly: true,
               ...callbacks,
             });
+      const connection = await connectAssistant<Conversation>(
+        pendingConnection,
+        controller.signal,
+      );
       if (run !== epoch.current || controller.signal.aborted) {
         await connection.endSession();
         return;
@@ -257,6 +267,8 @@ export function WebsiteAssistant({
       );
     } catch (cause) {
       if (run !== epoch.current || controller.signal.aborted) return;
+      // Ignore delayed SDK callbacks after a failed connection/fallback transition.
+      epoch.current++;
       if (nextMode === "chat" && data?.fallbackReady) {
         setPhase("fallback");
         setActivity("Chat ready");
@@ -279,7 +291,16 @@ export function WebsiteAssistant({
     setError("");
     addMessage("visitor", text);
     if (phase === "live" && session.current) {
-      session.current.sendUserMessage(text);
+      try {
+        session.current.sendUserMessage(text);
+      } catch (cause) {
+        setDraft(text);
+        const endingRun = epoch.current + 1;
+        await end();
+        if (endingRun !== epoch.current) return;
+        setError(assistantConnectionError(cause, mode ?? "chat"));
+        setPhase("error");
+      }
       return;
     }
     const run = epoch.current;

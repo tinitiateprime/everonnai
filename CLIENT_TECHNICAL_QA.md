@@ -77,3 +77,11 @@ Select a version, type into Describe your changes, then choose Apply changes. Fo
 ## Was real Pexels and real website AI tested?
 
 On 2026-10-09, a live Pexels search returned four photographs and a returned image URL loaded successfully. Unit/provider/browser checks verify required fields, verified images/credits, selected-version prompt editing, failed edits, stable URLs, history/prompt persistence, unchanged assistant facts, stale-write rejection and loading the latest design after a conflict. OpenRouter responses are mocked in these checks; the local OPENROUTER_API_KEY is currently empty, so real generated design quality and real AI edits remain unverified. An explicit verify:website:live command can test them once the environment key is configured.
+
+## Are chat and voice on the generated websites themselves?
+
+Yes. Chat with us and Talk to us appear on every saved `/service/{business}/1`, `/2` and `/3` website, as well as the studio preview. Both use that website version's saved knowledge, including captured website evidence. Voice/chat credentials are already configured in the local studio environment and stay server-side. Voice starts when clicked and microphone access is allowed; it supports spoken questions, audible replies, transcripts, mute, end and reconnect. Gemini supplies text fallback when live chat cannot connect.
+
+Connections have a 45-second initialization limit. Closing the widget ignores delayed SDK callbacks and ends any late session. Failed sending retains the typed question for retry. Automated unit/browser checks verify cancellation/error handling and responsive controls; explicit live checks verify provider connections and fictional-business answers. Synthetic speech/device checks cannot establish the quality of every physical microphone, speaker or network. Downloaded static HTML still needs this app's backend for a live assistant; use the generated website URLs for the connected experience.
+
+On 2026-10-09, the live generated-site check verified both controls on versions 1?3, real ElevenLabs chat answers, a synthetic spoken microphone question with a knowledge-grounded voice answer, incoming audio playback, mute/end/reconnect, and real Gemini fallback. Synthetic devices verify the integration; physical microphone/speaker quality still needs a real-device check.

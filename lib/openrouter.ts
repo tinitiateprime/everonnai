@@ -1,6 +1,26 @@
 import type { Model } from "./types";
 
+export const DEFAULT_WEBSITE_MODELS = [
+  "thinkingmachines/inkling:free",
+  "poolside/laguna-s-2.1:free",
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+];
 let catalogue: { expires: number; models: Model[] } | undefined;
+export function prioritizeModels(
+  models: Model[],
+  configured = process.env.OPENROUTER_MODELS,
+) {
+  const override = (configured ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const preferred = override.length ? override : DEFAULT_WEBSITE_MODELS;
+  return [...models].sort((a, b) => {
+    const ai = preferred.indexOf(a.id),
+      bi = preferred.indexOf(b.id);
+    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+  });
+}
 export function freeCodingModels(models: Model[]) {
   return models
     .filter(
@@ -27,7 +47,8 @@ function score(model: Model) {
   );
 }
 export async function getModels(signal?: AbortSignal) {
-  if (catalogue && catalogue.expires > Date.now()) return catalogue.models;
+  if (catalogue && catalogue.expires > Date.now())
+    return prioritizeModels(catalogue.models);
   const response = await fetch("https://openrouter.ai/api/v1/models", {
     signal: signal
       ? AbortSignal.any([signal, AbortSignal.timeout(20000)])
@@ -44,23 +65,14 @@ export async function getModels(signal?: AbortSignal) {
     throw new Error(
       "No suitable free models are currently available. Try again later.",
     );
-  const preferred = (process.env.OPENROUTER_MODELS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  models.sort((a, b) => {
-    const ai = preferred.indexOf(a.id),
-      bi = preferred.indexOf(b.id);
-    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
-  });
   catalogue = { expires: Date.now() + 300000, models };
-  return models;
+  return prioritizeModels(models);
 }
 export class ProviderError extends Error {
   constructor(public status: number) {
     super(
       status === 401
-        ? "OpenRouter rejected the API key. Check Connection settings."
+        ? "OpenRouter rejected the server API key. Check OPENROUTER_API_KEY and restart the app."
         : status === 402
           ? "OpenRouter reports insufficient credit or a daily free-model quota limit."
           : status === 429
@@ -109,7 +121,16 @@ export async function completion(
           ? { temperature: 0.85 }
           : {}),
         ...(model.supported_parameters.includes("reasoning")
-          ? { reasoning: { effort: "low", exclude: true } }
+          ? {
+              reasoning: {
+                effort: model.reasoning?.supported_efforts?.length
+                  ? model.reasoning.supported_efforts.includes("medium")
+                    ? "medium"
+                    : model.reasoning.supported_efforts[0]
+                  : "medium",
+                exclude: true,
+              },
+            }
           : {}),
         ...(schema && model.supported_parameters.includes("response_format")
           ? {

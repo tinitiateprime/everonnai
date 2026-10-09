@@ -61,7 +61,6 @@ export function Studio() {
   const [generatedFrom, setGeneratedFrom] = useState("");
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState("Saved on this device");
-  const [apiKey, setApiKey] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [serverConfigured, setServerConfigured] = useState(false);
   const [tokenRequired, setTokenRequired] = useState(false);
@@ -253,7 +252,6 @@ export function Studio() {
   }, [ready, busy, skipWebsite, knowledge.websiteUrl, discovery, discover]);
   const headers = () => ({
     "Content-Type": "application/json",
-    ...(apiKey ? { "x-openrouter-key": apiKey } : {}),
     ...(accessToken ? { "x-studio-token": accessToken } : {}),
   });
   async function post<T>(
@@ -282,14 +280,13 @@ export function Studio() {
       setTab("knowledge");
       return;
     }
-    if (!apiKey && !serverConfigured) {
-      setSettings(true);
+    if (!serverConfigured) {
       setError(
-        "Add an OpenRouter API key in Connection settings to generate your websites.",
+        "Website generation is not connected yet. Ask the studio administrator to configure it.",
       );
       return;
     }
-    if (!apiKey && tokenRequired && !accessToken) {
+    if (tokenRequired && !accessToken) {
       setSettings(true);
       setError(
         "Enter the studio access token to use the configured server key.",
@@ -473,7 +470,7 @@ export function Studio() {
             aria-expanded={settings}
           >
             <Settings2 size={16} />
-            Connection
+            Generation settings
           </button>
         </div>
       </header>
@@ -493,35 +490,18 @@ export function Studio() {
           </div>
         </div>
         {settings && (
-          <section className="settings-panel" aria-label="Connection settings">
+          <section className="settings-panel" aria-label="Generation settings">
             <div className="panel-title">
-              <h2>Connection settings</h2>
+              <h2>Generation settings</h2>
               <button
                 className="icon-button"
-                aria-label="Close connection settings"
+                aria-label="Close generation settings"
                 onClick={() => setSettings(false)}
               >
                 <X size={18} />
               </button>
             </div>
             <div className="form-grid">
-              <label className="field">
-                <span>OpenRouter API key</span>
-                <input
-                  type="password"
-                  autoComplete="off"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={
-                    serverConfigured
-                      ? "Server key configured · enter yours to override"
-                      : "sk-or-v1-…"
-                  }
-                />
-                <small>
-                  Kept in memory for this session. Never saved in your draft.
-                </small>
-              </label>
               {tokenRequired && (
                 <label className="field">
                   <span>
@@ -562,13 +542,6 @@ export function Studio() {
             <p className="help-text">
               Only currently available models with zero input and output pricing
               are used. Free providers may have daily limits.{" "}
-              <a
-                href="https://openrouter.ai/keys"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Get an OpenRouter key <ExternalLink size={12} />
-              </a>
             </p>
           </section>
         )}

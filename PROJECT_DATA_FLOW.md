@@ -9,7 +9,8 @@ flowchart TD
   Source --> Browser[Optional Chromium rendering through guarded requests]
   Browser --> Evidence[Content, contacts, images, JSON-LD and design cues]
   Evidence -->|Coverage and source URLs| User
-  User -->|Session key or protected server key| Plan[POST /api/plan]
+  User -->|Generation request, optional studio access token| Plan[POST /api/plan]
+  ServerEnv[Server environment API key and preferred free models] --> Plan
   Plan --> Router[OpenRouter, live suitable free models]
   Router --> Directions[Three AI-created art directions]
   Directions --> Generate[POST /api/generate, one version per request]
@@ -25,7 +26,7 @@ flowchart TD
 
 The browser starts URL discovery after a 1.7-second pause. A changed URL cancels the prior request. Generation waits for matching discovery; unreadable sites require explicit description-only continuation. Source contacts are displayed as evidence rather than silently overwriting entered fields.
 
-The model catalogue uses fixed `https://openrouter.ai/api/v1/models`. The generation provider uses fixed `https://openrouter.ai/api/v1/chat/completions`. Credentials are server-only environment values or ephemeral request headers supplied by the user. They never enter IndexedDB or exported knowledge. Discovery directly requests the user-supplied public source after URL, DNS, redirect and resource checks. Chromium receives fulfilled guarded network responses and no provider credentials.
+The model catalogue uses fixed `https://openrouter.ai/api/v1/models`. The generation provider uses fixed `https://openrouter.ai/api/v1/chat/completions`. The provider key comes only from the server environment, never from browser inputs/headers. Browser-supplied provider keys are ignored. A separate studio access token authorizes production generation; only this access token can be sent by the browser. Neither credential enters IndexedDB or exported knowledge. `OPENROUTER_MODELS` overrides the preferred free-model order; blank defaults to Inkling, Laguna S 2.1 and Nemotron 3 Ultra. Every candidate must still qualify in the live catalogue; unavailable or paid preferences are skipped and fallback stays free. Discovery directly requests the user-supplied public source after URL, DNS, redirect and resource checks. Chromium receives fulfilled guarded network responses and no provider credentials.
 
 The plan is entirely AI-created and locally schema-validated. Each independent generation request gets the entered knowledge, evidence from every captured page, a distinct AI direction and brief context about accepted earlier versions. The original HTML/CSS is preserved apart from the injected security policy. Rejected output is never shown as a completed site. Completed versions save independently; cancellation or a failed later version keeps earlier artifacts. Retry uses the same plan and unchanged knowledge. Editing knowledge or refreshing source discovery invalidates the prior generation fingerprint and leads to a fresh plan on the next generation. Creating a new set after all three complete also makes a fresh plan.
 

@@ -40,7 +40,8 @@ async function main() {
     let discoverCalls = 0,
       planCalls = 0;
     const generationCalls: number[] = [];
-    let failSecondVersion=false;
+    let failSecondVersion = false;
+    let serverConfigured = false;
     const sourcePage = extractPage(website(), "https://northline.example/");
     const discovery: Discovery = {
       inputUrl: "https://northline.example",
@@ -62,7 +63,7 @@ async function main() {
               context: 262144,
             },
           ],
-          serverKeyConfigured: false,
+          serverKeyConfigured: serverConfigured,
           accessTokenRequired: false,
         },
       }),
@@ -95,17 +96,21 @@ async function main() {
     }));
     await page.route("**/api/plan", async (route) => {
       planCalls++;
-      assert.equal(
-        route.request().headers()["x-openrouter-key"],
-        "sk-or-v1-test-session",
-      );
+      assert.equal(route.request().headers()["x-openrouter-key"], undefined);
       assert.equal(route.request().postDataJSON().discovery.pages.length, 1);
       await route.fulfill({ json: { directions, model: "test/coder:free" } });
     });
     await page.route("**/api/generate", async (route) => {
       const body = route.request().postDataJSON();
       generationCalls.push(body.index);
-      if(body.index===1&&failSecondVersion){failSecondVersion=false;await route.fulfill({status:429,json:{error:"Test provider rate limit — retry this version."}});return;}
+      if (body.index === 1 && failSecondVersion) {
+        failSecondVersion = false;
+        await route.fulfill({
+          status: 429,
+          json: { error: "Test provider rate limit — retry this version." },
+        });
+        return;
+      }
       await route.fulfill({
         json: {
           artifact: {
@@ -149,13 +154,23 @@ async function main() {
     await page
       .getByRole("button", { name: "Generate three websites", exact: true })
       .click();
-    await page.getByRole("textbox", { name: "OpenRouter API key" }).waitFor();
     await page
-      .getByRole("textbox", { name: "OpenRouter API key" })
-      .fill("sk-or-v1-test-session");
+      .getByText(
+        "Website generation is not connected yet. Ask the studio administrator to configure it.",
+        { exact: true },
+      )
+      .waitFor();
     await page
-      .getByRole("button", { name: "Close connection settings" })
+      .getByRole("button", { name: "Generation settings", exact: true })
       .click();
+    assert.equal(
+      await page.getByRole("textbox", { name: "OpenRouter API key" }).count(),
+      0,
+    );
+    await pause(600);
+    serverConfigured = true;
+    await page.reload();
+    await page.getByText("Saved on this device", { exact: true }).waitFor();
     await page
       .getByRole("button", { name: "Generate three websites", exact: true })
       .click();
@@ -181,13 +196,24 @@ async function main() {
     const downloaded = await downloadPromise;
     assert.equal(downloaded.suggestedFilename(), "mechanical-precision.html");
     // A new set makes a new plan; completed siblings survive a failed version.
-    failSecondVersion=true;
-    await page.getByRole("button",{name:"Create three new designs",exact:true}).click();
-    await page.getByText("2 of 3 designs ready. Retry any unfinished version.",{exact:true}).waitFor();
-    assert.equal(planCalls,2);
-    await page.getByRole("button",{name:"Retry this version",exact:true}).click();
-    await page.getByText("All three designs are ready.",{exact:true}).waitFor();
-    assert.equal(planCalls,2);assert.deepEqual(generationCalls,[0,1,2,0,1,2,1]);
+    failSecondVersion = true;
+    await page
+      .getByRole("button", { name: "Create three new designs", exact: true })
+      .click();
+    await page
+      .getByText("2 of 3 designs ready. Retry any unfinished version.", {
+        exact: true,
+      })
+      .waitFor();
+    assert.equal(planCalls, 2);
+    await page
+      .getByRole("button", { name: "Retry this version", exact: true })
+      .click();
+    await page
+      .getByText("All three designs are ready.", { exact: true })
+      .waitFor();
+    assert.equal(planCalls, 2);
+    assert.deepEqual(generationCalls, [0, 1, 2, 0, 1, 2, 1]);
     await pause(600);
     const saved = await page.evaluate(
       () =>
@@ -207,7 +233,9 @@ async function main() {
           };
         }),
     );
-    assert.ok(!saved.includes("sk-or-v1-test-session"));
+    assert.ok(
+      !saved.includes("apiKey") && !saved.includes("OPENROUTER_API_KEY"),
+    );
     assert.equal(JSON.parse(saved).artifacts.length, 3);
     await page.reload();
     await page.getByText("Saved on this device", { exact: true }).waitFor();
@@ -262,7 +290,7 @@ async function main() {
     assert.equal(routeChecks.status, 400);
     assert.deepEqual(errors, []);
     console.log(
-      "Browser checks passed: optional form, automatic discovery, three variants, new-plan creation, partial failure/retry, preview switching, download, device save, key exclusion, mobile layout and real API error paths. Generation responses were mocked; no live AI quality claim is made.",
+      "Browser checks passed: environment-only credentials, no browser key field or header, optional form, automatic discovery, three variants, new-plan creation, partial failure/retry, preview switching, download, device save, mobile layout and real API error paths. Generation responses were mocked; no live AI quality claim is made.",
     );
   } finally {
     await browser.close();

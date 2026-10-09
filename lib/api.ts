@@ -23,16 +23,10 @@ export function protectRequest(request: Request, kind: string, limit = 12) {
   } else requests.set(key, { count: 1, expires: now + 300000 });
 }
 export function apiKey(request: Request) {
-  const ownKey = request.headers.get("x-openrouter-key")?.trim();
-  if (ownKey) {
-    if (ownKey.length > 256 || !/^sk-or-[\w-]+$/.test(ownKey))
-      throw new Error("Enter a valid OpenRouter API key.");
-    return ownKey;
-  }
-  const key = process.env.OPENROUTER_API_KEY;
+  const key = process.env.OPENROUTER_API_KEY?.trim();
   if (!key)
     throw new Error(
-      "Add your OpenRouter API key in Connection settings or OPENROUTER_API_KEY in .env.local.",
+      "Website generation is not configured. Set OPENROUTER_API_KEY in the server environment and restart the app.",
     );
   if (
     process.env.STUDIO_ACCESS_TOKEN ||

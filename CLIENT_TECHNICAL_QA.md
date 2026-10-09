@@ -18,11 +18,11 @@ No. AI creates three original design directions, then generates each full HTML d
 
 ## Which AI provider/models are used?
 
-OpenRouter chat completions. Suitable currently available zero-price models are discovered from its live catalogue and ranked using coding signals, context and structured-output support. Each version starts with a separate available free model where possible. The customer can select a listed free model. A bounded fallback can use other free models; paid models are never selected. Ranking is a practical heuristic, not proof that a model is the best.
+OpenRouter chat completions. The default preference is Thinking Machines Inkling, Poolside Laguna S 2.1 and NVIDIA Nemotron 3 Ultra, verified as available/free on 2026-10-09. The administrator can change their order using `OPENROUTER_MODELS`. Every preferred model is checked against the live catalogue's availability, zero pricing and context/output limits; unavailable or paid preferences are skipped. Each version starts with a separate available free model where possible. The customer can override with a listed free model in Generation settings. A bounded fallback can use other free models; paid models are never selected. These are practical starting choices, not proof that a model is universally best. Reasoning effort respects each model's advertised support.
 
 ## Where does the API key go?
 
-The customer can enter it in Connection settings. It stays in session memory and is sent to this app's server for the provider call; it is not saved in the browser draft, source repository or knowledge export. A server environment key is also supported. Production use of a server key requires a studio access token. Entered credentials disappear on refresh.
+The administrator sets `OPENROUTER_API_KEY` in the ignored `.env.local` file or the hosting environment and restarts the app. The provider key stays entirely on the server. The website has no API-key input, sends no provider-key browser header, and ignores browser-supplied key overrides. Production use requires a separate studio access token, entered in Generation settings and kept only in session memory. Local development needs only the environment API key unless a studio token is configured.
 
 ## What if generation fails?
 

@@ -12,7 +12,9 @@ npm run browser:install
 npm run dev
 ```
 
-Open http://localhost:3000. Enter an OpenRouter key in **Connection**. The key stays in browser memory, is sent only to this app's API for generation, and is never saved in drafts or committed. Alternatively, copy `.env.example` to `.env.local` and configure `OPENROUTER_API_KEY`. A server-owned key requires `STUDIO_ACCESS_TOKEN` in production; enter that token in Connection. The token is also kept only in session memory.
+Copy `.env.example` to `.env.local`, set `OPENROUTER_API_KEY`, then start/restart the app and open http://localhost:3000. The API key is read only on the server; there is no API-key entry on the site and browser-supplied key headers are ignored. Never use a `NEXT_PUBLIC_` prefix for the secret. `.env.local` is ignored by Git. On a deployed host, set the same variable in the host's environment settings.
+
+Production use requires `STUDIO_ACCESS_TOKEN`; enter this separate studio access token in **Generation settings**. The token controls access to generation and stays in browser memory for the session. It is not the OpenRouter key. Local `npm run dev` needs only `OPENROUTER_API_KEY` unless a studio token is explicitly configured.
 
 ## Your workflow
 
@@ -33,9 +35,11 @@ Entered facts override conflicting website evidence. The generator is told to om
 
 ## OpenRouter
 
-The app retrieves the [live model catalogue](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties), filters suitable zero-input/zero-output-price text models, and ranks them using coding signals, context size and structured-output support. It excludes safety-only and embedding models. Automatic selection starts each version with a different available model when possible; you can override with any listed free model. `OPENROUTER_MODELS` can prioritize comma-separated IDs that still qualify in the live catalogue. No paid fallback occurs: provider routing also caps input/output price at zero. The heuristic ranking is not a quality benchmark.
+The preferred starting models are [Thinking Machines Inkling](https://openrouter.ai/thinkingmachines/inkling:free), [Poolside Laguna S 2.1](https://openrouter.ai/poolside/laguna-s-2.1:free), and [NVIDIA Nemotron 3 Ultra](https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b:free). Their free endpoints were verified on 2026-10-09. These are practical choices based on published coding/design capabilities; they are not a guarantee of the best website quality. Laguna's current free listing expires on 2026-10-31, so ongoing catalogue validation and fallback are necessary.
 
-Generation uses [OpenRouter chat completions](https://openrouter.ai/docs/api/reference/overview). Plans use JSON Schema output when the chosen model supports it and are always checked locally. Failed HTML validation gets one repair attempt per model, with at most three free model candidates and a 210-second operation budget. Rate limits, missing keys, malformed output and partial failures are explicit. Accepted designs are preserved; retry generates only the requested or missing version. [Free-model rate limits](https://openrouter.ai/docs/api/reference/limits) depend on the account and provider.
+`OPENROUTER_MODELS` sets the preferred order as comma-separated IDs. An empty value uses the same three built-in preferences. The app retrieves the [live model catalogue](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties), filters zero-input/zero-output-price models with suitable context/output limits, and prefers only available qualifying IDs. It excludes safety-only and embedding models. Other eligible models are ranked using coding signals, context size and structured-output support and remain available as free fallbacks. If a preferred model disappears or becomes paid, it is skipped. Each version starts with a different available model when possible, and **Generation settings** allows a listed free model override. No paid fallback occurs: provider routing also caps input/output price at zero. The heuristic ranking is not a quality benchmark.
+
+Generation uses [OpenRouter chat completions](https://openrouter.ai/docs/api/reference/overview). Plans use JSON Schema output when the chosen model supports it and are always checked locally. Reasoning-capable models use medium effort where supported; another catalogue-supported effort is used when medium is unavailable. Failed HTML validation gets one repair attempt per model, with at most three free model candidates and a 210-second operation budget. Rate limits, missing server keys, malformed output and partial failures are explicit. Accepted designs are preserved; retry generates only the requested or missing version. [Free-model rate limits](https://openrouter.ai/docs/api/reference/limits) depend on the account and provider.
 
 ## Checks
 
@@ -44,7 +48,7 @@ npm run check
 npm run test:browser
 ```
 
-Browser checks start the production build on port 3047, or use `STUDIO_TEST_URL`. They mock AI/discovery responses to verify the client workflow and also exercise real credential/private-address error paths. Unit tests mock provider requests to verify free-model enforcement and output repair. A real generation and visual-quality review requires a user-supplied API key; passing mocked checks is not proof of live model output quality.
+Browser checks start the production build on port 3047, or use `STUDIO_TEST_URL`. They mock AI/discovery responses to verify the client workflow and also exercise real credential/private-address error paths. They verify the absence of a browser API-key field/header. Unit tests verify environment-only key selection, studio access control, preferred-model order, live-eligibility filtering, reasoning compatibility and output repair. A real generation and visual-quality review requires a valid key configured in the server environment; passing mocked checks is not proof of live model output quality.
 
 ## Hosting
 

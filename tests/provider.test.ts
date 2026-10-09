@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { makePlan, makeWebsite } from "../lib/generator";
-import { completion, ProviderError } from "../lib/openrouter";
+import {
+  completion,
+  ProviderError,
+  freeCodingModels,
+  prioritizeModels,
+  DEFAULT_WEBSITE_MODELS,
+} from "../lib/openrouter";
 import { apiKey, protectRequest } from "../lib/api";
 import { brief, model, website } from "./fixtures";
 
@@ -90,7 +96,7 @@ test("provider rejects truncated content and credentials without returning parti
     globalThis.fetch = original;
   }
 });
-test("same-origin mutation guard and session API key rules", () => {
+test("same-origin mutation guard and environment-only API key rules", () => {
   assert.throws(
     () =>
       protectRequest(
@@ -108,14 +114,87 @@ test("same-origin mutation guard and session API key rules", () => {
     },
   });
   protectRequest(request, "test");
-  assert.equal(apiKey(request), "sk-or-v1-test-key");
-  assert.throws(
-    () =>
-      apiKey(
-        new Request("http://localhost:3000", {
-          headers: { "x-openrouter-key": "invalid" },
-        }),
-      ),
-    /valid/,
+  const originalKey = process.env.OPENROUTER_API_KEY;
+  const originalToken = process.env.STUDIO_ACCESS_TOKEN;
+  try {
+    delete process.env.OPENROUTER_API_KEY;
+    assert.throws(() => apiKey(request), /OPENROUTER_API_KEY/);
+    process.env.OPENROUTER_API_KEY = "sk-or-v1-server-test";
+    process.env.STUDIO_ACCESS_TOKEN = "test-studio-token";
+    assert.throws(() => apiKey(request), /access token/);
+    const authorized = new Request("http://localhost:3000/api/plan", {
+      headers: {
+        "x-openrouter-key": "sk-or-v1-browser-override",
+        "x-studio-token": "test-studio-token",
+      },
+    });
+    assert.equal(apiKey(authorized), "sk-or-v1-server-test");
+    assert.throws(
+      () =>
+        apiKey(
+          new Request("http://localhost:3000", {
+            headers: { "x-studio-token": "wrong-token" },
+          }),
+        ),
+      /access token/,
+    );
+  } finally {
+    if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = originalKey;
+    if (originalToken === undefined) delete process.env.STUDIO_ACCESS_TOKEN;
+    else process.env.STUDIO_ACCESS_TOKEN = originalToken;
+  }
+});
+test("preferred models stay free and available, and environment overrides are honored", () => {
+  const available = freeCodingModels([
+    model,
+    ...DEFAULT_WEBSITE_MODELS.map((id) => ({ ...model, id })),
+    {
+      ...model,
+      id: "test/paid:free",
+      pricing: { prompt: "0.1", completion: "0.1" },
+    },
+  ]);
+  assert.deepEqual(
+    prioritizeModels(available, "")
+      .slice(0, 3)
+      .map((m) => m.id),
+    DEFAULT_WEBSITE_MODELS,
   );
+  assert.equal(
+    prioritizeModels(available, "test/coder:free,missing/model:free")[0].id,
+    model.id,
+  );
+  const missing = available.filter((m) => m.id !== DEFAULT_WEBSITE_MODELS[0]);
+  assert.equal(prioritizeModels(missing, "")[0].id, DEFAULT_WEBSITE_MODELS[1]);
+  assert.ok(
+    !prioritizeModels(available, "test/paid:free").some(
+      (m) => m.id === "test/paid:free",
+    ),
+  );
+});
+test("reasoning effort follows catalogue capabilities instead of unsupported defaults", async () => {
+  const original = globalThis.fetch;
+  let sent: Record<string, unknown> | undefined;
+  globalThis.fetch = async (_url, options) => {
+    sent = JSON.parse(String(options?.body));
+    return Response.json({
+      model: model.id,
+      choices: [{ finish_reason: "stop", message: { content: "done" } }],
+    });
+  };
+  try {
+    await completion(
+      "test-key",
+      {
+        ...model,
+        supported_parameters: ["reasoning"],
+        reasoning: { supported_efforts: ["high", "medium"] },
+      },
+      [],
+    );
+    assert.deepEqual(sent?.reasoning, { effort: "medium", exclude: true });
+  } finally {
+    globalThis.fetch = original;
+  }
 });

@@ -98,4 +98,5 @@ export type Model = {
   supported_parameters: string[];
   top_provider?: { max_completion_tokens?: number };
   pricing: { prompt: string; completion: string };
+  reasoning?: { supported_efforts?: string[] };
 };

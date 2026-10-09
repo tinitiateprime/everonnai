@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createDemoWorkspace } from "@/features/everonn/demo-data";
+import { createDemoWorkspace } from "./fixtures/demo-workspace";
 import { generateDeterministicWebsiteSpec } from "./fixtures/website";
 import { websiteCodeFixture } from "./fixtures/website-code";
 import { normalizeWebsiteCodeConcept, prepareWebsitePage, scopeWebsiteCss, validateWebsiteCss } from "@/features/website-studio/code-validation";

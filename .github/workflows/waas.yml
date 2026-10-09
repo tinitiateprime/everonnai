@@ -1,0 +1,25 @@
+name: WAAS package checks
+on:
+  push:
+    branches: [waas-package]
+  pull_request:
+    branches: [waas-package]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run check
+      - run: npm run sdk:pack
+      - run: npm run standalone:prepare
+      - run: npm run smoke
+        env:
+          SMOKE_CHROME_PATH: /usr/bin/google-chrome
+      - run: npm run smoke -- --standalone
+        env:
+          SMOKE_CHROME_PATH: /usr/bin/google-chrome

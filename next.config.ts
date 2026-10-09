@@ -1,14 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
+  poweredByHeader: false,
   serverExternalPackages: ["postgres"],
   outputFileTracingIncludes: {
-    "/api/*": ["./ai/**/*.md"],
+    "/*": ["./ai/**/*.md"],
   },
-  outputFileTracingExcludes: {
-    "/workspace": ["./data/project-repositories.json"],
-    "/api/project-workspace": ["./data/project-repositories.json"],
-  },
+  outputFileTracingExcludes: { "/*": ["./data/**/*", "./tests/**/*", "./.env*"] },
   images: {
     remotePatterns: [
       {

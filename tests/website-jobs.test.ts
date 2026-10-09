@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { createDemoWorkspace } from "@/features/everonn/demo-data";
+import { createDemoWorkspace } from "./fixtures/demo-workspace";
 import type { EverOnnWorkspace } from "@/features/everonn/types";
 import { createWebsiteJobRunner, type WebsiteJobStore } from "@/features/website-studio/jobs";
 import { createWebsiteProject } from "@/features/website-studio/generator";
@@ -12,7 +12,7 @@ import { generateDeterministicWebsiteSpec } from "./fixtures/website";
 import { websiteCodeFixture } from "./fixtures/website-code";
 
 const usageDirectory = mkdtempSync(path.join(tmpdir(), "everonn-website-jobs-usage-"));
-process.env.EVERONN_USAGE_DIR = usageDirectory;
+process.env.WAAS_DATA_DIR = usageDirectory;
 for (const key of ["SUPABASE_DB_URL", "SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_USAGE_SCHEMA", "AWS_LAMBDA_FUNCTION_NAME", "NETLIFY_BLOBS_CONTEXT"]) process.env[key] = "";
 process.env.NETLIFY = "false"; process.env.USAGE_BACKGROUND_MODE = "external";
 process.env.USAGE_REQUIRE_DURABLE_STORAGE = "false";

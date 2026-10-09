@@ -199,9 +199,13 @@ export function validateWebsite(
         invalid = "Remove executable attributes.";
       if (!["href", "src", "xlink:href", "poster"].includes(name)) continue;
       if (value.startsWith("#")) {
-        if (name === "href" && (!value.slice(1) || !ids.has(value.slice(1))))
-          invalid =
-            "Fix navigation anchors so they point to existing section IDs.";
+        // "#" and "#top" scroll to the top of the page in every browser.
+        if (
+          name === "href" &&
+          !["#", "#top"].includes(value) &&
+          !ids.has(value.slice(1))
+        )
+          invalid = `Fix navigation anchors so they point to existing section IDs (href="${value.slice(0, 80)}" has no matching id).`;
         continue;
       }
       if (name === "href" && /^(tel:|mailto:)/.test(value)) continue;
@@ -218,9 +222,9 @@ export function validateWebsite(
         continue;
       try {
         if (parsePublicUrl(value).protocol !== "https:")
-          invalid = "Use public HTTPS links and assets.";
+          invalid = `Use public HTTPS links and assets (${name}="${value.slice(0, 80)}").`;
       } catch {
-        invalid = "Remove invalid, relative or unsafe resource URLs.";
+        invalid = `Remove invalid, relative or unsafe resource URLs (${name}="${value.slice(0, 80)}"); use absolute https:// URLs or #section anchors.`;
       }
     }
   });
@@ -293,6 +297,11 @@ export function validateWebsite(
       "Only optional Google Fonts stylesheet links may be external.",
     );
   const text = normalized($("body").text());
+  // Names are often styled across elements ("ti tea<br>post"), which .text() joins
+  // without a space; compare required names ignoring whitespace.
+  const compactText = text.replace(/\s+/g, "");
+  const mentions = (name: string) =>
+    compactText.includes(normalized(name).replace(/\s+/g, ""));
   if (
     text.length < (options.subpage ? 200 : 400) ||
     /lorem ipsum|\bTODO\b|your (business|company) name/i.test(text)
@@ -302,12 +311,9 @@ export function validateWebsite(
     );
   if (!options.subpage)
     for (const service of knowledge.services.filter((s) => s.name))
-      if (!text.includes(normalized(service.name)))
+      if (!mentions(service.name))
         throw new Error(`Include the supplied service: ${service.name}`);
-  if (
-    knowledge.businessName &&
-    !text.includes(normalized(knowledge.businessName))
-  )
+  if (knowledge.businessName && !mentions(knowledge.businessName))
     throw new Error("Include the exact supplied business name.");
   if (
     !options.subpage &&

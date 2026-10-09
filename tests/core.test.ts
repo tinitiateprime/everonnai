@@ -251,6 +251,24 @@ test("image captions are removed but linked photo credits stay", () => {
   assert.ok(out.includes("Photo by"));
   assert.ok(out.includes("Speak with our team"));
 });
+test("business names split across elements and top-of-page links are accepted", () => {
+  const html = website()
+    .replace("Northline: comfort at home", "North<br>line: comfort at home")
+    .replace(
+      "Northline heating and cooling services.",
+      '<a href="#">Back to top</a>',
+    )
+    .replace("<title>Northline", "<title>North line");
+  assert.doesNotThrow(() => validateWebsite(html, brief));
+  assert.throws(
+    () =>
+      validateWebsite(
+        website().replace('href="#services"', 'href="#nowhere"'),
+        brief,
+      ),
+    /href="#nowhere"/,
+  );
+});
 test("website validator rejects executable content, invented contacts, lost services and dead anchors", () => {
   for (const changed of [
     website().replace("</body>", "<script>alert(1)</script></body>"),

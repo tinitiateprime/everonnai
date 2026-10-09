@@ -8,7 +8,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import type { Artifact, Knowledge } from "./types";
+import type { Artifact, Discovery, Knowledge } from "./types";
+import { knowledgePacket } from "./prompts";
 
 const validSlug = /^[\p{L}\p{N}][\p{L}\p{N}\p{M}-]{0,99}$/u;
 export function businessSlug(businessName: string, description: string) {
@@ -49,6 +50,7 @@ function filePath(slug: string, version: string) {
 export async function saveGeneratedSite(
   knowledge: Knowledge,
   artifact: Artifact,
+  discovery: Discovery | null = null,
 ): Promise<Artifact> {
   const slug = businessSlug(knowledge.businessName, knowledge.description);
   const sitePath = websitePath(slug, artifact.index);
@@ -64,6 +66,7 @@ export async function saveGeneratedSite(
         slug,
         businessName: knowledge.businessName,
         artifact: saved,
+        knowledgeJson: knowledgePacket(knowledge, discovery),
       }),
       { encoding: "utf8", flag: "wx", mode: 0o600 },
     );
@@ -81,10 +84,20 @@ export async function readGeneratedSite(
   slug: string,
   version: string,
 ): Promise<Artifact | null> {
+  return (await readGeneratedSiteRecord(slug, version))?.artifact ?? null;
+}
+export async function readGeneratedSiteRecord(
+  slug: string,
+  version: string,
+): Promise<{
+  artifact: Artifact;
+  businessName: string;
+  knowledgeJson: string | null;
+} | null> {
   const file = filePath(slug, version);
   if (!file) return null;
   try {
-    if ((await stat(file)).size > 2_000_000)
+    if ((await stat(file)).size > 8_000_000)
       throw new Error("Stored website exceeds the size limit.");
     const record = JSON.parse(await readFile(file, "utf8"));
     if (
@@ -96,7 +109,13 @@ export async function readGeneratedSite(
       record.artifact.path !== websitePath(slug, Number(version) - 1)
     )
       throw new Error("Invalid stored website.");
-    return record.artifact;
+    return {
+      artifact: record.artifact,
+      businessName:
+        typeof record.businessName === "string" ? record.businessName : "",
+      knowledgeJson:
+        typeof record.knowledgeJson === "string" ? record.knowledgeJson : null,
+    };
   } catch (error) {
     if (
       error &&

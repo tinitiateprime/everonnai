@@ -34,6 +34,7 @@ import {
   type Knowledge,
 } from "@/lib/types";
 import { readDraft, saveDraft } from "@/lib/browser-store";
+import { AssistantEmbed } from "./assistant-embed";
 
 type ModelOption = { id: string; name: string; context: number };
 type DiscoveryEvent = { type: string; message?: string; discovery?: Discovery };
@@ -1245,6 +1246,13 @@ export function Studio() {
                   </div>
                 )}
                 <div className={`preview-stage ${device}`}>
+                  {current?.path && (
+                    <AssistantEmbed
+                      key={current.id}
+                      path={current.path}
+                      revision={current.id}
+                    />
+                  )}
                   {current ? (
                     <iframe
                       title={`${current.name} website preview`}

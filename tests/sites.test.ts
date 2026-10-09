@@ -71,13 +71,20 @@ test("three versions persist independently, overwrite atomically and serve as is
       assert.ok(
         response.headers
           .get("content-security-policy")
-          ?.includes("script-src 'none'"),
+          ?.includes("script-src 'sha256-"),
       );
       assert.ok(
-        response.headers.get("content-security-policy")?.includes("sandbox"),
+        response.headers
+          .get("content-security-policy")
+          ?.includes("frame-src 'self'"),
       );
       assert.equal(response.headers.get("cache-control"), "no-store");
-      assert.equal(await response.text(), saved.html);
+      const document = await response.text();
+      assert.ok(document.includes(`Northline version ${index + 1}`));
+      assert.ok(document.includes("Business voice and chat assistant"));
+      assert.ok(
+        document.includes(`/assistant/northline/${index + 1}?revision=`),
+      );
     }
     const updated = await saveGeneratedSite(brief, {
       ...artifact(1),

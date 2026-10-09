@@ -4,8 +4,28 @@ import { ZodError } from "zod";
 const requests = new Map<string, { count: number; expires: number }>();
 export function protectRequest(request: Request, kind: string, limit = 12) {
   const origin = request.headers.get("origin");
-  if (!origin || origin !== new URL(request.url).origin)
+  const requestUrl = new URL(request.url);
+  const host = request.headers.get("host") || requestUrl.host;
+  const scheme =
+    request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() ||
+    requestUrl.protocol.slice(0, -1);
+  let expectedOrigin = "";
+  try {
+    if (["http", "https"].includes(scheme)) {
+      const incoming = new URL(`${scheme}://${host}`);
+      if (
+        !incoming.username &&
+        !incoming.password &&
+        incoming.host === host.toLowerCase()
+      )
+        expectedOrigin = incoming.origin;
+    }
+  } catch {
+    /* Invalid host headers fail closed. */
+  }
+  if (!origin || origin !== expectedOrigin) {
     throw new Error("This action must come from the website studio.");
+  }
   const identity =
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
   const key = `${kind}:${identity}`;

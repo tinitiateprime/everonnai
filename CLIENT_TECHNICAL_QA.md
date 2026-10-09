@@ -24,6 +24,22 @@ OpenRouter chat completions. The default preference is Thinking Machines Inkling
 
 The administrator sets `OPENROUTER_API_KEY` in the ignored `.env.local` file or the hosting environment and restarts the app. The provider key stays entirely on the server. The website has no API-key input, sends no provider-key browser header, and ignores browser-supplied key overrides. Production use requires a separate studio access token, entered in Generation settings and kept only in session memory. Local development needs only the environment API key unless a studio token is configured.
 
+## How do voice and chat get the website knowledge?
+
+Generation saves the exact business/evidence packet beside each website artifact. Voice/chat load that snapshot from the server using business name slug, version and artifact revision. Both receive the same description, optional details/services and extracted website evidence. The current website and its assistant update together on regeneration; changing the unsaved studio form does not change an existing site's answers.
+
+## Is this the same agent connection as the main project?
+
+Yes: ElevenLabs live voice via WebRTC, ElevenLabs text-only chat via WebSocket, and Gemini text fallback. Existing dynamic-variable names and compatible agent configuration are reused without modifying the shared ElevenLabs agent. Provider credentials are configured only in this branch's ignored env file. No main-project source, database, scheduling integration or usage meter is imported or modified.
+
+## Where do the controls appear?
+
+Chat with us and Talk to us appear on all generated website URLs and beside the studio preview. The generated design keeps its AI HTML/CSS. A trusted application frame supplies the interactive controls, while CSP blocks arbitrary model-authored JavaScript. Voice asks for microphone access when clicked and needs HTTPS or localhost. It supports mute, end, reconnect and transcripts. Provider/permission errors are shown; live chat can fall back to configured Gemini.
+
+## Can this assistant book appointments or submit callbacks?
+
+The standalone branch currently answers business questions and supplies contact guidance. Its calendar, email delivery, transfer and callback-saving workflows are not connected. The main agent's corresponding tools return truthful unavailable state, and Gemini replies are checked for false action confirmations. Nothing is described as booked, sent or submitted without an actual integration.
+
 ## What if generation fails?
 
 Each accepted design saves separately on the server and in the customer's browser draft. A failed version displays an error and can be retried. Invalid HTML gets one AI repair per candidate model, with at most three free model candidates and a bounded operation duration. Missing keys, exhausted quota, provider errors, storage failures and unfinished output are reported; they do not produce a fake completed website. The previous successful file at the same business/version URL is preserved if regeneration or saving fails.
@@ -47,3 +63,5 @@ Unit checks cover required/optional fields, URL/address safety, contact/design e
 ## Does this change the original EverOnn project?
 
 This branch replaces the old application with an independent studio. Work was carried out in a separate checkout. The original working project, its uncommitted changes, integrations and databases are not migrated into this branch. Pushing this Git branch does not deploy or alter the original live app.
+
+On 2026-10-09, the explicit live assistant probe verified ElevenLabs text answers against fictional bicycle-business facts, a WebRTC voice connection with synthetic microphone input and functioning mute/end controls, and a Gemini text answer from the same saved knowledge. This does not verify a real user's microphone/speaker quality or live OpenRouter website design quality.

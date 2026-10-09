@@ -1,5 +1,5 @@
 import { readGeneratedSite } from "@/lib/site-store";
-import { PREVIEW_CSP } from "@/lib/validation";
+import { attachAssistant } from "@/lib/assistant-embed";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,12 +21,13 @@ export async function GET(
         status: 404,
         headers: { ...headers, "Content-Type": "text/plain; charset=utf-8" },
       });
-    return new Response(artifact.html, {
+    const page = attachAssistant(artifact.html, business, version, artifact.id);
+    return new Response(page.html, {
       headers: {
         ...headers,
         "Content-Type": "text/html; charset=utf-8",
-        // An opaque document origin keeps generated markup separate from studio drafts.
-        "Content-Security-Policy": `${PREVIEW_CSP}; sandbox allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation`,
+        "Content-Security-Policy": page.csp,
+        "Permissions-Policy": "microphone=(self)",
       },
     });
   } catch {

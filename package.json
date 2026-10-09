@@ -10,10 +10,12 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
     "test:browser": "node --import tsx scripts/browser-check.ts",
+    "verify:assistant:live": "node --import tsx scripts/verify-assistant-live.ts",
     "browser:install": "playwright install chromium",
     "check": "npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
+    "@elevenlabs/client": "^1.25.0",
     "cheerio": "^1.1.2",
     "css-tree": "^3.2.1",
     "fast-xml-parser": "^5.5.8",

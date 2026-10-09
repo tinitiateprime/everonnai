@@ -36,7 +36,10 @@ async function main() {
     if (i === 59) throw new Error(`Server did not start: ${logs}`);
     await pause(500);
   }
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    args: ["--use-fake-device-for-media-stream"],
+  });
   try {
     const context = await browser.newContext({
       viewport: { width: 1440, height: 1080 },
@@ -124,7 +127,13 @@ async function main() {
         index: body.index,
         name: body.direction.name,
         rationale: body.direction.concept,
-        html: website(),
+        html:
+          body.index === 1
+            ? website().replace(
+                "</body>",
+                "<script>window.modelCodeRan=true</script></body>",
+              )
+            : website(),
         model: "test/coder:free",
         createdAt: new Date().toISOString(),
         warnings: [],
@@ -192,10 +201,17 @@ async function main() {
     assert.equal(planCalls, 1);
     await page.getByRole("button", { name: /Mechanical precision/ }).click();
     assert.equal(
-      await page.locator("iframe").getAttribute("title"),
+      await page
+        .locator("iframe[title$='website preview']")
+        .getAttribute("title"),
       "Mechanical precision website preview",
     );
-    assert.equal(await page.locator("iframe").getAttribute("sandbox"), "");
+    assert.equal(
+      await page
+        .locator("iframe[title$='website preview']")
+        .getAttribute("sandbox"),
+      "",
+    );
     assert.equal(
       await page
         .getByRole("link", { name: "Open website", exact: true })
@@ -218,17 +234,125 @@ async function main() {
           .waitFor();
         const refreshed = await directPage.reload();
         assert.equal(refreshed?.status(), 200);
+        await directPage
+          .frameLocator("iframe[title='Business voice and chat assistant']")
+          .getByRole("button", { name: "Chat with us", exact: true })
+          .waitFor();
+        const responseHeaders = response?.headers() ?? {};
         assert.ok(
-          await directPage.evaluate(() => {
-            try {
-              localStorage.getItem("studio-data");
-              return false;
-            } catch {
-              return true;
-            }
-          }),
+          responseHeaders["content-security-policy"].includes(
+            "script-src 'sha256-",
+          ),
+        );
+        assert.equal(
+          await directPage.evaluate(() => Reflect.get(window, "modelCodeRan")),
+          undefined,
         );
       }
+      const assistant = directPage.frameLocator(
+        "iframe[title='Business voice and chat assistant']",
+      );
+      let voiceSessionRequests = 0;
+      await directPage.route("**/api/site-assistant/session", (route) => {
+        if (route.request().postDataJSON().mode === "voice")
+          voiceSessionRequests++;
+        return route.fulfill({
+          status: 503,
+          json: {
+            error: "Live provider temporarily unavailable",
+            fallbackReady: true,
+            greeting: "Hi, how can I help with Northline Heating?",
+          },
+        });
+      });
+      await directPage.route("**/api/site-assistant/message", (route) => {
+        const input = route.request().postDataJSON();
+        assert.equal(input.business, "northline-heating");
+        assert.equal(input.version, "3");
+        assert.ok(input.revision);
+        assert.equal(input.knowledge, undefined);
+        assert.equal(input.messages.at(-1).role, "visitor");
+        return route.fulfill({
+          json: {
+            reply: "We offer AC installation and heating maintenance.",
+            model: "test-gemini",
+          },
+        });
+      });
+      await assistant
+        .getByRole("button", { name: "Chat with us", exact: true })
+        .click();
+      await assistant.locator('.agent-panel[data-status="fallback"]').waitFor();
+      await assistant
+        .getByRole("textbox", { name: "Your message", exact: true })
+        .fill("What services do you offer?");
+      await assistant
+        .getByRole("button", { name: "Send message", exact: true })
+        .click();
+      try {
+        await assistant
+          .getByText("We offer AC installation and heating maintenance.", {
+            exact: true,
+          })
+          .waitFor({ timeout: 7000 });
+      } catch {
+        throw new Error(
+          "Assistant UI check failed: " +
+            (await assistant.locator(".agent-panel").innerText()),
+        );
+      }
+      await directContext.grantPermissions([], { origin: base });
+      await assistant
+        .getByRole("button", { name: "Talk to us", exact: true })
+        .click();
+      try {
+        await assistant.locator(".agent-error").waitFor({ timeout: 7000 });
+      } catch {
+        throw new Error(
+          "Microphone denial UI: " +
+            (await assistant.locator(".agent-panel").innerText()),
+        );
+      }
+      assert.match(
+        await assistant.locator(".agent-error").innerText(),
+        /Microphone access was denied|Voice is unavailable/,
+      );
+      assert.equal(voiceSessionRequests, 0);
+      await assistant
+        .getByRole("button", { name: "Close assistant", exact: true })
+        .click();
+      await directPage.waitForFunction(
+        () =>
+          parseFloat(
+            document.querySelector<HTMLIFrameElement>(
+              "iframe[title='Business voice and chat assistant']",
+            )!.style.height,
+          ) <= 76,
+      );
+      await directPage.evaluate(() =>
+        window.postMessage(
+          { type: "everonn-assistant-size", open: true },
+          window.location.origin,
+        ),
+      );
+      assert.ok(
+        (await directPage
+          .locator("iframe[title='Business voice and chat assistant']")
+          .boundingBox())!.height <= 76,
+      );
+      await directPage.setViewportSize({ width: 390, height: 844 });
+      await assistant
+        .getByRole("button", { name: "Chat with us", exact: true })
+        .click();
+      await assistant.locator('.agent-panel[data-status="fallback"]').waitFor();
+      assert.ok(
+        (await directPage
+          .locator("iframe[title='Business voice and chat assistant']")
+          .boundingBox())!.width <= 366,
+      );
+      await assistant
+        .getByRole("button", { name: "Close assistant", exact: true })
+        .click();
       assert.equal(
         (
           await directPage.goto(`${base}/service/northline-heating/4`)
@@ -244,7 +368,10 @@ async function main() {
     await page
       .getByRole("button", { name: "Mobile preview", exact: true })
       .click();
-    assert.ok((await page.locator("iframe").boundingBox())!.width <= 390);
+    assert.ok(
+      (await page.locator("iframe[title$='website preview']").boundingBox())!
+        .width <= 390,
+    );
     const downloadPromise = page.waitForEvent("download");
     await page
       .getByRole("button", { name: "Download HTML", exact: true })
@@ -300,7 +427,7 @@ async function main() {
       "A community heating and cooling company with thoughtful service for homeowners.",
     );
     await page.getByRole("tab", { name: /Your designs/ }).click();
-    await page.locator("iframe").waitFor();
+    await page.locator("iframe[title$='website preview']").waitFor();
     await mkdir("artifacts", { recursive: true });
     await page.screenshot({
       path: "artifacts/designs-desktop.png",

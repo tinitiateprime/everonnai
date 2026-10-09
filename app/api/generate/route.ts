@@ -26,7 +26,11 @@ export async function POST(request: Request) {
       data.model,
     );
     return jsonResponse({
-      artifact: await saveGeneratedSite(data.knowledge, artifact),
+      artifact: await saveGeneratedSite(
+        data.knowledge,
+        artifact,
+        data.discovery,
+      ),
     });
   } catch (error) {
     return jsonResponse({ error: errorMessage(error) }, 400);

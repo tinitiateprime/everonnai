@@ -24,7 +24,7 @@ const artifact = (index: number): Artifact => ({
   createdAt: new Date().toISOString(),
   warnings: [],
 });
-test("business names become safe readable paths and unnamed businesses remain optional", () => {
+test("business names become safe readable paths and legacy unnamed slugs remain readable", () => {
   assert.equal(
     businessSlug("Northline Heating & Air", ""),
     "northline-heating-air",

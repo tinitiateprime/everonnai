@@ -5,13 +5,23 @@ import {
   type Artifact,
   type Discovery,
   type Knowledge,
+  type PhotoAsset,
 } from "./types";
 import { completion, getModels, ProviderError } from "./openrouter";
 import { planPrompt, websitePrompt } from "./prompts";
 import { validateWebsite } from "./validation";
 import { inspectWebsite } from "./visual-check";
+import { prepareMedia } from "./pexels";
 
-const planSchema = z.object({ directions: z.array(directionSchema).length(3) });
+const planSchema = z.object({
+  directions: z
+    .array(
+      directionSchema.extend({
+        imageQueries: z.array(z.string().trim().min(3).max(160)).min(1).max(2),
+      }),
+    )
+    .length(3),
+});
 export async function makePlan(
   key: string,
   knowledge: Knowledge,
@@ -28,7 +38,7 @@ export async function makePlan(
       const result = await completion(
         key,
         model,
-        planPrompt(knowledge, discovery),
+        await planPrompt(knowledge, discovery),
         signal,
         z.toJSONSchema(planSchema),
       );
@@ -47,7 +57,10 @@ export async function makePlan(
         throw new Error(
           "Each design direction must have its own concept and composition.",
         );
-      return { ...data, model: result.model };
+      const media = await Promise.all(
+        data.directions.map((d) => prepareMedia(d.imageQueries, signal)),
+      );
+      return { ...data, model: result.model, media };
     } catch (error) {
       lastError = error;
       if (
@@ -68,6 +81,8 @@ export async function makeWebsite(
   previous: Artifact[],
   signal?: AbortSignal,
   selectedModel?: string,
+  photos: PhotoAsset[] = [],
+  refinement?: { artifact: Artifact; prompt: string },
 ): Promise<Artifact> {
   signal = signal
     ? AbortSignal.any([signal, AbortSignal.timeout(210000)])
@@ -86,7 +101,14 @@ export async function makeWebsite(
   ].slice(0, 3);
   let lastError: unknown;
   for (const model of candidates) {
-    const messages = websitePrompt(knowledge, discovery, direction, previous);
+    const messages = await websitePrompt(
+      knowledge,
+      discovery,
+      direction,
+      previous,
+      photos,
+      refinement,
+    );
     for (let repair = 0; repair < 2; repair++) {
       try {
         const result = await completion(key, model, messages, signal);
@@ -96,8 +118,17 @@ export async function makeWebsite(
             knowledge,
             previous.map((p) => p.html),
             discovery,
+            photos,
           );
-          const inspection = await inspectWebsite(validated.html, signal);
+          if (refinement && validated.html === refinement.artifact.html)
+            throw new Error(
+              "The requested change was not applied. Return an updated full document.",
+            );
+          const inspection = await inspectWebsite(
+            validated.html,
+            signal,
+            validated.photoCredits,
+          );
           if (inspection.errors.length)
             throw new Error(inspection.errors.join(" "));
           return {
@@ -110,6 +141,17 @@ export async function makeWebsite(
             usage: result.usage,
             warnings: [...validated.warnings, ...inspection.warnings],
             createdAt: new Date().toISOString(),
+            direction,
+            photos,
+            edits: refinement
+              ? [
+                  ...(refinement.artifact.edits ?? []).slice(-19),
+                  {
+                    prompt: refinement.prompt,
+                    createdAt: new Date().toISOString(),
+                  },
+                ]
+              : [],
           };
         } catch (error) {
           lastError = error;

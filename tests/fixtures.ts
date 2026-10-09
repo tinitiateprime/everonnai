@@ -4,6 +4,7 @@ export const brief: Knowledge = {
   description:
     "Northline provides residential heating and cooling installation, seasonal maintenance and urgent repairs. The team helps homeowners choose the right equipment, explains available options clearly and leaves each workspace clean. Services are available throughout the city. Comfort and thoughtful customer communication guide every visit.",
   businessName: "Northline",
+  businessType: "Residential heating and cooling",
   phone: "+1 212 555 0124",
   email: "hello@northline.example",
   services: [

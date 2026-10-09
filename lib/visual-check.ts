@@ -1,7 +1,11 @@
 import { chromium } from "playwright";
 import { safeResource } from "./network";
 
-export async function inspectWebsite(html: string, signal?: AbortSignal) {
+export async function inspectWebsite(
+  html: string,
+  signal?: AbortSignal,
+  photoCredits: { label: string; urls: string[] }[] = [],
+) {
   const errors: string[] = [],
     warnings: string[] = [];
   const browser = await chromium
@@ -76,6 +80,38 @@ export async function inspectWebsite(html: string, signal?: AbortSignal) {
       if (check.brokenImages)
         warnings.push(
           `Some source images did not load at ${width}px. Review the preview.`,
+        );
+      const hiddenCredits = await page.evaluate(
+        (credits) =>
+          credits
+            .filter(
+              (credit) =>
+                ![
+                  ...document.querySelectorAll<HTMLAnchorElement>("a[href]"),
+                ].some((link) => {
+                  const style = getComputedStyle(link);
+                  const box = link.getBoundingClientRect();
+                  const visible =
+                    box.width > 0 &&
+                    box.height > 0 &&
+                    style.visibility === "visible" &&
+                    parseFloat(style.opacity) > 0 &&
+                    parseFloat(style.fontSize) >= 10;
+                  return (
+                    visible &&
+                    credit.urls.includes(link.href) &&
+                    (link.textContent ?? "")
+                      .toLowerCase()
+                      .includes(credit.label.toLowerCase())
+                  );
+                }),
+            )
+            .map((credit) => credit.label),
+        photoCredits,
+      );
+      if (hiddenCredits.length)
+        errors.push(
+          `Make photo credits visible and readable at ${width}px: ${hiddenCredits.join(", ")}.`,
         );
     }
   } finally {

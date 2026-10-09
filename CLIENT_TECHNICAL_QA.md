@@ -2,7 +2,7 @@
 
 ## What does the customer fill in?
 
-One knowledge page. Only description is required. Business name/type, industry intelligence, website link, phone, email, location, service area, hours, service names/details and additional knowledge are optional. The app does not demand a complete profile before generating.
+One knowledge page. Business name, business type and description are required. Industry intelligence, website link, phone, email, location, service area, hours, service names/details and additional knowledge are optional. The app does not demand a complete profile before generating.
 
 ## What happens when an existing website link is entered?
 
@@ -14,7 +14,7 @@ It reads up to 40 successful same-origin HTML pages, bounded by time/resources. 
 
 ## Are the three websites hardcoded?
 
-No. AI creates three original design directions, then generates each full HTML document and its original CSS. There is no runtime skill document, template website, predefined theme or static fallback. Application CSS styles the studio controls only. Structural and viewport checks reject certain failures, but design quality still needs customer review.
+No. AI creates three original design directions, then generates each full HTML document and its original CSS. AI receives the runtime website-building SKILL.md, business knowledge, captured website evidence and approved photo assets. The skill defines design/quality rules without supplying a template website, predefined layout/theme or static fallback. Application CSS styles the studio controls only. Structural and viewport checks reject certain failures, but design quality still needs customer review.
 
 ## Which AI provider/models are used?
 
@@ -26,7 +26,7 @@ The administrator sets `OPENROUTER_API_KEY` in the ignored `.env.local` file or 
 
 ## How do voice and chat get the website knowledge?
 
-Generation saves the exact business/evidence packet beside each website artifact. Voice/chat load that snapshot from the server using business name slug, version and artifact revision. Both receive the same description, optional details/services and extracted website evidence. The current website and its assistant update together on regeneration; changing the unsaved studio form does not change an existing site's answers.
+Generation saves the exact business/evidence packet beside each website artifact. Voice/chat load that snapshot from the server using business name slug, version and artifact revision. Both receive the same business name/type/description, optional details/services and extracted website evidence. The current website and its assistant update together on regeneration; changing the unsaved studio form does not change an existing site's answers.
 
 ## Is this the same agent connection as the main project?
 
@@ -46,7 +46,7 @@ Each accepted design saves separately on the server and in the customer's browse
 
 ## What URLs do the generated websites use?
 
-`/service/{business-slug}/1`, `/2`, and `/3`. For example, Northline Heating becomes `/service/northline-heating/1`. Names are normalized for URL paths; a missing name uses a description-hash slug, so business name remains optional. The links use whichever host/port runs the app. Open website appears beside Download HTML. Each route opens the original generated HTML as a full standalone website. Regenerating a version updates that same URL. Older browser-only designs receive URLs when regenerated.
+`/service/{business-slug}/1`, `/2`, and `/3`. For example, Northline Heating becomes `/service/northline-heating/1`. Required business names are normalized for URL paths. Older unnamed website slugs remain readable. The links use whichever host/port runs the app. Open website appears beside Download HTML. Each route opens the original generated HTML as a full standalone website. Regenerating or refining a version updates that same URL. Older browser-only designs receive URLs when regenerated.
 
 ## Can the link be refreshed or opened in another browser?
 
@@ -54,14 +54,26 @@ Yes, once that version has been generated and saved. The Node server reads its s
 
 ## Do the websites have multiple pages, lead forms or bookings?
 
-They are complete responsive single-document websites with section navigation and real contact links when supported by evidence. They do not implement booking, payments, form submission or publishing backends. Those require separate integration. Source images and fonts may remain external; downloading HTML does not download every external asset.
+They are complete responsive single-document websites with section navigation and real contact links when supported by evidence. They do not implement booking, payments, form submission or publishing backends. Those require separate integration. Source/Pexels images and fonts may remain external; downloading HTML does not download every external asset.
 
 ## What has been tested?
 
-Unit checks cover required/optional fields, URL/address safety, contact/design extraction, sitemap/robots behavior, free models, artifact checks, provider repair, generated-site paths, atomic storage, independent version updates, corrupt-file handling and API-to-storage integration. Browser checks cover the client workflow, previews, downloads, persistence, key exclusion and mobile layout using mocked AI responses. The self-started server also checks all three real website URLs, refresh, another browser context, document isolation, 404 behavior and API errors. Live public-site discovery can be tested without a key. Live AI generation and visual-quality confirmation require a configured server key; mocked responses are not real model output.
+Unit checks cover the three required fields, partial drafts, Pexels caching/provider IDs/credits, prompt refinement, stale-edit conflict recovery, unchanged assistant knowledge, required/optional fields, URL/address safety, contact/design extraction, sitemap/robots behavior, free models, artifact checks, provider repair, generated-site paths, atomic storage, independent version updates, corrupt-file handling and API-to-storage integration. Browser checks cover required fields, failed/successful edits, stable edited URLs, history persistence, the client workflow, previews, downloads, persistence, key exclusion and mobile layout using mocked AI responses. The self-started server also checks all three real website URLs, refresh, another browser context, document isolation, 404 behavior and API errors. Live public-site discovery can be tested without a key. Live AI generation and visual-quality confirmation require a configured server key; mocked responses are not real model output.
 
 ## Does this change the original EverOnn project?
 
 This branch replaces the old application with an independent studio. Work was carried out in a separate checkout. The original working project, its uncommitted changes, integrations and databases are not migrated into this branch. Pushing this Git branch does not deploy or alter the original live app.
 
 On 2026-10-09, the explicit live assistant probe verified ElevenLabs text answers against fictional bicycle-business facts, a WebRTC voice connection with synthetic microphone input and functioning mute/end controls, and a Gemini text answer from the same saved knowledge. This does not verify a real user's microphone/speaker quality or live OpenRouter website design quality.
+
+## How do photos get onto the website?
+
+The administrator sets server-only PEXELS_API_KEY. AI writes generic image-search phrases from the business brief; the server gets real photos and photographer credits from Pexels. The website AI receives those exact verified assets and decides which to use and how to compose/crop them. Images must match supplied assets; used stock photographs require visible Pexels and photographer credits. Missing keys, no matches or provider failure are reported, while source images or original graphics can support the design. Stock imagery is illustrative and must not be presented as the actual company team or completed work. The photo key stays out of browser state, bundles and Git.
+
+## How can the customer request design changes?
+
+Select a version, type into Describe your changes, then choose Apply changes. For example: make the headline larger, use warmer colors and give the services section more breathing room. AI receives the saved website, its original knowledge and photos, the active SKILL.md and accepted edits. The validated result updates that version at its existing URL; the other two versions are kept. Its assistant still answers from the original business knowledge. Unknown/new business facts must be added to Business knowledge followed by regeneration. Failed edits keep the accepted website and typed prompt; stale versions load the latest saved design while retaining the typed prompt for review/retry. The last 20 accepted requests and unfinished prompts are saved. Regeneration starts fresh history. Older generated sites need one regeneration to enable editing.
+
+## Was real Pexels and real website AI tested?
+
+On 2026-10-09, a live Pexels search returned four photographs and a returned image URL loaded successfully. Unit/provider/browser checks verify required fields, verified images/credits, selected-version prompt editing, failed edits, stable URLs, history/prompt persistence, unchanged assistant facts, stale-write rejection and loading the latest design after a conflict. OpenRouter responses are mocked in these checks; the local OPENROUTER_API_KEY is currently empty, so real generated design quality and real AI edits remain unverified. An explicit verify:website:live command can test them once the environment key is configured.

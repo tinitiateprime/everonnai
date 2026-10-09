@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { knowledgeSchema, emptyKnowledge } from "../lib/types";
+import {
+  knowledgeSchema,
+  knowledgeDraftSchema,
+  emptyKnowledge,
+} from "../lib/types";
 import { isPublicIp, parsePublicUrl, safeResource } from "../lib/network";
 import { extractPage } from "../lib/extract";
 import { discoverWebsite, crawlable } from "../lib/crawler";
@@ -9,14 +13,31 @@ import { validateWebsite, PREVIEW_CSP } from "../lib/validation";
 import { knowledgePacket } from "../lib/prompts";
 import { brief, website, model } from "./fixtures";
 
-test("only description is required, including empty service rows", () => {
+test("name, type and description are required; other details and service rows remain optional", () => {
+  const minimal = {
+    businessName: "Local Bakery",
+    businessType: "Bakery",
+    description: "A community bakery.",
+  };
+  assert.equal(knowledgeSchema.parse(minimal).phone, "");
+  for (const field of ["businessName", "businessType", "description"])
+    assert.equal(
+      knowledgeSchema.safeParse({ ...minimal, [field]: " " }).success,
+      false,
+    );
   assert.equal(
-    knowledgeSchema.parse({ description: "A community bakery." }).businessName,
-    "",
+    knowledgeDraftSchema.safeParse({
+      ...emptyKnowledge,
+      description: "An incomplete draft.",
+      email: "unfinished@",
+    }).success,
+    true,
   );
   assert.equal(
     knowledgeSchema.parse({
       ...emptyKnowledge,
+      businessName: "Bakery",
+      businessType: "Bakery",
       description: "Bakery",
       services: [{ name: "", description: "" }],
     }).services.length,

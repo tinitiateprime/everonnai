@@ -55,4 +55,15 @@ export const generationInput = planInput.extend({
   index: z.number().int().min(0).max(2),
   previous: z.array(artifactSchema).max(2).default([]),
   model: z.string().max(200).optional(),
+  photoIds: z
+    .array(z.number().int().positive().max(Number.MAX_SAFE_INTEGER))
+    .max(8)
+    .default([]),
+});
+export const refinementInput = z.object({
+  business: z.string().min(1).max(100),
+  version: z.enum(["1", "2", "3"]),
+  revision: z.string().min(1).max(100),
+  prompt: z.string().trim().min(3, "Describe the change you want.").max(6000),
+  model: z.string().max(200).optional(),
 });

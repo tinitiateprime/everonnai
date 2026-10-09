@@ -28,6 +28,7 @@ import {
 import {
   emptyKnowledge,
   knowledgeSchema,
+  knowledgeDraftSchema,
   type Artifact,
   type DesignPlan,
   type Discovery,
@@ -37,6 +38,14 @@ import { readDraft, saveDraft } from "@/lib/browser-store";
 import { AssistantEmbed } from "./assistant-embed";
 
 type ModelOption = { id: string; name: string; context: number };
+class StudioRequestError extends Error {
+  constructor(
+    message: string,
+    public latestArtifact?: Artifact,
+  ) {
+    super(message);
+  }
+}
 type DiscoveryEvent = { type: string; message?: string; discovery?: Discovery };
 const normalizeUrl = (url: string) => {
   try {
@@ -81,6 +90,9 @@ export function Studio() {
   const [skipWebsite, setSkipWebsite] = useState(false);
   const [selected, setSelected] = useState(0);
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
+  const [changePrompts, setChangePrompts] = useState<Record<number, string>>(
+    {},
+  );
   const buildController = useRef<AbortController | null>(null);
   const crawlController = useRef<AbortController | null>(null);
   const crawlPromise = useRef<{
@@ -97,13 +109,23 @@ export function Studio() {
       .then((draft) => {
         if (!mounted) return;
         if (draft?.version === 1) {
-          const parsed = knowledgeSchema.safeParse(draft.knowledge);
-          if (parsed.success || !draft.knowledge.description) {
-            setKnowledge({ ...emptyKnowledge, ...draft.knowledge });
+          const parsed = knowledgeDraftSchema.safeParse(draft.knowledge);
+          if (parsed.success) {
+            setKnowledge(parsed.data);
             setDiscovery(draft.discovery);
             setArtifacts(draft.artifacts ?? []);
             setPlan(draft.plan);
             setGeneratedFrom(draft.generatedFrom ?? "");
+            setChangePrompts(
+              Object.fromEntries(
+                [0, 1, 2].flatMap((index) => {
+                  const value = draft.changePrompts?.[index];
+                  return typeof value === "string"
+                    ? [[index, value.slice(0, 6000)]]
+                    : [];
+                }),
+              ),
+            );
           }
         }
       })
@@ -147,6 +169,7 @@ export function Studio() {
         artifacts,
         plan,
         generatedFrom,
+        changePrompts,
       })
         .then(() => setSaving("Saved on this device"))
         .catch(() =>
@@ -154,7 +177,15 @@ export function Studio() {
         );
     }, 450);
     return () => clearTimeout(timer);
-  }, [ready, knowledge, discovery, artifacts, plan, generatedFrom]);
+  }, [
+    ready,
+    knowledge,
+    discovery,
+    artifacts,
+    plan,
+    generatedFrom,
+    changePrompts,
+  ]);
 
   const discover = useCallback(
     async (url: string, force = false): Promise<Discovery> => {
@@ -268,7 +299,10 @@ export function Studio() {
     });
     const data = await response.json();
     if (!response.ok || data.error)
-      throw new Error(data.error ?? "Request failed.");
+      throw new StudioRequestError(
+        data.error ?? "Request failed.",
+        response.status === 409 ? data.latestArtifact : undefined,
+      );
     return data;
   }
 
@@ -355,6 +389,8 @@ export function Studio() {
               direction: currentPlan.directions[index],
               index,
               previous: accepted.filter((a) => a.index !== index).slice(0, 2),
+              photoIds:
+                currentPlan.media?.[index]?.photos.map((p) => p.id) ?? [],
               ...(modelChoices[index] ? { model: modelChoices[index] } : {}),
             },
             controller.signal,
@@ -398,6 +434,77 @@ export function Studio() {
       buildController.current = null;
     }
   }
+  async function refine(event: FormEvent) {
+    event.preventDefault();
+    if (busy || !current?.path) return;
+    setError("");
+    if (!serverConfigured) {
+      setError("Configure website generation before applying changes.");
+      return;
+    }
+    if (tokenRequired && !accessToken) {
+      setSettings(true);
+      setError("Enter the studio access token to apply changes.");
+      return;
+    }
+    const prompt = (changePrompts[selected] ?? "").trim();
+    if (prompt.length < 3) {
+      setError("Describe the change you want.");
+      return;
+    }
+    const parts = current.path.split("/");
+    const targetIndex = current.index;
+    const controller = new AbortController();
+    buildController.current = controller;
+    setBusy(true);
+    setStatus(`Applying changes to version ${targetIndex + 1}…`);
+    try {
+      const result = await post<{ artifact: Artifact }>(
+        "/api/refine",
+        {
+          business: decodeURIComponent(parts[2]),
+          version: parts[3],
+          revision: current.id,
+          prompt,
+          ...(modelChoices[targetIndex]
+            ? { model: modelChoices[targetIndex] }
+            : {}),
+        },
+        controller.signal,
+      );
+      setArtifacts((old) =>
+        old.map((a) => (a.index === targetIndex ? result.artifact : a)),
+      );
+      setChangePrompts((old) => ({ ...old, [targetIndex]: "" }));
+      setStatus(
+        `Changes applied to version ${targetIndex + 1}. Your website link is updated.`,
+      );
+    } catch (error) {
+      if (controller.signal.aborted)
+        setStatus(
+          "Editing stopped. Your last accepted design is still available.",
+        );
+      else {
+        setError(
+          error instanceof Error ? error.message : "Could not apply changes.",
+        );
+        if (
+          error instanceof StudioRequestError &&
+          error.latestArtifact?.index === targetIndex &&
+          error.latestArtifact.path === current.path
+        ) {
+          const latest = error.latestArtifact;
+          setArtifacts((old) =>
+            old.map((a) => (a.index === targetIndex ? latest : a)),
+          );
+        }
+        setStatus("");
+      }
+    } finally {
+      setBusy(false);
+      buildController.current = null;
+    }
+  }
   const update = (key: keyof Knowledge, value: string) => {
     setKnowledge((old) => ({ ...old, [key]: value }));
     if (key === "websiteUrl") {
@@ -410,15 +517,25 @@ export function Studio() {
     key: keyof Knowledge,
     label: string,
     placeholder: string,
-    options: { wide?: boolean; type?: string; rows?: number } = {},
+    options: {
+      wide?: boolean;
+      type?: string;
+      rows?: number;
+      required?: boolean;
+    } = {},
   ) => (
     <label className={`field ${options.wide ? "wide" : ""}`}>
       <span>
         {label}
-        <small>Optional</small>
+        {options.required ? (
+          <b className="required-badge">Required</b>
+        ) : (
+          <small>Optional</small>
+        )}
       </span>
       {options.rows ? (
         <textarea
+          required={options.required}
           rows={options.rows}
           value={String(knowledge[key])}
           placeholder={placeholder}
@@ -426,6 +543,8 @@ export function Studio() {
         />
       ) : (
         <input
+          required={options.required}
+          maxLength={3000}
           type={options.type ?? "text"}
           value={String(knowledge[key])}
           placeholder={placeholder}
@@ -616,10 +735,11 @@ export function Studio() {
                   <div>
                     <h2>The essentials</h2>
                     <p>
-                      Start with a description. Add as much detail as you like.
+                      Add your business name, type and description. Other
+                      details are optional.
                     </p>
                   </div>
-                  <span className="required-note">One required field</span>
+                  <span className="required-note">Three required fields</span>
                 </div>
                 <fieldset disabled={busy || !ready}>
                   <div className="form-grid">
@@ -627,11 +747,13 @@ export function Studio() {
                       "businessName",
                       "Business name",
                       "e.g. Northline Heating & Air",
+                      { required: true },
                     )}
                     {field(
                       "businessType",
                       "Business type",
                       "e.g. Residential & commercial HVAC",
+                      { required: true },
                     )}
                     {field(
                       "industry",
@@ -1180,6 +1302,11 @@ export function Studio() {
                   );
                 })}
               </div>
+              {plan?.media?.[selected]?.warnings.map((warning) => (
+                <div className="notice" key={warning}>
+                  {warning}
+                </div>
+              ))}
               <div className="preview-shell">
                 <div className="preview-toolbar">
                   <div className="window-dots" aria-hidden="true">
@@ -1286,6 +1413,70 @@ export function Studio() {
                   )}
                 </div>
               </div>
+              {current && (
+                <form
+                  className="panel change-panel"
+                  onSubmit={(event) => void refine(event)}
+                >
+                  <div className="panel-title">
+                    <h2>Refine version {selected + 1}</h2>
+                    <span className="help-text">
+                      Changes apply to this version
+                    </span>
+                  </div>
+                  <label className="field">
+                    <span>Describe your changes</span>
+                    <textarea
+                      rows={3}
+                      maxLength={6000}
+                      disabled={busy}
+                      value={changePrompts[selected] ?? ""}
+                      onChange={(event) =>
+                        setChangePrompts((old) => ({
+                          ...old,
+                          [selected]: event.target.value,
+                        }))
+                      }
+                      placeholder="e.g. Make the hero more striking, use warmer colors, and give the services section more space."
+                    />
+                  </label>
+                  <div className="change-actions">
+                    <p className="help-text">
+                      AI uses this site's saved knowledge. To change business
+                      facts, update Business knowledge and regenerate.
+                    </p>
+                    <button
+                      className="primary-button"
+                      type="submit"
+                      disabled={
+                        busy ||
+                        !current.path ||
+                        (changePrompts[selected] ?? "").trim().length < 3
+                      }
+                    >
+                      <Sparkles size={15} />
+                      Apply changes
+                    </button>
+                  </div>
+                  {!!current.edits?.length && (
+                    <details className="change-history">
+                      <summary>
+                        Accepted changes ({current.edits.length})
+                      </summary>
+                      <ol>
+                        {current.edits.map((edit, i) => (
+                          <li key={`${edit.createdAt}-${i}`}>
+                            <p>{edit.prompt}</p>
+                            <time dateTime={edit.createdAt}>
+                              {new Date(edit.createdAt).toLocaleString()}
+                            </time>
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
+                  )}
+                </form>
+              )}
               {current && (
                 <div className="design-detail">
                   <div>

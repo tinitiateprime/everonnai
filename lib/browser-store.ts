@@ -5,6 +5,7 @@ export type Draft = {
   artifacts: Artifact[];
   plan: DesignPlan | null;
   generatedFrom: string;
+  changePrompts?: Record<number, string>;
   version: 1;
 };
 function database(): Promise<IDBDatabase> {

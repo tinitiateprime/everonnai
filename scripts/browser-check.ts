@@ -7,8 +7,8 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { website } from "../tests/fixtures";
 import { extractPage } from "../lib/extract";
-import type { Discovery } from "../lib/types";
-import { saveGeneratedSite } from "../lib/site-store";
+import type { Discovery, Artifact } from "../lib/types";
+import { saveGeneratedSite, readGeneratedSiteRecord } from "../lib/site-store";
 
 const base = process.env.STUDIO_TEST_URL ?? "http://localhost:3047";
 const testDirectory = process.env.STUDIO_TEST_URL
@@ -139,14 +139,14 @@ async function main() {
         warnings: [],
       };
       const saved = testDirectory
-        ? await saveGeneratedSite(body.knowledge, artifact)
+        ? await saveGeneratedSite(body.knowledge, artifact, body.discovery)
         : { ...artifact, path: `/service/northline-heating/${body.index + 1}` };
       await route.fulfill({ json: { artifact: saved } });
     });
     await page.goto(base);
     await page.getByText("Saved on this device", { exact: true }).waitFor();
     const required = await page.locator("[required]").count();
-    assert.equal(required, 1);
+    assert.equal(required, 3);
     await page
       .locator("textarea[required]")
       .fill(
@@ -155,6 +155,9 @@ async function main() {
     await page
       .getByRole("textbox", { name: "Business name" })
       .fill("Northline Heating");
+    await page
+      .getByRole("textbox", { name: "Business type" })
+      .fill("Heating and cooling services");
     await page
       .getByRole("button", { name: "Add a service", exact: true })
       .click();
@@ -378,6 +381,206 @@ async function main() {
       .click();
     const downloaded = await downloadPromise;
     assert.equal(downloaded.suggestedFilename(), "mechanical-precision.html");
+    const editCalls: unknown[] = [];
+    let rejectEdit = true;
+    let conflictArtifact: Artifact | null = null;
+    await page.route("**/api/refine", async (route) => {
+      const body = route.request().postDataJSON();
+      editCalls.push(body);
+      assert.equal(body.business, "northline-heating");
+      assert.equal(body.version, "2");
+      assert.equal(body.knowledge, undefined);
+      assert.equal(body.html, undefined);
+      assert.equal(route.request().headers()["x-openrouter-key"], undefined);
+      if (rejectEdit) {
+        rejectEdit = false;
+        await route.fulfill({
+          status: 400,
+          json: {
+            error: "Edit provider unavailable. Your saved site is preserved.",
+          },
+        });
+        return;
+      }
+      const record = testDirectory
+        ? await readGeneratedSiteRecord(body.business, body.version)
+        : null;
+      if (conflictArtifact) {
+        const latest = record?.generationContext
+          ? await saveGeneratedSite(
+              record.generationContext.knowledge,
+              conflictArtifact,
+              record.generationContext.discovery,
+            )
+          : conflictArtifact;
+        conflictArtifact = null;
+        await route.fulfill({
+          status: 409,
+          json: {
+            error:
+              "This version changed. The latest saved design is now loaded; review it and apply your prompt again.",
+            latestArtifact: latest,
+          },
+        });
+        return;
+      }
+      const updated = {
+        ...(record?.artifact ?? {
+          index: 1,
+          name: directions[1].name,
+          model: "test/coder:free",
+          rationale: directions[1].concept,
+          warnings: [],
+          createdAt: new Date().toISOString(),
+        }),
+        id: "browser-edited-version-2",
+        html: website().replace("comfort at home", "A warmer welcome"),
+        edits: [{ prompt: body.prompt, createdAt: new Date().toISOString() }],
+      };
+      const saved = record?.generationContext
+        ? await saveGeneratedSite(
+            record.generationContext.knowledge,
+            updated,
+            record.generationContext.discovery,
+            body.revision,
+          )
+        : { ...updated, path: "/service/northline-heating/2" };
+      await route.fulfill({ json: { artifact: saved } });
+    });
+    const beforeEdit = await page
+      .locator("iframe[title$='website preview']")
+      .getAttribute("srcdoc");
+    await page
+      .getByRole("textbox", { name: "Describe your changes" })
+      .fill("Make the welcome warmer and more inviting.");
+    await pause(650);
+    await page.reload();
+    await page.getByText("Saved on this device", { exact: true }).waitFor();
+    await page.getByRole("tab", { name: /Your designs/ }).click();
+    await page.getByRole("button", { name: /Mechanical precision/ }).click();
+    assert.equal(
+      await page
+        .getByRole("textbox", { name: "Describe your changes" })
+        .inputValue(),
+      "Make the welcome warmer and more inviting.",
+    );
+    await page
+      .getByRole("button", { name: "Apply changes", exact: true })
+      .click();
+    await page
+      .getByText("Edit provider unavailable. Your saved site is preserved.", {
+        exact: true,
+      })
+      .waitFor();
+    assert.equal(
+      await page
+        .locator("iframe[title$='website preview']")
+        .getAttribute("srcdoc"),
+      beforeEdit,
+    );
+    await page
+      .getByRole("button", { name: "Apply changes", exact: true })
+      .click();
+    await page
+      .getByText(
+        "Changes applied to version 2. Your website link is updated.",
+        { exact: true },
+      )
+      .waitFor();
+    assert.equal(editCalls.length, 2);
+    assert.ok(
+      (
+        await page
+          .locator("iframe[title$='website preview']")
+          .getAttribute("srcdoc")
+      )?.includes("A warmer welcome"),
+    );
+    assert.equal(
+      await page
+        .getByRole("textbox", { name: "Describe your changes" })
+        .inputValue(),
+      "",
+    );
+    assert.equal(
+      await page
+        .getByRole("link", { name: "Open website", exact: true })
+        .getAttribute("href"),
+      "/service/northline-heating/2",
+    );
+    if (testDirectory) {
+      assert.equal(
+        (await readGeneratedSiteRecord("northline-heating", "2"))?.artifact.id,
+        "browser-edited-version-2",
+      );
+      assert.notEqual(
+        (await readGeneratedSiteRecord("northline-heating", "1"))?.artifact.id,
+        "browser-edited-version-2",
+      );
+      assert.notEqual(
+        (await readGeneratedSiteRecord("northline-heating", "3"))?.artifact.id,
+        "browser-edited-version-2",
+      );
+    }
+    await pause(600);
+    await page.reload();
+    await page.getByText("Saved on this device", { exact: true }).waitFor();
+    await page.getByRole("tab", { name: /Your designs/ }).click();
+    await page.getByRole("button", { name: /Mechanical precision/ }).click();
+    await page.getByText("Accepted changes (1)", { exact: true }).waitFor();
+    assert.ok(
+      (
+        await page
+          .locator("iframe[title$='website preview']")
+          .getAttribute("srcdoc")
+      )?.includes("A warmer welcome"),
+    );
+    const storedForConflict = testDirectory
+      ? await readGeneratedSiteRecord("northline-heating", "2")
+      : null;
+    conflictArtifact = {
+      ...(storedForConflict?.artifact ?? {
+        index: 1,
+        name: directions[1].name,
+        model: "test/coder:free",
+        rationale: directions[1].concept,
+        warnings: [],
+        createdAt: new Date().toISOString(),
+      }),
+      id: "newer-version-from-another-browser",
+      path: "/service/northline-heating/2",
+      html: website().replace("comfort at home", "The latest saved welcome"),
+    };
+    await page
+      .getByRole("textbox", { name: "Describe your changes" })
+      .fill("Make the heading clearer.");
+    await page
+      .getByRole("button", { name: "Apply changes", exact: true })
+      .click();
+    await page
+      .getByText(
+        "This version changed. The latest saved design is now loaded; review it and apply your prompt again.",
+        { exact: true },
+      )
+      .waitFor();
+    assert.ok(
+      (
+        await page
+          .locator("iframe[title$='website preview']")
+          .getAttribute("srcdoc")
+      )?.includes("The latest saved welcome"),
+    );
+    assert.equal(
+      await page
+        .getByRole("textbox", { name: "Describe your changes" })
+        .inputValue(),
+      "Make the heading clearer.",
+    );
+    assert.equal(
+      await page
+        .getByRole("link", { name: "Open website", exact: true })
+        .getAttribute("href"),
+      "/service/northline-heating/2",
+    );
     // A new set makes a new plan; completed siblings survive a failed version.
     failSecondVersion = true;
     await page
@@ -473,7 +676,7 @@ async function main() {
     assert.equal(routeChecks.status, 400);
     assert.deepEqual(errors, []);
     console.log(
-      "Browser checks passed: business/1-3 website URLs, direct refresh and independent browser access, isolated generated documents, environment-only credentials, optional form, discovery, three variants, partial failure/retry, preview switching, downloads, device save, mobile layout and API errors. AI responses were mocked.",
+      "Browser checks passed: required business fields, selected-version prompt edits, failed edits, conflict recovery, prompt/history persistence, stable business/1-3 URLs, isolated documents, credential exclusion, discovery, three variants, retry, previews, downloads, mobile layout and API errors. AI responses were mocked.",
     );
   } finally {
     await browser.close();

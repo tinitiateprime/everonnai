@@ -1,7 +1,7 @@
 import { load } from "cheerio";
 import * as csstree from "css-tree";
 import { parsePublicUrl } from "./network";
-import type { Discovery, Knowledge } from "./types";
+import type { Discovery, Knowledge, PhotoAsset } from "./types";
 
 export const PREVIEW_CSP =
   "default-src 'none'; script-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src https: data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
@@ -12,6 +12,7 @@ export function validateWebsite(
   knowledge: Knowledge,
   previousHtml: string[] = [],
   discovery: Discovery | null = null,
+  photos: PhotoAsset[] = [],
 ) {
   const html = raw
     .trim()
@@ -62,12 +63,74 @@ export function validateWebsite(
   }
   if (/expression\s*\(|behavior\s*:|-moz-binding/i.test(allCss))
     throw new Error("Unsafe CSS is not allowed.");
+  const approvedImages = new Set([
+    ...(discovery?.pages.flatMap((p) =>
+      p.images.slice(0, 12).map((i) => i.url),
+    ) ?? []),
+    ...photos.map((p) => p.url),
+  ]);
+  const usedImages = new Set<string>();
+  function checkImage(url: string) {
+    if (
+      /^data:image\/(png|jpeg|webp|gif);base64,/.test(url) ||
+      url.startsWith("#")
+    )
+      return;
+    if (!approvedImages.has(url))
+      throw new Error(
+        "Use only the exact supplied source or approved Pexels image URLs.",
+      );
+    usedImages.add(url);
+  }
   for (const match of allCss.matchAll(/url\(\s*["']?([^)'"\s]+)["']?\s*\)/gi)) {
     if (match[1].startsWith("data:image/") || match[1].startsWith("#"))
       continue;
     const url = parsePublicUrl(match[1]);
     if (url.protocol !== "https:") throw new Error("Use HTTPS asset URLs.");
+    if (!["fonts.gstatic.com", "fonts.googleapis.com"].includes(url.hostname))
+      checkImage(match[1]);
   }
+  $("img[src],image[href],image[xlink\\:href],[poster]").each((_, el) => {
+    checkImage(
+      $(el).attr("src") ??
+        $(el).attr("href") ??
+        $(el).attr("xlink:href") ??
+        $(el).attr("poster") ??
+        "",
+    );
+  });
+  const usedPhotos = photos.filter((p) => usedImages.has(p.url));
+  function creditExists(urls: string[], label: string) {
+    return $("body a[href]")
+      .toArray()
+      .some(
+        (el) =>
+          urls.includes($(el).attr("href") ?? "") &&
+          normalized($(el).text()).includes(normalized(label)) &&
+          !$(el).is("[hidden],[aria-hidden='true']") &&
+          !$(el).parents("[hidden],[aria-hidden='true']").length,
+      );
+  }
+  if (
+    usedPhotos.length &&
+    !creditExists(
+      ["https://www.pexels.com", "https://www.pexels.com/"],
+      "Pexels",
+    )
+  )
+    throw new Error(
+      "Add a visible Pexels credit linked to https://www.pexels.com/.",
+    );
+  for (const photo of usedPhotos)
+    if (
+      !creditExists(
+        [photo.sourceUrl, photo.photographerUrl],
+        photo.photographer,
+      )
+    )
+      throw new Error(
+        `Credit photographer ${photo.photographer} with the supplied Pexels photo or photographer link.`,
+      );
   const ids = new Set(
     $("[id]")
       .map((_, el) => $(el).attr("id")!)
@@ -215,6 +278,18 @@ export function validateWebsite(
   );
   return {
     html: $.html(),
+    photoCredits: usedPhotos.length
+      ? [
+          {
+            label: "Pexels",
+            urls: ["https://www.pexels.com", "https://www.pexels.com/"],
+          },
+          ...usedPhotos.map((photo) => ({
+            label: photo.photographer,
+            urls: [photo.sourceUrl, photo.photographerUrl],
+          })),
+        ]
+      : [],
     warnings: $("img:not([alt])").length
       ? ["Some images are missing alternative text."]
       : [],

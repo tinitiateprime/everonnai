@@ -7,8 +7,8 @@ export const knowledgeSchema = z.object({
     .trim()
     .min(1, "Add a business description.")
     .max(20000),
-  businessName: optionalText,
-  businessType: optionalText,
+  businessName: z.string().trim().min(1, "Add a business name.").max(3000),
+  businessType: z.string().trim().min(1, "Add a business type.").max(3000),
   industry: optionalText,
   websiteUrl: z.string().trim().max(2048).default(""),
   phone: optionalText,
@@ -21,6 +21,13 @@ export const knowledgeSchema = z.object({
     .array(z.object({ name: optionalText, description: optionalText }))
     .max(50)
     .default([]),
+});
+// Incomplete drafts remain editable; only submitted generation knowledge must be complete.
+export const knowledgeDraftSchema = knowledgeSchema.extend({
+  description: z.string().max(20000).default(""),
+  businessName: optionalText,
+  businessType: optionalText,
+  email: z.string().max(320).default(""),
 });
 export type Knowledge = z.infer<typeof knowledgeSchema>;
 export const emptyKnowledge: Knowledge = {
@@ -72,9 +79,25 @@ export const directionSchema = z.object({
   palette: z.array(z.string().max(100)).min(3).max(8),
   typography: z.string().min(1).max(500),
   composition: z.string().min(10).max(2000),
+  imageQueries: z.array(z.string().trim().min(3).max(160)).max(2).default([]),
 });
 export type Direction = z.infer<typeof directionSchema>;
-export type DesignPlan = { directions: Direction[]; model: string };
+export type PhotoAsset = {
+  id: number;
+  url: string;
+  alt: string;
+  width: number;
+  height: number;
+  photographer: string;
+  photographerUrl: string;
+  sourceUrl: string;
+};
+export type MediaBundle = { photos: PhotoAsset[]; warnings: string[] };
+export type DesignPlan = {
+  directions: Direction[];
+  model: string;
+  media?: MediaBundle[];
+};
 export type Artifact = {
   id: string;
   index: number;
@@ -85,6 +108,9 @@ export type Artifact = {
   model: string;
   createdAt: string;
   warnings: string[];
+  direction?: Direction;
+  photos?: PhotoAsset[];
+  edits?: { prompt: string; createdAt: string }[];
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;

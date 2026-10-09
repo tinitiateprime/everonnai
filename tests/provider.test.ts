@@ -21,6 +21,7 @@ const directions = [
   palette: ["#203d25", "#f6f8ed", "#aac286"],
   typography: "Purposeful display typography and readable body copy",
   composition: `${name} has a unique editorial arrangement emphasizing business services and real contact details.`,
+  imageQueries: ["heat pump equipment"],
 }));
 test("AI pipeline plans three variants, repairs rejected output, enforces free pricing and reports model usage", async () => {
   const original = globalThis.fetch;
@@ -68,7 +69,11 @@ test("AI pipeline plans three variants, repairs rejected output, enforces free p
       calls.every((c) => JSON.stringify(c.provider).includes('"prompt":0')),
     );
     assert.ok(JSON.stringify(calls[2]).includes("validation failure"));
-    assert.ok(!JSON.stringify(calls).includes("SKILL.md"));
+    assert.ok(
+      JSON.stringify(calls).includes("Website-building SKILL.md instructions"),
+    );
+    assert.ok(JSON.stringify(calls).includes("ownerKnowledge"));
+    assert.ok(JSON.stringify(calls).includes("No fixed theme"));
   } finally {
     globalThis.fetch = original;
   }

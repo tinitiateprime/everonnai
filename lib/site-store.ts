@@ -10,6 +10,17 @@ import {
 import path from "node:path";
 import type { Artifact, Discovery, Knowledge } from "./types";
 import { knowledgePacket } from "./prompts";
+import { knowledgeSchema } from "./types";
+import { discoverySchema } from "./input";
+
+export class SiteRevisionConflict extends Error {
+  constructor() {
+    super(
+      "This version has changed in another request. Reload your latest saved design before editing again.",
+    );
+  }
+}
+const writes = new Map<string, Promise<void>>();
 
 const validSlug = /^[\p{L}\p{N}][\p{L}\p{N}\p{M}-]{0,99}$/u;
 export function businessSlug(businessName: string, description: string) {
@@ -51,32 +62,54 @@ export async function saveGeneratedSite(
   knowledge: Knowledge,
   artifact: Artifact,
   discovery: Discovery | null = null,
+  expectedRevision?: string,
 ): Promise<Artifact> {
   const slug = businessSlug(knowledge.businessName, knowledge.description);
   const sitePath = websitePath(slug, artifact.index);
   const file = filePath(slug, String(artifact.index + 1))!;
   const saved = { ...artifact, path: sitePath };
   const temporary = `${file}.${randomUUID()}.tmp`;
+  const pending = writes.get(file) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = pending.then(() => gate);
+  writes.set(file, queued);
+  await pending;
   try {
+    if (
+      expectedRevision &&
+      (await readGeneratedSite(slug, String(artifact.index + 1)))?.id !==
+        expectedRevision
+    )
+      throw new SiteRevisionConflict();
     await mkdir(path.dirname(file), { recursive: true });
-    await writeFile(
-      temporary,
-      JSON.stringify({
-        version: 1,
-        slug,
-        businessName: knowledge.businessName,
-        artifact: saved,
-        knowledgeJson: knowledgePacket(knowledge, discovery),
-      }),
-      { encoding: "utf8", flag: "wx", mode: 0o600 },
-    );
+    const payload = JSON.stringify({
+      version: 1,
+      slug,
+      businessName: knowledge.businessName,
+      artifact: saved,
+      knowledgeJson: knowledgePacket(knowledge, discovery),
+      generationContext: { knowledge, discovery },
+    });
+    if (Buffer.byteLength(payload) > 8_000_000)
+      throw new Error("Stored website exceeds the size limit.");
+    await writeFile(temporary, payload, {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 0o600,
+    });
     await rename(temporary, file);
-  } catch {
+  } catch (error) {
+    if (error instanceof SiteRevisionConflict) throw error;
     throw new Error(
       "Could not save the generated website. Configure a writable generated-site storage directory and retry.",
     );
   } finally {
     await unlink(temporary).catch(() => {});
+    release();
+    if (writes.get(file) === queued) writes.delete(file);
   }
   return saved;
 }
@@ -93,6 +126,10 @@ export async function readGeneratedSiteRecord(
   artifact: Artifact;
   businessName: string;
   knowledgeJson: string | null;
+  generationContext: {
+    knowledge: Knowledge;
+    discovery: Discovery | null;
+  } | null;
 } | null> {
   const file = filePath(slug, version);
   if (!file) return null;
@@ -115,6 +152,16 @@ export async function readGeneratedSiteRecord(
         typeof record.businessName === "string" ? record.businessName : "",
       knowledgeJson:
         typeof record.knowledgeJson === "string" ? record.knowledgeJson : null,
+      generationContext: record.generationContext
+        ? {
+            knowledge: knowledgeSchema.parse(
+              record.generationContext.knowledge,
+            ),
+            discovery: discoverySchema
+              .nullable()
+              .parse(record.generationContext.discovery),
+          }
+        : null,
     };
   } catch (error) {
     if (

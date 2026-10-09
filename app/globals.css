@@ -1394,3 +1394,51 @@ h1 {
     scroll-behavior: auto !important;
   }
 }
+/* Selected-version design refinement. */
+.change-panel {
+  margin-top: 24px;
+}
+.change-panel .panel-title {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.change-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 16px;
+}
+.change-actions .help-text {
+  max-width: 66ch;
+  margin: 0;
+}
+.change-actions button {
+  flex-shrink: 0;
+}
+.change-history {
+  border-top: 1px solid var(--border, #dce2d5);
+  margin-top: 20px;
+  padding-top: 16px;
+  font-size: 13px;
+}
+.change-history summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.change-history li p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-bottom: 6px;
+}
+.change-history time {
+  color: #697166;
+  font-size: 11px;
+}
+@media (max-width: 600px) {
+  .change-actions {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+}

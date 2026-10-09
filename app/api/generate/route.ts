@@ -8,6 +8,7 @@ import {
 import { generationInput } from "@/lib/input";
 import { makeWebsite } from "@/lib/generator";
 import { saveGeneratedSite } from "@/lib/site-store";
+import { resolvePhotos } from "@/lib/pexels";
 export const runtime = "nodejs";
 export const maxDuration = 240;
 export async function POST(request: Request) {
@@ -24,6 +25,7 @@ export async function POST(request: Request) {
       data.previous,
       request.signal,
       data.model,
+      await resolvePhotos(data.photoIds, request.signal),
     );
     return jsonResponse({
       artifact: await saveGeneratedSite(

@@ -46,7 +46,12 @@ class StudioRequestError extends Error {
     super(message);
   }
 }
-type DiscoveryEvent = { type: string; message?: string; discovery?: Discovery };
+type DiscoveryEvent = {
+  type: string;
+  message?: string;
+  discovery?: Discovery;
+  pages?: Discovery["pages"];
+};
 const normalizeUrl = (url: string) => {
   try {
     return new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).href;
@@ -102,6 +107,9 @@ export function Studio() {
   const lastAttempt = useRef("");
   const latestKnowledge = useRef(knowledge);
   latestKnowledge.current = knowledge;
+  const latestDiscovery = useRef(discovery);
+  latestDiscovery.current = discovery;
+  const pauseCrawl = useRef(false);
 
   useEffect(() => {
     let mounted = true;
@@ -150,7 +158,7 @@ export function Studio() {
       .catch(() => {
         if (mounted)
           setError(
-            "Could not load free models. Refresh the page to try again.",
+            "Could not load the configured website models. Refresh the page to try again.",
           );
       });
     return () => {
@@ -188,64 +196,111 @@ export function Studio() {
   ]);
 
   const discover = useCallback(
-    async (url: string, force = false): Promise<Discovery> => {
+    async (url: string, force = false, extend = false): Promise<Discovery> => {
       if (!force && crawlPromise.current?.url === normalizeUrl(url))
         return crawlPromise.current.promise;
       crawlController.current?.abort();
       const controller = new AbortController();
       crawlController.current = controller;
+      pauseCrawl.current = false;
       setCrawling(true);
       setCrawlError("");
       setCrawlStatus("Finding website pages…");
+      const prior = latestDiscovery.current;
+      let result: Discovery | undefined =
+        !force && prior && normalizeUrl(prior.inputUrl) === normalizeUrl(url)
+          ? prior
+          : undefined;
       const promise = (async () => {
         try {
-          const response = await fetch("/api/discover", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url }),
-            signal: controller.signal,
-          });
-          if (!response.ok) {
-            const data = await response.json();
-            throw new Error(data.error ?? "Could not read website.");
-          }
-          const reader = response.body?.getReader();
-          if (!reader)
-            throw new Error("Website discovery did not return a response.");
-          const decoder = new TextDecoder();
-          let buffer = "",
-            result: Discovery | undefined;
-          const handle = (line: string) => {
-            if (!line.trim()) return;
-            const event: DiscoveryEvent = JSON.parse(line);
-            if (event.type === "progress") setCrawlStatus(event.message ?? "");
-            if (event.type === "error") throw new Error(event.message);
-            if (event.type === "result") result = event.discovery;
-          };
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-            for (const line of lines) handle(line);
-          }
-          if (buffer) handle(buffer);
-          if (!result)
-            throw new Error(
-              "Discovery was interrupted. Try reading the website again.",
-            );
-          if (controller.signal.aborted)
-            throw new DOMException("Aborted", "AbortError");
-          if (
-            normalizeUrl(latestKnowledge.current.websiteUrl) ===
-            normalizeUrl(url)
-          ) {
-            setDiscovery(result);
-            setCrawlStatus(`${result.pages.length} pages read`);
-          }
-          return result;
+          let first = true;
+          do {
+            const beforeCount = result?.pages.length ?? 0;
+            const response = await fetch("/api/discover", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              signal: controller.signal,
+              body: JSON.stringify({
+                url,
+                capturedCount: result?.pages.length ?? 0,
+                ...(result?.crawl
+                  ? { crawlId: result.crawl.id, extend: first && extend }
+                  : result
+                    ? { previous: result }
+                    : {}),
+              }),
+            });
+            if (!response.ok) {
+              const data = await response.json();
+              throw new Error(data.error ?? "Could not read website.");
+            }
+            const reader = response.body?.getReader();
+            if (!reader)
+              throw new Error("Website discovery did not return a response.");
+            const decoder = new TextDecoder();
+            let buffer = "",
+              completed = false;
+            const handle = (line: string) => {
+              if (!line.trim()) return;
+              const event: DiscoveryEvent = JSON.parse(line);
+              if (event.type === "progress")
+                setCrawlStatus(event.message ?? "");
+              if (event.type === "error") throw new Error(event.message);
+              if (
+                (event.type === "checkpoint" || event.type === "result") &&
+                event.discovery
+              ) {
+                const pages =
+                  event.pages !== undefined
+                    ? [
+                        ...new Map(
+                          [...(result?.pages ?? []), ...event.pages].map(
+                            (page) => [page.url, page],
+                          ),
+                        ).values(),
+                      ]
+                    : event.discovery.pages;
+                result = { ...event.discovery, pages };
+                if (
+                  normalizeUrl(latestKnowledge.current.websiteUrl) ===
+                  normalizeUrl(url)
+                ) {
+                  latestDiscovery.current = result;
+                  setDiscovery(result);
+                  setCrawlStatus(`${result.pages.length} pages saved`);
+                }
+              }
+              if (event.type === "result") completed = true;
+            };
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() ?? "";
+                for (const line of lines) handle(line);
+              }
+              if (buffer) handle(buffer);
+            } finally {
+              await reader.cancel().catch(() => {});
+            }
+            if (!completed || !result)
+              throw new Error(
+                "Discovery was interrupted. Saved pages can be used or resumed.",
+              );
+            first = false;
+            if (pauseCrawl.current || result.pages.length === beforeCount)
+              break;
+          } while (result?.crawl?.canContinue && !controller.signal.aborted);
+          return result!;
         } catch (error) {
+          if (controller.signal.aborted && result?.pages.length) {
+            setCrawlStatus(
+              `${result.pages.length} pages saved. Discovery paused.`,
+            );
+            return result;
+          }
           if (!controller.signal.aborted) {
             setCrawlError(
               error instanceof Error
@@ -336,8 +391,17 @@ export function Studio() {
     try {
       let source: Discovery | null = null;
       if (snapshot.websiteUrl && !skipWebsite) {
+        pauseCrawl.current = true;
+        const pending =
+          crawlPromise.current?.url === normalizeUrl(snapshot.websiteUrl)
+            ? crawlPromise.current.promise
+            : null;
+        if (pending) {
+          crawlController.current?.abort();
+          source = await pending;
+        }
         setStatus("Reading your existing website…");
-        source =
+        source ??=
           discovery &&
           normalizeUrl(discovery.inputUrl) === normalizeUrl(snapshot.websiteUrl)
             ? discovery
@@ -346,7 +410,7 @@ export function Studio() {
       controller.signal.throwIfAborted();
       const fingerprint = JSON.stringify({
         knowledge: snapshot,
-        source: source?.crawledAt ?? null,
+        source: source?.crawl?.revision ?? source?.crawledAt ?? null,
       });
       const canResume =
         plan &&
@@ -360,7 +424,12 @@ export function Studio() {
         setStatus("Creating three original design directions…");
         currentPlan = await post<DesignPlan>(
           "/api/plan",
-          { knowledge: snapshot, discovery: source },
+          {
+            knowledge: snapshot,
+            ...(source?.crawl
+              ? { discoveryId: source.crawl.id }
+              : { discovery: source }),
+          },
           controller.signal,
         );
         setPlan(currentPlan);
@@ -385,7 +454,11 @@ export function Studio() {
             "/api/generate",
             {
               knowledge: snapshot,
-              discovery: source,
+              ...(currentPlan.sourceSnapshotId
+                ? { sourceSnapshotId: currentPlan.sourceSnapshotId }
+                : source?.crawl
+                  ? { discoveryId: source.crawl.id }
+                  : { discovery: source }),
               direction: currentPlan.directions[index],
               index,
               previous: accepted.filter((a) => a.index !== index).slice(0, 2),
@@ -566,7 +639,9 @@ export function Studio() {
         knowledge: knowledgeSchema.safeParse(knowledge).success
           ? knowledgeSchema.parse(knowledge)
           : knowledge,
-        source: skipWebsite ? null : (source?.crawledAt ?? null),
+        source: skipWebsite
+          ? null
+          : (source?.crawl?.revision ?? source?.crawledAt ?? null),
       }),
   );
   const phones = [...new Set(source?.pages.flatMap((p) => p.phones) ?? [])];
@@ -648,7 +723,7 @@ export function Studio() {
                         )
                       }
                     >
-                      <option value="">Automatic · free coding models</option>
+                      <option value="">Automatic · configured models</option>
                       {models.map((m) => (
                         <option key={m.id} value={m.id}>
                           {m.name}
@@ -660,8 +735,8 @@ export function Studio() {
               </div>
             </div>
             <p className="help-text">
-              Only currently available models with zero input and output pricing
-              are used. Free providers may have daily limits.{" "}
+              Versions use the configured models in order, with fallback within
+              that list. Claude, Gemini Pro and GPT use paid OpenRouter credits.
             </p>
           </section>
         )}
@@ -826,6 +901,16 @@ export function Studio() {
                       <p>
                         <Loader2 size={15} className="spin" />
                         {crawlStatus}
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() => {
+                            pauseCrawl.current = true;
+                            crawlController.current?.abort();
+                          }}
+                        >
+                          Pause discovery
+                        </button>
                       </p>
                     )}
                     {crawlError && (
@@ -867,6 +952,42 @@ export function Studio() {
                             Read again
                           </button>
                         </div>
+                        {(source.crawl?.canContinue ||
+                          source.crawl?.canExtend ||
+                          (!source.crawl && !source.complete)) && (
+                          <button
+                            type="button"
+                            className="text-button"
+                            disabled={busy}
+                            onClick={() =>
+                              void discover(
+                                knowledge.websiteUrl,
+                                false,
+                                !!source.crawl?.canExtend &&
+                                  !source.crawl.canContinue,
+                              ).catch(() => {})
+                            }
+                          >
+                            <Plus size={12} />
+                            {source.crawl?.canContinue || !source.crawl
+                              ? "Continue discovery"
+                              : "Read more pages"}
+                          </button>
+                        )}
+                        {source.crawl && (
+                          <p className="help-text">
+                            {source.crawl.pageLimit} page limit ·{" "}
+                            {source.crawl.remaining} URLs remaining. Saved pages
+                            are ready to use for generation.
+                          </p>
+                        )}
+                        {source.pages.length > 40 && (
+                          <p className="help-text">
+                            All captured pages are saved. AI uses a bounded
+                            packet of business evidence and deduplicated
+                            contacts from the larger crawl.
+                          </p>
+                        )}
                         <div className="contact-chips">
                           {phones.slice(0, 3).map((phone) => (
                             <span key={phone}>{phone}</span>

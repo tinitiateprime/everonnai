@@ -137,9 +137,11 @@ test("prompt edits load saved context, preserve siblings/assistant knowledge, re
     directory: process.env.GENERATED_SITES_DIR,
     key: process.env.OPENROUTER_API_KEY,
     token: process.env.STUDIO_ACCESS_TOKEN,
+    models: process.env.OPENROUTER_MODELS,
   };
   process.env.GENERATED_SITES_DIR = directory;
   process.env.OPENROUTER_API_KEY = "sk-or-v1-private-test";
+  process.env.OPENROUTER_MODELS = model.id;
   process.env.STUDIO_ACCESS_TOKEN = "test-edit-token";
   const direction: Direction = {
     name: "Editorial warmth",
@@ -265,6 +267,7 @@ test("prompt edits load saved context, preserve siblings/assistant knowledge, re
       ["GENERATED_SITES_DIR", previous.directory],
       ["OPENROUTER_API_KEY", previous.key],
       ["STUDIO_ACCESS_TOKEN", previous.token],
+      ["OPENROUTER_MODELS", previous.models],
     ]) {
       if (value === undefined) delete process.env[name!];
       else process.env[name!] = value;

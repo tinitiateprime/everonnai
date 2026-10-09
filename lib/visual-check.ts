@@ -101,8 +101,12 @@ export async function inspectWebsite(
                     visible &&
                     credit.urls.includes(link.href) &&
                     (link.textContent ?? "")
+                      .replace(/\s+/g, " ")
+                      .trim()
                       .toLowerCase()
-                      .includes(credit.label.toLowerCase())
+                      .includes(
+                        credit.label.replace(/\s+/g, " ").trim().toLowerCase(),
+                      )
                   );
                 }),
             )

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { directionSchema, knowledgeSchema } from "./types";
+import { MAX_CRAWL_PAGES, MAX_CRAWL_URLS } from "./crawl-limits";
 // Browser persistence is untrusted. Bound and validate imported discoveries/artifacts.
 const pageSchema = z.object({
   url: z.string().max(2048),
@@ -25,20 +26,37 @@ const pageSchema = z.object({
 export const discoverySchema = z.object({
   inputUrl: z.string().max(2048),
   origin: z.string().max(2048),
-  pages: z.array(pageSchema).max(40),
+  pages: z.array(pageSchema).max(MAX_CRAWL_PAGES),
   skipped: z
     .array(
       z.object({ url: z.string().max(2048), reason: z.string().max(2000) }),
     )
-    .max(120),
-  warnings: z.array(z.string().max(3000)).max(100),
-  discovered: z.number().int().min(0).max(2000),
+    .max(MAX_CRAWL_PAGES * 3),
+  warnings: z.array(z.string().max(3000)).max(MAX_CRAWL_PAGES + 20),
+  discovered: z
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_CRAWL_URLS + MAX_CRAWL_PAGES * 3),
   complete: z.boolean(),
   crawledAt: z.string().max(100),
+  crawl: z
+    .object({
+      id: z.uuid(),
+      revision: z.uuid(),
+      pageLimit: z.number().int().min(1).max(MAX_CRAWL_PAGES),
+      remaining: z.number().int().min(0).max(MAX_CRAWL_URLS),
+      canContinue: z.boolean(),
+      canExtend: z.boolean(),
+      status: z.enum(["paused", "complete", "limit"]),
+    })
+    .optional(),
 });
 export const planInput = z.object({
   knowledge: knowledgeSchema,
   discovery: discoverySchema.nullable().default(null),
+  discoveryId: z.uuid().optional(),
+  sourceSnapshotId: z.uuid().optional(),
 });
 const artifactSchema = z.object({
   id: z.string(),

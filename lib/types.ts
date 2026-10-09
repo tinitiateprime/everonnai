@@ -72,6 +72,23 @@ export type Discovery = {
   discovered: number;
   complete: boolean;
   crawledAt: string;
+  crawl?: {
+    id: string;
+    revision: string;
+    pageLimit: number;
+    remaining: number;
+    canContinue: boolean;
+    canExtend: boolean;
+    status: "paused" | "complete" | "limit";
+  };
+};
+export type CrawlState = {
+  id: string;
+  result: Discovery;
+  root: string;
+  robotsText: string;
+  queue: string[];
+  seen: string[];
 };
 export const directionSchema = z.object({
   name: z.string().min(1).max(100),
@@ -97,6 +114,7 @@ export type DesignPlan = {
   directions: Direction[];
   model: string;
   media?: MediaBundle[];
+  sourceSnapshotId?: string;
 };
 export type Artifact = {
   id: string;
@@ -125,5 +143,11 @@ export type Model = {
   supported_parameters: string[];
   top_provider?: { max_completion_tokens?: number };
   pricing: { prompt: string; completion: string };
-  reasoning?: { supported_efforts?: string[] };
+  architecture?: { output_modalities?: string[] };
+  reasoning?: {
+    supported_efforts?: string[] | null;
+    mandatory?: boolean;
+    supports_max_tokens?: boolean;
+    default_enabled?: boolean;
+  };
 };

@@ -1,6 +1,6 @@
-// Explicit live-provider check. Uses fictional business knowledge and free OpenRouter routing.
+// Explicit live-provider check. Uses fictional knowledge and configured OpenRouter models/credits.
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadEnvConfig } from "@next/env";
@@ -66,7 +66,17 @@ async function main() {
       key,
       "Pexels verified. Configure OPENROUTER_API_KEY to test live website generation and edits.",
     );
-    const plan = await makePlan(key, knowledge, null);
+    await mkdir("artifacts", { recursive: true });
+    const modelOverride = process.argv
+      .find((arg) => arg.startsWith("--model="))
+      ?.slice(8);
+    const savedPlan = process.argv.includes("--resume")
+      ? await readFile("artifacts/live-plan.json", "utf8")
+          .then(JSON.parse)
+          .catch(() => null)
+      : null;
+    const plan = savedPlan ?? (await makePlan(key, knowledge, null));
+    await writeFile("artifacts/live-plan.json", JSON.stringify(plan));
     console.log(
       JSON.stringify({
         stage: "plan",
@@ -80,6 +90,16 @@ async function main() {
     );
     const count = process.argv.includes("--all") ? 3 : 1;
     for (let index = 0; index < count; index++) {
+      let invalidAttempt = 0;
+      const previousArtifact = process.argv.includes("--resume")
+        ? await readFile(`artifacts/live-artifact-${index}.json`, "utf8")
+            .then(JSON.parse)
+            .catch(() => null)
+        : null;
+      if (previousArtifact) {
+        accepted.push(await saveGeneratedSite(knowledge, previousArtifact));
+        continue;
+      }
       const photos = await resolvePhotos(
         plan.media[index].photos.map((p) => p.id),
       );
@@ -91,11 +111,24 @@ async function main() {
         index,
         accepted,
         undefined,
-        undefined,
+        modelOverride,
         photos,
+        undefined,
+        (message) =>
+          console.log(JSON.stringify({ stage: "progress", index, message })),
+        async (html) => {
+          await writeFile(
+            `artifacts/live-invalid-${index}-${++invalidAttempt}.html`,
+            html,
+          );
+        },
       );
       const saved = await saveGeneratedSite(knowledge, artifact);
       accepted.push(saved);
+      await writeFile(
+        `artifacts/live-artifact-${index}.json`,
+        JSON.stringify(saved),
+      );
       await mkdir("artifacts", { recursive: true });
       await writeFile(`artifacts/live-version-${index + 1}.html`, saved.html);
       console.log(
@@ -120,9 +153,11 @@ async function main() {
       0,
       accepted.slice(1),
       undefined,
-      undefined,
+      modelOverride,
       before!.artifact.photos,
       { artifact: before!.artifact, prompt },
+      (message) =>
+        console.log(JSON.stringify({ stage: "progress", index: 0, message })),
     );
     const savedEdit = await saveGeneratedSite(
       knowledge,

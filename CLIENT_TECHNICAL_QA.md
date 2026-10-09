@@ -10,7 +10,7 @@ It automatically discovers public pages using internal links and sitemaps, obser
 
 ## Can it read absolutely everything?
 
-It reads up to 40 successful same-origin HTML pages, bounded by time/resources. Login-only pages, restricted pages, query/filter URLs, non-HTML downloads, subdomains and unreachable content are outside this crawl. Text is shortened when necessary; contacts/metadata are separate. It reports discovered/read/skipped counts and limitations. It cannot promise every detail from every arbitrary website.
+It initially reads up to 500 successful same-origin HTML pages and supports continuation up to 2,000, using persisted batches bounded by time/resources. Login-only pages, restricted pages, query/filter URLs, non-HTML downloads, subdomains and unreachable content are outside this crawl. Text is shortened when necessary; contacts/metadata are separate. It reports discovered/read/skipped counts and limitations. It cannot promise every detail from every arbitrary website.
 
 ## Are the three websites hardcoded?
 
@@ -18,7 +18,7 @@ No. AI creates three original design directions, then generates each full HTML d
 
 ## Which AI provider/models are used?
 
-OpenRouter chat completions. The default preference is Thinking Machines Inkling, Poolside Laguna S 2.1 and NVIDIA Nemotron 3 Ultra, verified as available/free on 2026-10-09. The administrator can change their order using `OPENROUTER_MODELS`. Every preferred model is checked against the live catalogue's availability, zero pricing and context/output limits; unavailable or paid preferences are skipped. Each version starts with a separate available free model where possible. The customer can override with a listed free model in Generation settings. A bounded fallback can use other free models; paid models are never selected. These are practical starting choices, not proof that a model is universally best. Reasoning effort respects each model's advertised support.
+OpenRouter chat completions. Default version order is Claude Opus Latest (`~anthropic/claude-opus-latest`), Gemini Pro Latest (`~google/gemini-pro-latest`) and GPT-6.1 Sol (`openai/gpt-6.1-sol`). The public catalogue confirmed these IDs/capabilities on 2026-10-09. Latest aliases currently resolve to Claude Opus 5.5 and Gemini 3.1 Pro Preview and follow future family updates. These are paid models requiring OpenRouter credit. `OPENROUTER_MODELS` changes the ordered allowlist; only available configured models with suitable text/context/output support can be selected or used as fallback. Generation settings can override a version with a listed model. No other paid/free models are added automatically. Reasoning uses supported medium effort or a supported bounded/default control. No model guarantees the best design; review each generated site.
 
 ## Where does the API key go?
 
@@ -42,7 +42,7 @@ The standalone branch currently answers business questions and supplies contact 
 
 ## What if generation fails?
 
-Each accepted design saves separately on the server and in the customer's browser draft. A failed version displays an error and can be retried. Invalid HTML gets one AI repair per candidate model, with at most three free model candidates and a bounded operation duration. Missing keys, exhausted quota, provider errors, storage failures and unfinished output are reported; they do not produce a fake completed website. The previous successful file at the same business/version URL is preserved if regeneration or saving fails.
+Each accepted design saves separately on the server and in the customer's browser draft. A failed version displays an error and can be retried. Invalid HTML gets one AI repair per candidate model, with at most three configured model candidates and a bounded operation duration. Missing keys, exhausted quota, provider errors, storage failures and unfinished output are reported; they do not produce a fake completed website. The previous successful file at the same business/version URL is preserved if regeneration or saving fails.
 
 ## What URLs do the generated websites use?
 
@@ -58,7 +58,7 @@ They are complete responsive single-document websites with section navigation an
 
 ## What has been tested?
 
-Unit checks cover the three required fields, partial drafts, Pexels caching/provider IDs/credits, prompt refinement, stale-edit conflict recovery, unchanged assistant knowledge, required/optional fields, URL/address safety, contact/design extraction, sitemap/robots behavior, free models, artifact checks, provider repair, generated-site paths, atomic storage, independent version updates, corrupt-file handling and API-to-storage integration. Browser checks cover required fields, failed/successful edits, stable edited URLs, history persistence, the client workflow, previews, downloads, persistence, key exclusion and mobile layout using mocked AI responses. The self-started server also checks all three real website URLs, refresh, another browser context, document isolation, 404 behavior and API errors. Live public-site discovery can be tested without a key. Live AI generation and visual-quality confirmation require a configured server key; mocked responses are not real model output.
+Unit checks cover the three required fields, partial drafts, Pexels caching/provider IDs/credits, prompt refinement, stale-edit conflict recovery, unchanged assistant knowledge, required/optional fields, URL/address safety, contact/design extraction, sitemap/robots behavior, configured model selection, artifact checks, provider repair, generated-site paths, atomic storage, independent version updates, corrupt-file handling and API-to-storage integration. Browser checks cover required fields, failed/successful edits, stable edited URLs, history persistence, the client workflow, previews, downloads, persistence, key exclusion and mobile layout using mocked AI responses. The self-started server also checks all three real website URLs, refresh, another browser context, document isolation, 404 behavior and API errors. Live public-site discovery can be tested without a key. Live AI generation and visual-quality confirmation require a configured server key; mocked responses are not real model output.
 
 ## Does this change the original EverOnn project?
 
@@ -76,7 +76,7 @@ Select a version, type into Describe your changes, then choose Apply changes. Fo
 
 ## Was real Pexels and real website AI tested?
 
-On 2026-10-09, a live Pexels search returned four photographs and a returned image URL loaded successfully. Unit/provider/browser checks verify required fields, verified images/credits, selected-version prompt editing, failed edits, stable URLs, history/prompt persistence, unchanged assistant facts, stale-write rejection and loading the latest design after a conflict. OpenRouter responses are mocked in these checks; the local OPENROUTER_API_KEY is currently empty, so real generated design quality and real AI edits remain unverified. An explicit verify:website:live command can test them once the environment key is configured.
+On 2026-10-09, a live Pexels search returned four photographs and a returned image URL loaded successfully. Unit/provider/browser checks verify required fields, verified images/credits, selected-version prompt editing, failed edits, stable URLs, history/prompt persistence, unchanged assistant facts, stale-write rejection and loading the latest design after a conflict. OpenRouter responses are mocked in these checks; a key is now configured locally. Real AI planning succeeded, while initial full-generation attempts timed out. Follow-up live results are reported below.
 
 ## Are chat and voice on the generated websites themselves?
 
@@ -85,3 +85,17 @@ Yes. Chat with us and Talk to us appear on every saved `/service/{business}/1`, 
 Connections have a 45-second initialization limit. Closing the widget ignores delayed SDK callbacks and ends any late session. Failed sending retains the typed question for retry. Automated unit/browser checks verify cancellation/error handling and responsive controls; explicit live checks verify provider connections and fictional-business answers. Synthetic speech/device checks cannot establish the quality of every physical microphone, speaker or network. Downloaded static HTML still needs this app's backend for a live assistant; use the generated website URLs for the connected experience.
 
 On 2026-10-09, the live generated-site check verified both controls on versions 1?3, real ElevenLabs chat answers, a synthetic spoken microphone question with a knowledge-grounded voice answer, incoming audio playback, mute/end/reconnect, and real Gemini fallback. Synthetic devices verify the integration; physical microphone/speaker quality still needs a real-device check.
+
+## Can a crawl continue beyond 40 pages?
+
+Yes. The initial target is now 500 pages, extendable through Read more pages up to 2,000. Requests process 40-page/75-second batches by default, with saved progress and four parallel reads where robots rules permit. Continue discovery resumes from saved URLs instead of starting over. Existing 40-page browser knowledge can be preserved and extended. You can pause and generate from the collected pages. The server needs writable persistent source storage; closing the browser pauses automatic continuation. Restricted/unreachable pages and resource limits can still stop coverage.
+
+Larger crawls retain all captured page records, but the AI packet prioritizes business evidence and deduplicated contacts within context limits. It does not send thousands of complete pages in one enormous prompt. All three generated versions use the same frozen source snapshot, and each assistant uses the exact corresponding website packet.
+
+## Are timeouts eliminated?
+
+No. Crawl batches save progress so a long site can continue through multiple requests. AI generation still depends on provider speed/quota and hosting limits; it uses bounded calls, configured-model fallback, validation/repair and per-version retries. Complete versions remain saved if another fails. A provider key is now configured locally and is excluded from Git/browser output.
+
+Reasoning controls follow advertised capabilities, preferring medium effort or a supported budget/default. Website responses allow up to 20,000 output tokens including reasoning, bounded by model limits; plans allow 5,000 tokens. Document repair identifies missing/unsupported elements. Obsolete X-UA-Compatible metadata is removed without changing AI layout/CSS. Photo-credit checks normalize whitespace consistently. The explicit website verifier supports `--resume` and `--model=ID`, preserving ignored fictional-business artifacts; running it uses configured OpenRouter credits.
+
+The owner requested no testing for the Claude/Gemini/GPT change. No test, build or live-generation runs were performed after that instruction; the new configuration remains unverified end to end. Earlier free-model attempts did not validate accepted live site output. Restart the local studio to load the updated model environment.

@@ -1,12 +1,16 @@
 import { XMLParser } from "fast-xml-parser";
+import { randomUUID } from "node:crypto";
 import robotsParser from "robots-parser";
 import { chromium, type Browser } from "playwright";
 import { safeResource, parsePublicUrl } from "./network";
 import { designCues, extractPage, unique } from "./extract";
-import type { Discovery } from "./types";
+import type { CrawlState, Discovery } from "./types";
+import { crawlSettings, MAX_CRAWL_PAGES, MAX_CRAWL_URLS } from "./crawl-limits";
 
 const AGENT = "EverOnnWebsiteStudio";
-export const MAX_PAGES = 40;
+const FRONTIER_WARNING =
+  "The 12,000-URL discovery frontier limit was reached; some source URLs were omitted.";
+export const MAX_PAGES = 500;
 export function crawlable(value: string, origin: string) {
   try {
     const url = parsePublicUrl(value);
@@ -28,6 +32,7 @@ export function crawlable(value: string, origin: string) {
     )
       return null;
     url.pathname = url.pathname.replace(/\/$/, "") || "/";
+    url.hash = "";
     return url.href;
   } catch {
     return null;
@@ -112,34 +117,86 @@ export async function discoverWebsite(
   dependencies: {
     resource?: typeof safeResource;
     browser?: Browser | null;
+    resume?: CrawlState;
+    previous?: Discovery;
+    id?: string;
+    maxPages?: number;
+    batchPages?: number;
+    batchMs?: number;
+    concurrency?: number;
+    onCheckpoint?: (state: CrawlState) => Promise<void>;
   } = {},
 ): Promise<Discovery> {
+  const settings = crawlSettings();
+  const pageLimit = Math.min(
+    MAX_CRAWL_PAGES,
+    Math.max(
+      1,
+      dependencies.maxPages ??
+        dependencies.resume?.result.crawl?.pageLimit ??
+        settings.maxPages,
+    ),
+  );
   const fetchResource = dependencies.resource ?? safeResource;
   const signal = externalSignal
-    ? AbortSignal.any([externalSignal, AbortSignal.timeout(180000)])
-    : AbortSignal.timeout(180000);
+    ? AbortSignal.any([
+        externalSignal,
+        AbortSignal.timeout(dependencies.batchMs ?? settings.batchMs),
+      ])
+    : AbortSignal.timeout(dependencies.batchMs ?? settings.batchMs);
   const starting = parsePublicUrl(
     /^https?:\/\//i.test(inputUrl) ? inputUrl : `https://${inputUrl}`,
   );
-  onProgress("Reading the website and discovering its pages…");
-  const initial = await fetchResource(starting.href, { signal });
-  if (initial.status >= 400)
+  const prior = dependencies.resume;
+  if (
+    prior &&
+    new URL(
+      /^https?:\/\//i.test(prior.result.inputUrl)
+        ? prior.result.inputUrl
+        : `https://${prior.result.inputUrl}`,
+    ).href !== starting.href
+  )
+    throw new Error("Continue the same website URL or start a new crawl.");
+  onProgress(
+    prior
+      ? `Continuing from ${prior.result.pages.length} saved pages…`
+      : "Reading the website and discovering its pages…",
+  );
+  const initial = prior
+    ? undefined
+    : await fetchResource(starting.href, { signal });
+  if (
+    initial &&
+    (initial.status >= 400 ||
+      !String(initial.headers["content-type"]).includes("html"))
+  )
     throw new Error(
-      `Website returned HTTP ${initial.status}. Check the link or continue with your description.`,
+      `The website must return readable HTML (HTTP ${initial.status}).`,
     );
-  if (!String(initial.headers["content-type"]).includes("html"))
-    throw new Error("The website link must point to an HTML page.");
-  const origin = new URL(initial.url).origin;
-  const result: Discovery = {
-    inputUrl,
-    origin,
-    pages: [],
-    skipped: [],
-    warnings: [],
-    discovered: 0,
-    complete: false,
-    crawledAt: new Date().toISOString(),
-  };
+  const origin = prior?.result.origin ?? new URL(initial!.url).origin;
+  const previous = dependencies.previous;
+  if (previous && new URL(previous.origin).origin !== origin)
+    throw new Error("Captured knowledge belongs to a different website.");
+  const result: Discovery =
+    prior?.result ??
+    (previous
+      ? structuredClone(previous)
+      : {
+          inputUrl,
+          origin,
+          pages: [],
+          skipped: [],
+          warnings: [],
+          discovered: 0,
+          complete: false,
+          crawledAt: new Date().toISOString(),
+        });
+  const startCount = result.pages.length;
+  const target = Math.min(
+    pageLimit,
+    startCount + (dependencies.batchPages ?? settings.batchPages),
+  );
+  const id = prior?.id ?? dependencies.id ?? randomUUID();
   let robotsText = "";
   try {
     const response = await fetchResource(`${origin}/robots.txt`, {
@@ -147,102 +204,183 @@ export async function discoverWebsite(
       origin,
     });
     if (response.status === 200) robotsText = response.body.toString();
-    else if (response.status !== 404)
-      throw new Error(`HTTP ${response.status}`);
+    else if (response.status !== 404) throw new Error("Robots unavailable");
   } catch {
     throw new Error(
-      "Could not verify website crawling permissions (robots.txt). Try again or use description-only generation.",
+      "Could not verify website crawling permissions (robots.txt). Saved pages remain available; retry discovery later.",
     );
   }
   const robots = robotsParser(`${origin}/robots.txt`, robotsText);
-  const root = crawlable(initial.url, origin);
+  const root = prior?.root ?? crawlable(initial!.url, origin);
   if (!root)
     throw new Error(
       "Use a clean website page URL without search/filter parameters.",
     );
-  const queue = unique([root, `${origin}/`]);
-  const seen = new Set<string>();
-  const sitemapQueue = unique([
-    ...robots.getSitemaps(),
-    `${origin}/sitemap.xml`,
-    `${origin}/sitemap_index.xml`,
-  ]);
-  const xmlParser = new XMLParser({
-    ignoreAttributes: true,
-    processEntities: false,
-  });
-  for (let i = 0; i < Math.min(sitemapQueue.length, 6); i++) {
-    try {
-      const sitemap = parsePublicUrl(sitemapQueue[i]);
-      if (
-        sitemap.origin !== origin ||
-        robots.isAllowed(sitemap.href, AGENT) === false
-      )
-        continue;
-      const response = await fetchResource(sitemap.href, { signal, origin });
-      if (response.status !== 200) continue;
-      const doc = xmlParser.parse(response.body.toString());
-      const entries = [doc.urlset?.url ?? []].flat();
-      for (const entry of entries.slice(0, 1200)) {
-        const url = crawlable(String(entry.loc), origin);
-        if (url && !queue.includes(url)) queue.push(url);
+  const seen = new Set(
+    prior?.seen ?? [
+      ...result.pages.map((p) => crawlable(p.url, origin) ?? p.url),
+      ...result.skipped.map((p) => crawlable(p.url, origin) ?? p.url),
+    ],
+  );
+  const initialQueue = unique(
+    [root, `${origin}/`, ...(previous?.pages.flatMap((p) => p.links) ?? [])]
+      .map((url) => crawlable(url, origin))
+      .filter((url): url is string => !!url && !seen.has(url)),
+  );
+  const queue = prior?.queue ?? initialQueue.slice(0, MAX_CRAWL_URLS);
+  if (!prior && initialQueue.length > MAX_CRAWL_URLS)
+    result.warnings.push(FRONTIER_WARNING);
+  const known = new Set([...seen, ...queue]);
+  const enqueue = (value: string) => {
+    const candidate = crawlable(value, origin);
+    if (candidate && !known.has(candidate)) {
+      if (queue.length >= MAX_CRAWL_URLS) {
+        if (!result.warnings.includes(FRONTIER_WARNING))
+          result.warnings.push(FRONTIER_WARNING);
+        return;
       }
-      for (const entry of [doc.sitemapindex?.sitemap ?? []].flat().slice(0, 6))
-        if (typeof entry.loc === "string" && !sitemapQueue.includes(entry.loc))
-          sitemapQueue.push(entry.loc);
-    } catch {
-      result.warnings.push(
-        "A sitemap could not be read; discovery continued through page links.",
-      );
+      known.add(candidate);
+      queue.push(candidate);
+    }
+  };
+  if (!prior) {
+    const sitemapQueue = unique([
+      ...robots.getSitemaps(),
+      `${origin}/sitemap.xml`,
+      `${origin}/sitemap_index.xml`,
+    ]);
+    const xmlParser = new XMLParser({
+      ignoreAttributes: true,
+      processEntities: false,
+    });
+    for (
+      let i = 0;
+      i < Math.min(sitemapQueue.length, 30) && !signal.aborted;
+      i++
+    ) {
+      try {
+        const sitemap = parsePublicUrl(sitemapQueue[i]);
+        if (
+          sitemap.origin !== origin ||
+          robots.isAllowed(sitemap.href, AGENT) === false
+        )
+          continue;
+        const response = await fetchResource(sitemap.href, { signal, origin });
+        if (response.status !== 200) continue;
+        const doc = xmlParser.parse(response.body.toString());
+        const entries = [doc.urlset?.url ?? []].flat();
+        if (entries.length > MAX_CRAWL_URLS)
+          result.warnings.push(FRONTIER_WARNING);
+        for (const entry of entries.slice(0, MAX_CRAWL_URLS))
+          enqueue(String(entry.loc));
+        for (const entry of [doc.sitemapindex?.sitemap ?? []]
+          .flat()
+          .slice(0, 30))
+          if (
+            typeof entry.loc === "string" &&
+            !sitemapQueue.includes(entry.loc)
+          )
+            sitemapQueue.push(entry.loc);
+      } catch {
+        result.warnings.push(
+          "A sitemap could not be read; discovery continued through page links.",
+        );
+      }
     }
   }
-  const browser =
-    dependencies.browser === undefined
-      ? await launchBrowser()
-      : dependencies.browser;
-  if (!browser)
-    result.warnings.push(
-      "Browser rendering is unavailable. HTML pages are read directly; JavaScript-only content may be missing. Run npm run browser:install for full rendering.",
-    );
-  try {
-    // Important business pages before large blog archives.
-    const priority = (url: string) =>
-      /contact|about|service|pricing|team|location|faq/i.test(url)
+  let browser: Browser | null = dependencies.browser ?? null;
+  let browserChecked = dependencies.browser !== undefined;
+  let blockedByDelay = false;
+  let savedCount = startCount;
+  const requestedDelay = (robots.getCrawlDelay(AGENT) ?? 0) * 1000;
+  const concurrency =
+    requestedDelay > 0
+      ? 1
+      : Math.min(
+          6,
+          Math.max(1, dependencies.concurrency ?? settings.concurrency),
+        );
+  const priority = (url: string) =>
+    url === root && !result.pages.length
+      ? -1
+      : /contact|about|service|pricing|team|location|faq/i.test(url)
         ? 0
         : /blog|news|archive/i.test(url)
           ? 2
           : 1;
-    while (
-      queue.length &&
-      result.pages.length < MAX_PAGES &&
-      seen.size < MAX_PAGES * 3
-    ) {
-      if (signal.aborted) break;
-      queue.sort((a, b) => priority(a) - priority(b));
-      const url = queue.shift()!;
-      if (seen.has(url)) continue;
-      seen.add(url);
-      if (robots.isAllowed(url, AGENT) === false) {
-        result.skipped.push({ url, reason: "Blocked by robots.txt" });
-        continue;
+  const checkpoint = async () => {
+    result.discovered = known.size;
+    result.complete =
+      queue.length === 0 &&
+      result.skipped.length === 0 &&
+      !signal.aborted &&
+      !result.warnings.includes(FRONTIER_WARNING);
+    result.warnings = unique(result.warnings).slice(0, MAX_CRAWL_PAGES + 20);
+    result.crawl = {
+      id,
+      revision: randomUUID(),
+      pageLimit,
+      remaining: queue.length,
+      canContinue:
+        queue.length > 0 &&
+        result.pages.length < pageLimit &&
+        seen.size < pageLimit * 3 &&
+        !blockedByDelay,
+      canExtend:
+        queue.length > 0 && pageLimit < MAX_CRAWL_PAGES && !blockedByDelay,
+      status: !queue.length
+        ? "complete"
+        : result.pages.length >= pageLimit ||
+            seen.size >= pageLimit * 3 ||
+            blockedByDelay
+          ? "limit"
+          : "paused",
+    };
+    await dependencies.onCheckpoint?.({
+      id,
+      result,
+      root,
+      robotsText,
+      queue: [...queue],
+      seen: [...seen],
+    });
+    savedCount = result.pages.length;
+  };
+  const readPage = async (url: string) => {
+    seen.add(url);
+    if (robots.isAllowed(url, AGENT) === false) {
+      result.skipped.push({ url, reason: "Blocked by robots.txt" });
+      return;
+    }
+    onProgress(
+      `Reading page ${result.pages.length + 1} (limit ${pageLimit}): ${new URL(url).pathname}`,
+    );
+    try {
+      const resource =
+        url === root && initial
+          ? initial
+          : await fetchResource(url, { signal, origin });
+      if (
+        resource.status >= 400 ||
+        !String(resource.headers["content-type"]).includes("html")
+      ) {
+        result.skipped.push({
+          url,
+          reason: `HTTP ${resource.status} or non-HTML content`,
+        });
+        return;
       }
-      onProgress(
-        `Reading page ${result.pages.length + 1}: ${new URL(url).pathname}`,
-      );
-      try {
-        const resource =
-          url === root ? initial : await fetchResource(url, { signal, origin });
-        if (
-          resource.status >= 400 ||
-          !String(resource.headers["content-type"]).includes("html")
-        ) {
-          result.skipped.push({
-            url,
-            reason: `HTTP ${resource.status} or non-HTML content`,
-          });
-          continue;
+      let page = extractPage(resource.body.toString(), resource.url);
+      // Render the first page for design cues; static pages already expose their content.
+      const needsRender =
+        !result.pages.length ||
+        (page.text.length < 250 &&
+          /<script\b[^>]*\bsrc\s*=/i.test(resource.body.toString()));
+      if (needsRender && !signal.aborted) {
+        if (!browserChecked) {
+          browserChecked = true;
+          browser = await launchBrowser();
         }
-        let page = extractPage(resource.body.toString(), resource.url);
         if (browser) {
           try {
             const rendered = await render(browser, resource.url, signal);
@@ -260,83 +398,106 @@ export async function discoverWebsite(
               `Browser rendering failed for ${url}; the original HTML was used.`,
             );
           }
-        }
-        if (!result.pages.length) {
-          let css = page.design.css;
-          for (const stylesheet of page.design.stylesheets.slice(0, 4)) {
-            try {
-              const response = await fetchResource(stylesheet, {
-                signal,
-                maxBytes: 300000,
-              });
-              if (response.status === 200)
-                css += "\n" + response.body.toString();
-            } catch {
-              /* Design metadata remains useful without every stylesheet. */
-            }
-          }
-          const cues = designCues(css);
-          page.design.colors = unique([
-            ...page.design.colors,
-            ...cues.colors,
-          ]).slice(0, 40);
-          page.design.fonts = unique([
-            ...page.design.fonts,
-            ...cues.fonts,
-          ]).slice(0, 20);
-          page.design.css = css.slice(0, 10000);
-        }
-        result.pages.push(page);
-        for (const link of page.links) {
-          const candidate = crawlable(link, origin);
-          if (
-            candidate &&
-            !seen.has(candidate) &&
-            !queue.includes(candidate) &&
-            queue.length < 1200
-          )
-            queue.push(candidate);
-        }
-        const requestedDelay = (robots.getCrawlDelay(AGENT) ?? 0) * 1000;
-        if (requestedDelay > 15000) {
+        } else
           result.warnings.push(
-            "The website requests a long crawl delay; discovery stopped after one page.",
+            "Browser rendering is unavailable. HTML pages are read directly; JavaScript-only content may be missing.",
           );
-          break;
-        }
-        const delay = Math.max(requestedDelay, 100);
-        await new Promise<void>((resolve) => setTimeout(resolve, delay));
-      } catch (error) {
-        if (signal.aborted) break;
-        result.skipped.push({
-          url,
-          reason:
-            error instanceof Error ? error.message : "Could not read page",
-        });
       }
+      if (!result.pages.length) {
+        let css = page.design.css;
+        for (const stylesheet of page.design.stylesheets.slice(0, 4)) {
+          try {
+            const response = await fetchResource(stylesheet, {
+              signal,
+              maxBytes: 300000,
+            });
+            if (response.status === 200) css += "\n" + response.body.toString();
+          } catch {
+            /* Source design cues remain useful. */
+          }
+        }
+        const cues = designCues(css);
+        page.design.colors = unique([
+          ...page.design.colors,
+          ...cues.colors,
+        ]).slice(0, 40);
+        page.design.fonts = unique([...page.design.fonts, ...cues.fonts]).slice(
+          0,
+          20,
+        );
+        page.design.css = css.slice(0, 10000);
+      }
+      result.pages.push(page);
+      for (const link of page.links) enqueue(link);
+    } catch (error) {
+      if (signal.aborted) {
+        seen.delete(url);
+        if (!queue.includes(url)) queue.unshift(url);
+        return;
+      }
+      result.skipped.push({
+        url,
+        reason: error instanceof Error ? error.message : "Could not read page",
+      });
+    }
+  };
+  try {
+    while (
+      queue.length &&
+      result.pages.length < target &&
+      seen.size < pageLimit * 3 &&
+      !signal.aborted
+    ) {
+      queue.sort((a, b) => priority(a) - priority(b));
+      const wave = queue.splice(
+        0,
+        Math.min(
+          result.pages.length ? concurrency : 1,
+          target - result.pages.length,
+          pageLimit * 3 - seen.size,
+        ),
+      );
+      await Promise.all(wave.filter((url) => !seen.has(url)).map(readPage));
+      if (
+        (!savedCount && result.pages.length) ||
+        result.pages.length - savedCount >= 10
+      )
+        await checkpoint();
+      if (requestedDelay > 15000) {
+        result.warnings.push(
+          "The website requests a long crawl delay; discovery stopped to respect its request.",
+        );
+        blockedByDelay = true;
+        break;
+      }
+      if (!signal.aborted)
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, Math.max(requestedDelay, 100)),
+        );
     }
   } finally {
     await browser?.close();
   }
   if (!result.pages.length)
     throw new Error(
-      "No readable public pages were found. Use your description or another website link.",
+      "No readable public pages were found. Use your entered knowledge or another website link.",
     );
-  result.discovered = unique([...seen, ...queue]).length;
-  result.complete =
-    queue.length === 0 && result.skipped.length === 0 && !signal.aborted;
+  result.warnings = result.warnings.filter(
+    (w) =>
+      !/^(Read \d+ of|Discovery reached|This batch ended|Page limit reached)/.test(
+        w,
+      ),
+  );
   if (queue.length)
     result.warnings.push(
-      `Read ${result.pages.length} of ${result.discovered} discovered URLs. The crawl stopped at its page, request or time limit.`,
-    );
-  if (signal.aborted)
-    result.warnings.push(
-      "Discovery reached its time limit; captured pages are available, but some content may be missing.",
+      result.pages.length >= pageLimit
+        ? `Page limit reached: ${result.pages.length} pages saved. Read more pages to increase the limit, or generate with these pages.`
+        : `This batch ended with ${result.pages.length} pages saved; discovery can continue from its checkpoint.`,
     );
   if (result.pages.some((p) => p.truncated))
     result.warnings.push(
       "Long page text was shortened to 12,000 characters per page; contacts and structured metadata were retained separately.",
     );
-  result.warnings = unique(result.warnings);
+  await checkpoint();
   return result;
 }

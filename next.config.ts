@@ -8,7 +8,12 @@ const config: NextConfig = {
     "/api/refine": ["./ai/capabilities/website-building/SKILL.md"],
   },
   outputFileTracingExcludes: {
-    "/*": ["./.env*", "./data/generated-sites/**/*", "./artifacts/**/*"],
+    "/*": [
+      "./.env*",
+      "./data/generated-sites/**/*",
+      "./data/crawls/**/*",
+      "./artifacts/**/*",
+    ],
   },
 };
 export default config;

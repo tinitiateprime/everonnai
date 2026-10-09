@@ -7,7 +7,12 @@ import {
   type Knowledge,
   type PhotoAsset,
 } from "./types";
-import { completion, getModels, ProviderError } from "./openrouter";
+import {
+  completion,
+  getModels,
+  ProviderError,
+  resolveModelId,
+} from "./openrouter";
 import { planPrompt, websitePrompt } from "./prompts";
 import { validateWebsite } from "./validation";
 import { inspectWebsite } from "./visual-check";
@@ -83,17 +88,19 @@ export async function makeWebsite(
   selectedModel?: string,
   photos: PhotoAsset[] = [],
   refinement?: { artifact: Artifact; prompt: string },
+  onProgress?: (message: string) => void,
+  onInvalidOutput?: (html: string) => Promise<void>,
 ): Promise<Artifact> {
   signal = signal
     ? AbortSignal.any([signal, AbortSignal.timeout(210000)])
     : AbortSignal.timeout(210000);
   const models = await getModels(signal);
   const preferred = selectedModel
-    ? models.find((m) => m.id === selectedModel)
+    ? models.find((m) => m.id === resolveModelId(selectedModel))
     : models[index % models.length];
   if (selectedModel && !preferred)
     throw new Error(
-      "Choose an available free model from the current catalogue.",
+      "Choose an available configured website model from Generation settings.",
     );
   const candidates = [
     preferred!,
@@ -110,8 +117,12 @@ export async function makeWebsite(
       refinement,
     );
     for (let repair = 0; repair < 2; repair++) {
+      onProgress?.(`${model.id}: ${repair ? "repairing" : "generating"}`);
       try {
         const result = await completion(key, model, messages, signal);
+        onProgress?.(
+          `${model.id}: received ${result.content.length} characters; checking the document`,
+        );
         try {
           const validated = validateWebsite(
             result.content,
@@ -154,6 +165,10 @@ export async function makeWebsite(
               : [],
           };
         } catch (error) {
+          onProgress?.(
+            `Validation: ${error instanceof Error ? error.message : "Invalid website"}`,
+          );
+          await onInvalidOutput?.(result.content);
           lastError = error;
           messages.push(
             { role: "assistant", content: result.content },
@@ -164,6 +179,9 @@ export async function makeWebsite(
           );
         }
       } catch (error) {
+        onProgress?.(
+          `Provider: ${error instanceof Error ? error.message : "Request failed"}`,
+        );
         lastError = error;
         if (
           signal?.aborted ||

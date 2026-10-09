@@ -1,10 +1,17 @@
 import type { Model } from "./types";
 
 export const DEFAULT_WEBSITE_MODELS = [
-  "thinkingmachines/inkling:free",
-  "poolside/laguna-s-2.1:free",
-  "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "~anthropic/claude-opus-latest",
+  "~google/gemini-pro-latest",
+  "openai/gpt-6.1-sol",
 ];
+const MODEL_ALIASES: Record<string, string> = {
+  "anthropic/claude-opus-latest": "~anthropic/claude-opus-latest",
+  "google/gemini-pro-latest": "~google/gemini-pro-latest",
+};
+export function resolveModelId(id: string) {
+  return MODEL_ALIASES[id.trim()] ?? id.trim();
+}
 let catalogue: { expires: number; models: Model[] } | undefined;
 export function prioritizeModels(
   models: Model[],
@@ -12,43 +19,52 @@ export function prioritizeModels(
 ) {
   const override = (configured ?? "")
     .split(",")
-    .map((s) => s.trim())
+    .map(resolveModelId)
     .filter(Boolean);
-  const preferred = override.length ? override : DEFAULT_WEBSITE_MODELS;
-  return [...models].sort((a, b) => {
-    const ai = preferred.indexOf(a.id),
-      bi = preferred.indexOf(b.id);
-    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+  const preferred = [
+    ...new Set(override.length ? override : DEFAULT_WEBSITE_MODELS),
+  ];
+  // Only explicitly configured models can be selected or used as fallback.
+  return preferred.flatMap((id) => {
+    const model = models.find((m) => m.id === id);
+    return model ? [model] : [];
   });
 }
-export function freeCodingModels(models: Model[]) {
-  return models
-    .filter(
-      (m) =>
-        !/content-safety|moderation|embedding/i.test(m.id) &&
-        Number(m.pricing.prompt) === 0 &&
-        Number(m.pricing.completion) === 0 &&
-        (m.id.endsWith(":free") || m.id === "openrouter/free") &&
-        m.context_length >= 32000 &&
-        (m.top_provider?.max_completion_tokens ?? 16000) >= 8000,
-    )
-    .sort((a, b) => score(b) - score(a));
-}
-function score(model: Model) {
-  const description = `${model.name} ${model.description}`.toLowerCase();
-  return (
-    (description.match(
-      /coding|programming|software|frontend|code generation|instruction/g,
-    )?.length ?? 0) *
-      12 +
-    Math.min(model.context_length / 10000, 25) +
-    (model.supported_parameters.includes("response_format") ? 8 : 0) -
-    (model.id === "openrouter/free" ? 100 : 0)
+export function eligibleWebsiteModels(models: Model[]) {
+  return models.filter(
+    (m) =>
+      !/content-safety|moderation|embedding/i.test(m.id) &&
+      !/:batch$|(?:^|[-/])image(?:[-/]|$)/i.test(m.id) &&
+      (!m.architecture?.output_modalities ||
+        m.architecture.output_modalities.includes("text")) &&
+      m.context_length >= 32000 &&
+      (m.top_provider?.max_completion_tokens ?? 16000) >= 8000,
   );
+}
+function reasoningConfig(model: Model) {
+  if (!model.supported_parameters.includes("reasoning")) return {};
+  const efforts = model.reasoning?.supported_efforts;
+  if (efforts?.length)
+    return {
+      reasoning: {
+        effort:
+          ["medium", "low", "minimal"].find((effort) =>
+            efforts.includes(effort),
+          ) ?? efforts[0],
+        exclude: true,
+      },
+    };
+  if (model.reasoning?.supports_max_tokens)
+    return { reasoning: { max_tokens: 3000, exclude: true } };
+  if (model.reasoning?.mandatory === false)
+    return { reasoning: { enabled: false, exclude: true } };
+  return model.reasoning?.mandatory
+    ? { reasoning: { enabled: true, exclude: true } }
+    : {};
 }
 export async function getModels(signal?: AbortSignal) {
   if (catalogue && catalogue.expires > Date.now())
-    return prioritizeModels(catalogue.models);
+    return configuredModels(catalogue.models);
   const response = await fetch("https://openrouter.ai/api/v1/models", {
     signal: signal
       ? AbortSignal.any([signal, AbortSignal.timeout(20000)])
@@ -60,13 +76,17 @@ export async function getModels(signal?: AbortSignal) {
       "Could not load OpenRouter's current model catalogue. Try again shortly.",
     );
   const payload = await response.json();
-  const models = freeCodingModels(payload.data ?? []);
-  if (!models.length)
-    throw new Error(
-      "No suitable free models are currently available. Try again later.",
-    );
+  const models = eligibleWebsiteModels(payload.data ?? []);
   catalogue = { expires: Date.now() + 300000, models };
-  return prioritizeModels(models);
+  return configuredModels(models);
+}
+function configuredModels(models: Model[]) {
+  const selected = prioritizeModels(models);
+  if (!selected.length)
+    throw new Error(
+      "None of the configured website models are currently available with suitable text, context and output support. Check OPENROUTER_MODELS and restart the app.",
+    );
+  return selected;
 }
 export class ProviderError extends Error {
   constructor(public status: number) {
@@ -74,9 +94,9 @@ export class ProviderError extends Error {
       status === 401
         ? "OpenRouter rejected the server API key. Check OPENROUTER_API_KEY and restart the app."
         : status === 402
-          ? "OpenRouter reports insufficient credit or a daily free-model quota limit."
+          ? "OpenRouter reports insufficient credit. Add credit to the account used by OPENROUTER_API_KEY."
           : status === 429
-            ? "OpenRouter's free model is rate limited. Wait and retry this version."
+            ? "The OpenRouter model is rate limited. Wait and retry this version."
             : `OpenRouter could not complete the request (HTTP ${status}). Retry this version.`,
     );
   }
@@ -89,7 +109,7 @@ export async function completion(
   schema?: object,
 ) {
   const outputTokens = Math.min(
-    schema ? 5000 : 18000,
+    schema ? 5000 : 20000,
     model.top_provider?.max_completion_tokens ?? 18000,
   );
   // Conservative context guard: never silently drop the owner's knowledge.
@@ -98,7 +118,7 @@ export async function completion(
   );
   if (estimatedInputTokens + outputTokens > model.context_length)
     throw new Error(
-      "This free model's context is too small for all the business evidence. Choose a larger-context model.",
+      "This model's context is too small for all the business evidence. Choose a larger-context model.",
     );
   const response = await fetch(
     "https://openrouter.ai/api/v1/chat/completions",
@@ -120,18 +140,7 @@ export async function completion(
         ...(model.supported_parameters.includes("temperature")
           ? { temperature: 0.85 }
           : {}),
-        ...(model.supported_parameters.includes("reasoning")
-          ? {
-              reasoning: {
-                effort: model.reasoning?.supported_efforts?.length
-                  ? model.reasoning.supported_efforts.includes("medium")
-                    ? "medium"
-                    : model.reasoning.supported_efforts[0]
-                  : "medium",
-                exclude: true,
-              },
-            }
-          : {}),
+        ...reasoningConfig(model),
         ...(schema && model.supported_parameters.includes("response_format")
           ? {
               response_format: {
@@ -140,7 +149,7 @@ export async function completion(
               },
             }
           : {}),
-        provider: { max_price: { prompt: 0, completion: 0 } },
+        provider: { allow_fallbacks: true },
       }),
       cache: "no-store",
     },
@@ -151,7 +160,7 @@ export async function completion(
   const choice = payload.choices?.[0];
   if (choice?.finish_reason === "length")
     throw new Error(
-      "The model reached its output limit before finishing the design. Retry with another free model.",
+      "The model reached its output limit before finishing the design. Retry with another configured model.",
     );
   if (
     typeof choice?.message?.content !== "string" ||

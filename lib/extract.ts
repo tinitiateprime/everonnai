@@ -30,7 +30,8 @@ export function extractPage(html: string, url: string): SourcePage {
     $("a[href]")
       .map((_, el) => absolute($(el).attr("href")))
       .get()
-      .filter(Boolean),
+      .filter((url) => url && url.length <= 2048)
+      .slice(0, 2000),
   );
   const emails = unique(
     $("a[href^='mailto:']")
@@ -45,10 +46,10 @@ export function extractPage(html: string, url: string): SourcePage {
   const images = $("img")
     .map((_, el) => ({
       url: absolute($(el).attr("src") ?? $(el).attr("data-src")),
-      alt: $(el).attr("alt") ?? "",
+      alt: ($(el).attr("alt") ?? "").slice(0, 2000),
     }))
     .get()
-    .filter((i) => i.url)
+    .filter((i) => i.url && i.url.length <= 2048)
     .slice(0, 30);
   const socialImage = absolute($("meta[property='og:image']").attr("content"));
   if (socialImage)
@@ -71,10 +72,12 @@ export function extractPage(html: string, url: string): SourcePage {
     .get()
     .filter(Boolean)
     .slice(0, 8);
-  const title = clean($("title").first().text());
-  const description = $("meta[name='description']").attr("content") ?? "";
+  const title = clean($("title").first().text()).slice(0, 2000);
+  const description = (
+    $("meta[name='description']").attr("content") ?? ""
+  ).slice(0, 6000);
   const headings = $("h1,h2,h3")
-    .map((_, el) => clean($(el).text()))
+    .map((_, el) => clean($(el).text()).slice(0, 4000))
     .get()
     .filter(Boolean)
     .slice(0, 60);
@@ -112,8 +115,12 @@ export function extractPage(html: string, url: string): SourcePage {
     truncated: fullText.length > 12000,
     headings,
     links,
-    phones: unique(phones).slice(0, 25),
-    emails: unique(emails).slice(0, 25),
+    phones: unique(phones)
+      .filter((value) => value.length <= 200)
+      .slice(0, 25),
+    emails: unique(emails)
+      .filter((value) => value.length <= 320)
+      .slice(0, 25),
     images,
     structuredData: structuredData.slice(0, 10),
     design: { ...designCues(css), css: css.slice(0, 8000), stylesheets },

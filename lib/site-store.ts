@@ -12,6 +12,7 @@ import type { Artifact, Discovery, Knowledge } from "./types";
 import { knowledgePacket } from "./prompts";
 import { knowledgeSchema } from "./types";
 import { discoverySchema } from "./input";
+import { MAX_SOURCE_BYTES } from "./crawl-limits";
 
 export class SiteRevisionConflict extends Error {
   constructor() {
@@ -93,7 +94,7 @@ export async function saveGeneratedSite(
       knowledgeJson: knowledgePacket(knowledge, discovery),
       generationContext: { knowledge, discovery },
     });
-    if (Buffer.byteLength(payload) > 8_000_000)
+    if (Buffer.byteLength(payload) > MAX_SOURCE_BYTES)
       throw new Error("Stored website exceeds the size limit.");
     await writeFile(temporary, payload, {
       encoding: "utf8",
@@ -134,7 +135,7 @@ export async function readGeneratedSiteRecord(
   const file = filePath(slug, version);
   if (!file) return null;
   try {
-    if ((await stat(file)).size > 8_000_000)
+    if ((await stat(file)).size > MAX_SOURCE_BYTES)
       throw new Error("Stored website exceeds the size limit.");
     const record = JSON.parse(await readFile(file, "utf8"));
     if (

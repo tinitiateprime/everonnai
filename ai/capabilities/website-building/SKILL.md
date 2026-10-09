@@ -27,7 +27,7 @@ Return one complete <!DOCTYPE html> document with original CSS in <style>, a des
 
 Use working anchors to existing section IDs, native details/summary, and native HTML/CSS interactions. Use exact supported tel: and mailto: links. Unknown contact details should yield a useful informational website, without a fake enquiry action. The application supplies voice/chat controls outside your generated document; do not duplicate them or claim an unsupported booking/payment function.
 
-No JavaScript, inline event handlers, iframes, forms, CSS frameworks, tracking, invented endpoints, inert buttons, placeholders or incomplete code. Optional Google Fonts stylesheets are allowed. Asset URLs must be absolute public HTTPS URLs; no srcset. Do not emit CSP metadata: the application provides it. Output the entire finished document without Markdown fences or explanatory prose, keeping it within approximately 12,000 tokens.
+No JavaScript, inline event handlers, iframes, forms, CSS frameworks, tracking, invented endpoints, inert buttons, placeholders or incomplete code. Optional Google Fonts stylesheets are allowed. Asset URLs must be absolute public HTTPS URLs; no srcset. Do not emit CSP metadata: the application provides it. Output the entire finished document without Markdown fences or explanatory prose, keeping it within approximately 6,000 tokens. Use concise, maintainable original CSS and focused business copy so a complete design fits comfortably inside the output budget.
 
 ## Refinement
 

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { mkdtempSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -651,6 +652,112 @@ async function main() {
       path: "artifacts/knowledge-mobile.png",
       fullPage: true,
     });
+    // Checkpoint pages merge across batches and survive refresh before extending the same crawl.
+    await page.setViewportSize({ width: 1440, height: 1080 });
+    const crawlId = randomUUID(),
+      snapshotId = randomUUID();
+    const largePages = Array.from({ length: 50 }, (_, i) => ({
+      ...sourcePage,
+      url: `https://northline.example/page-${i}`,
+      title: `Business page ${i}`,
+    }));
+    let crawlBatches = 0;
+    await page.unroute("**/api/discover");
+    await page.route("**/api/discover", async (route) => {
+      const body = route.request().postDataJSON();
+      crawlBatches++;
+      if (crawlBatches > 1) assert.equal(body.crawlId, crawlId);
+      if (crawlBatches === 2) assert.equal(body.capturedCount, 1);
+      if (crawlBatches === 3) {
+        assert.equal(body.extend, true);
+        assert.equal(body.capturedCount, 40);
+      }
+      const count = crawlBatches === 1 ? 1 : crawlBatches === 2 ? 40 : 50;
+      const metadata = {
+        ...discovery,
+        pages: [],
+        complete: count === 50,
+        discovered: 50,
+        crawl: {
+          id: crawlId,
+          revision: randomUUID(),
+          pageLimit: count === 50 ? 80 : 40,
+          remaining: 50 - count,
+          canContinue: count === 1,
+          canExtend: count < 50,
+          status: count === 50 ? "complete" : count === 40 ? "limit" : "paused",
+        },
+      };
+      const pages =
+        crawlBatches === 1
+          ? largePages.slice(0, 1)
+          : crawlBatches === 2
+            ? largePages.slice(1, 40)
+            : largePages.slice(40);
+      await route.fulfill({
+        contentType: "application/x-ndjson",
+        body: `${JSON.stringify({ type: "checkpoint", discovery: metadata, pages })}\n${JSON.stringify({ type: "result", discovery: metadata, pages: [] })}\n`,
+      });
+    });
+    await page.getByRole("button", { name: "Read again", exact: true }).click();
+    await page.getByText("40 pages read", { exact: true }).waitFor();
+    assert.equal(crawlBatches, 2);
+    await page
+      .getByRole("button", { name: "Read more pages", exact: true })
+      .waitFor();
+    await pause(650);
+    await page.reload();
+    await page.getByText("Saved on this device", { exact: true }).waitFor();
+    await page
+      .getByRole("button", { name: "Read more pages", exact: true })
+      .click();
+    await page.getByText("50 pages read", { exact: true }).waitFor();
+    assert.equal(crawlBatches, 3);
+    await page.unroute("**/api/plan");
+    await page.route("**/api/plan", async (route) => {
+      const body = route.request().postDataJSON();
+      assert.equal(body.discoveryId, crawlId);
+      assert.equal(body.discovery, undefined);
+      await route.fulfill({
+        json: {
+          directions,
+          model: "test/coder:free",
+          sourceSnapshotId: snapshotId,
+        },
+      });
+    });
+    await page.unroute("**/api/generate");
+    let frozenGenerations = 0;
+    await page.route("**/api/generate", async (route) => {
+      const body = route.request().postDataJSON();
+      assert.equal(body.sourceSnapshotId, snapshotId);
+      assert.equal(body.discovery, undefined);
+      frozenGenerations++;
+      const artifact = {
+        id: randomUUID(),
+        index: body.index,
+        name: body.direction.name,
+        rationale: body.direction.concept,
+        html: website(),
+        model: "test/coder:free",
+        createdAt: new Date().toISOString(),
+        warnings: [],
+      };
+      const saved = testDirectory
+        ? await saveGeneratedSite(body.knowledge, artifact, {
+            ...discovery,
+            pages: largePages,
+          })
+        : { ...artifact, path: `/service/northline-heating/${body.index + 1}` };
+      await route.fulfill({ json: { artifact: saved } });
+    });
+    await page
+      .getByRole("button", { name: "Generate three websites", exact: true })
+      .click();
+    await page
+      .getByText("All three designs are ready.", { exact: true })
+      .waitFor();
+    assert.equal(frozenGenerations, 3);
     // Actual routes: reject local crawling and reject a generation request without credentials.
     await page.unroute("**/api/discover");
     await page.unroute("**/api/plan");

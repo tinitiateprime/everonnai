@@ -8,7 +8,7 @@ import {
 import { isPublicIp, parsePublicUrl, safeResource } from "../lib/network";
 import { extractPage } from "../lib/extract";
 import { discoverWebsite, crawlable } from "../lib/crawler";
-import { freeCodingModels } from "../lib/openrouter";
+import { eligibleWebsiteModels } from "../lib/openrouter";
 import { validateWebsite, PREVIEW_CSP } from "../lib/validation";
 import { knowledgePacket } from "../lib/prompts";
 import { brief, website, model } from "./fixtures";
@@ -174,8 +174,8 @@ test("adjacent contact links stay separated and JSON-LD contact data is captured
   assert.ok(!page.emails.some((e) => e.startsWith("0124")));
   assert.ok(page.phones.includes("+442012345678"));
 });
-test("only free suitable models qualify and safety-only models are excluded", () => {
-  const selected = freeCodingModels([
+test("suitable text models qualify at any price and safety-only models are excluded", () => {
+  const selected = eligibleWebsiteModels([
     model,
     {
       ...model,
@@ -187,7 +187,7 @@ test("only free suitable models qualify and safety-only models are excluded", ()
   ]);
   assert.deepEqual(
     selected.map((m) => m.id),
-    [model.id],
+    [model.id, "test/paid"],
   );
 });
 test("website validation preserves original design and injects CSP", () => {

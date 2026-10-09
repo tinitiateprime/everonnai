@@ -4,7 +4,7 @@ import { makePlan, makeWebsite } from "../lib/generator";
 import {
   completion,
   ProviderError,
-  freeCodingModels,
+  eligibleWebsiteModels,
   prioritizeModels,
   DEFAULT_WEBSITE_MODELS,
 } from "../lib/openrouter";
@@ -23,8 +23,11 @@ const directions = [
   composition: `${name} has a unique editorial arrangement emphasizing business services and real contact details.`,
   imageQueries: ["heat pump equipment"],
 }));
-test("AI pipeline plans three variants, repairs rejected output, enforces free pricing and reports model usage", async () => {
+test("AI pipeline plans three variants, repairs output, restricts models to configuration and reports usage", async () => {
   const original = globalThis.fetch;
+  const originalModels = process.env.OPENROUTER_MODELS;
+  process.env.OPENROUTER_MODELS =
+    "test/coder:free,test/second:free,test/third:free";
   const calls: Record<string, unknown>[] = [];
   let generations = 0;
   globalThis.fetch = async (url, options) => {
@@ -66,7 +69,14 @@ test("AI pipeline plans three variants, repairs rejected output, enforces free p
     assert.ok(artifact.html.includes("Content-Security-Policy"));
     assert.equal(artifact.model, model.id);
     assert.ok(
-      calls.every((c) => JSON.stringify(c.provider).includes('"prompt":0')),
+      calls.every((c) =>
+        ["test/coder:free", "test/second:free", "test/third:free"].includes(
+          String(c.model),
+        ),
+      ),
+    );
+    assert.ok(
+      calls.every((c) => !JSON.stringify(c.provider).includes("max_price")),
     );
     assert.ok(JSON.stringify(calls[2]).includes("validation failure"));
     assert.ok(
@@ -76,6 +86,8 @@ test("AI pipeline plans three variants, repairs rejected output, enforces free p
     assert.ok(JSON.stringify(calls).includes("No fixed theme"));
   } finally {
     globalThis.fetch = original;
+    if (originalModels === undefined) delete process.env.OPENROUTER_MODELS;
+    else process.env.OPENROUTER_MODELS = originalModels;
   }
 });
 test("provider rejects truncated content and credentials without returning partial websites", async () => {
@@ -150,13 +162,13 @@ test("same-origin mutation guard and environment-only API key rules", () => {
     else process.env.STUDIO_ACCESS_TOKEN = originalToken;
   }
 });
-test("preferred models stay free and available, and environment overrides are honored", () => {
-  const available = freeCodingModels([
+test("only available configured models are selected, paid models and latest aliases are supported", () => {
+  const available = eligibleWebsiteModels([
     model,
     ...DEFAULT_WEBSITE_MODELS.map((id) => ({ ...model, id })),
     {
       ...model,
-      id: "test/paid:free",
+      id: "test/paid",
       pricing: { prompt: "0.1", completion: "0.1" },
     },
   ]);
@@ -172,10 +184,14 @@ test("preferred models stay free and available, and environment overrides are ho
   );
   const missing = available.filter((m) => m.id !== DEFAULT_WEBSITE_MODELS[0]);
   assert.equal(prioritizeModels(missing, "")[0].id, DEFAULT_WEBSITE_MODELS[1]);
-  assert.ok(
-    !prioritizeModels(available, "test/paid:free").some(
-      (m) => m.id === "test/paid:free",
-    ),
+  assert.deepEqual(
+    prioritizeModels(available, "test/paid").map((m) => m.id),
+    ["test/paid"],
+  );
+  assert.deepEqual(prioritizeModels(available, "missing/model"), []);
+  assert.equal(
+    prioritizeModels(available, "anthropic/claude-opus-latest")[0].id,
+    "~anthropic/claude-opus-latest",
   );
 });
 test("reasoning effort follows catalogue capabilities instead of unsupported defaults", async () => {
@@ -199,6 +215,26 @@ test("reasoning effort follows catalogue capabilities instead of unsupported def
       [],
     );
     assert.deepEqual(sent?.reasoning, { effort: "medium", exclude: true });
+    await completion(
+      "test-key",
+      {
+        ...model,
+        supported_parameters: ["reasoning"],
+        reasoning: { mandatory: false },
+      },
+      [],
+    );
+    assert.deepEqual(sent?.reasoning, { enabled: false, exclude: true });
+    await completion(
+      "test-key",
+      {
+        ...model,
+        supported_parameters: ["reasoning"],
+        reasoning: { mandatory: true, supports_max_tokens: true },
+      },
+      [],
+    );
+    assert.deepEqual(sent?.reasoning, { max_tokens: 3000, exclude: true });
   } finally {
     globalThis.fetch = original;
   }

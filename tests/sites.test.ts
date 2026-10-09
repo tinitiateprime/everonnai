@@ -140,10 +140,12 @@ test("generation API returns a usable persisted website URL after provider valid
     directory: process.env.GENERATED_SITES_DIR,
     key: process.env.OPENROUTER_API_KEY,
     token: process.env.STUDIO_ACCESS_TOKEN,
+    models: process.env.OPENROUTER_MODELS,
     fetch: globalThis.fetch,
   };
   process.env.GENERATED_SITES_DIR = directory;
   process.env.OPENROUTER_API_KEY = "sk-or-v1-test-server-key";
+  process.env.OPENROUTER_MODELS = model.id;
   process.env.STUDIO_ACCESS_TOKEN = "test-token";
   globalThis.fetch = async (url) =>
     String(url).endsWith("/models")
@@ -188,6 +190,7 @@ test("generation API returns a usable persisted website URL after provider valid
       ["GENERATED_SITES_DIR", previous.directory],
       ["OPENROUTER_API_KEY", previous.key],
       ["STUDIO_ACCESS_TOKEN", previous.token],
+      ["OPENROUTER_MODELS", previous.models],
     ]) {
       if (value === undefined) delete process.env[name!];
       else process.env[name!] = value;

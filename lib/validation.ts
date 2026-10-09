@@ -27,6 +27,12 @@ export function validateWebsite(
       "Return a complete, bounded HTML document with a doctype and closing html tag.",
     );
   const $ = load(html);
+  $("meta[http-equiv]").each((_, element) => {
+    if (
+      ($(element).attr("http-equiv") ?? "").toLowerCase() === "x-ua-compatible"
+    )
+      $(element).remove();
+  });
   if (
     !$("title").text().trim() ||
     !$("meta[name='viewport']").length ||
@@ -34,14 +40,27 @@ export function validateWebsite(
     !$("main").length
   )
     throw new Error(
-      "Add a title, viewport meta, primary heading and main landmark.",
+      `Add the missing document elements: ${[!$("title").text().trim() && "descriptive title", !$("meta[name='viewport']").length && "viewport meta", !$("h1").length && "primary h1 heading", !$("main").length && "main landmark (<main> around the page's main content)"].filter(Boolean).join(", ")}. Preserve the original design and return the complete document.`,
     );
   if (
     $("script,iframe,object,embed,form,base").length ||
     $("meta[http-equiv]").length
   )
     throw new Error(
-      "Remove scripts, embedded content, forms, base tags and http-equiv metadata. Use native HTML/CSS interactions.",
+      `Remove these unsupported elements: ${$(
+        "script,iframe,object,embed,form,base,meta[http-equiv]",
+      )
+        .toArray()
+        .map(
+          (element) =>
+            element.tagName +
+            (element.tagName === "meta"
+              ? ` (${$(element).attr("http-equiv")})`
+              : ""),
+        )
+        .join(
+          ", ",
+        )}. Remove unsupported forms entirely and use native links/details for interactions. The application supplies CSP; omit http-equiv metadata. Return the full HTML document.`,
     );
   const css = $("style")
     .map((_, el) => $(el).text())

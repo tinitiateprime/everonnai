@@ -13,6 +13,7 @@ import {
   Check,
   ChevronDown,
   ExternalLink,
+  FileStack,
   Globe2,
   Layers3,
   Loader2,
@@ -33,7 +34,15 @@ import {
   type DesignPlan,
   type Discovery,
   type Knowledge,
+  type SitePagePlan,
 } from "@/lib/types";
+import {
+  HOME_PAGE,
+  downloadedPageLinks,
+  hideImageCaptions,
+  servedPageLinks,
+  zipFiles,
+} from "@/lib/site-pages";
 import { readDraft, saveDraft } from "@/lib/browser-store";
 import { AssistantEmbed } from "./assistant-embed";
 
@@ -52,6 +61,36 @@ type DiscoveryEvent = {
   discovery?: Discovery;
   pages?: Discovery["pages"];
 };
+const fileName = (name: string) =>
+  name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "") || "website";
+// Combines concurrent "Build full site" responses: home fields from the home-link
+// response (if any), and the newest copy of each planned page from any response.
+function mergeSiteBuild(
+  base: Artifact,
+  responses: Artifact[],
+  planned: string[],
+): Artifact {
+  const home = responses.find((a) => a.id !== base.id) ?? base;
+  const pages = new Map<string, NonNullable<Artifact["pages"]>[number]>();
+  for (const artifact of [base, ...responses])
+    for (const page of artifact.pages ?? []) {
+      const known = pages.get(page.slug);
+      if (!known || known.createdAt < page.createdAt)
+        pages.set(page.slug, page);
+    }
+  const kept = [...pages.values()].filter(
+    (p) => !responses.length || planned.includes(p.slug),
+  );
+  return {
+    ...home,
+    pages: planned.length
+      ? planned.flatMap((slug) => kept.filter((p) => p.slug === slug))
+      : kept,
+  };
+}
 const normalizeUrl = (url: string) => {
   try {
     return new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).href;
@@ -59,7 +98,11 @@ const normalizeUrl = (url: string) => {
     return url;
   }
 };
-const download = (content: string, name: string, type: string) => {
+const download = (
+  content: string | Uint8Array<ArrayBuffer>,
+  name: string,
+  type: string,
+) => {
   const link = document.createElement("a");
   const url = URL.createObjectURL(new Blob([content], { type }));
   link.href = url;
@@ -98,6 +141,13 @@ export function Studio() {
   const [changePrompts, setChangePrompts] = useState<Record<number, string>>(
     {},
   );
+  // Per version: the page shown in the preview, and the last "Build full site" plan.
+  const [selectedPages, setSelectedPages] = useState<Record<number, string>>(
+    {},
+  );
+  const [sitePlans, setSitePlans] = useState<
+    Record<number, { pages: SitePagePlan[]; failed: string[] }>
+  >({});
   const buildController = useRef<AbortController | null>(null);
   const crawlController = useRef<AbortController | null>(null);
   const crawlPromise = useRef<{
@@ -535,10 +585,13 @@ export function Studio() {
     }
     const parts = current.path.split("/");
     const targetIndex = current.index;
+    const page = currentPage;
     const controller = new AbortController();
     buildController.current = controller;
     setBusy(true);
-    setStatus(`Applying changes to version ${targetIndex + 1}…`);
+    setStatus(
+      `Applying changes to version ${targetIndex + 1}${page ? ` — ${page.title} page` : ""}…`,
+    );
     try {
       const result = await post<{ artifact: Artifact }>(
         "/api/refine",
@@ -547,6 +600,7 @@ export function Studio() {
           version: parts[3],
           revision: current.id,
           prompt,
+          ...(page ? { page: page.slug } : {}),
           ...(modelChoices[targetIndex]
             ? { model: modelChoices[targetIndex] }
             : {}),
@@ -558,7 +612,7 @@ export function Studio() {
       );
       setChangePrompts((old) => ({ ...old, [targetIndex]: "" }));
       setStatus(
-        `Changes applied to version ${targetIndex + 1}. Your website link is updated.`,
+        `Changes applied to version ${targetIndex + 1}${page ? ` — ${page.title} page` : ""}. Your website link is updated.`,
       );
     } catch (error) {
       if (controller.signal.aborted)
@@ -579,6 +633,119 @@ export function Studio() {
             old.map((a) => (a.index === targetIndex ? latest : a)),
           );
         }
+        setStatus("");
+      }
+    } finally {
+      setBusy(false);
+      buildController.current = null;
+    }
+  }
+  // "Build full site": plan inner pages, then build each page and link them from the
+  // home page concurrently. `retry` rebuilds only the failed targets of the last plan.
+  async function buildSite(retry = false) {
+    if (busy || !current?.path) return;
+    setError("");
+    if (!serverConfigured) {
+      setError("Configure website generation before building pages.");
+      return;
+    }
+    if (tokenRequired && !accessToken) {
+      setSettings(true);
+      setError("Enter the studio access token to build pages.");
+      return;
+    }
+    const base = current;
+    const parts = base.path!.split("/");
+    const identity = {
+      business: decodeURIComponent(parts[2]),
+      version: parts[3],
+      revision: base.id,
+    };
+    const targetIndex = base.index;
+    const model = modelChoices[targetIndex] || undefined;
+    const controller = new AbortController();
+    buildController.current = controller;
+    setBusy(true);
+    try {
+      let pages = retry ? sitePlans[targetIndex]?.pages : undefined;
+      let targets = retry ? sitePlans[targetIndex]?.failed : undefined;
+      if (!pages?.length || !targets?.length) {
+        setStatus("Choosing pages from your business knowledge and website…");
+        pages = (
+          await post<{ pages: SitePagePlan[] }>(
+            "/api/site-pages/plan",
+            identity,
+            controller.signal,
+          )
+        ).pages;
+        targets = [...pages.map((p) => p.slug), HOME_PAGE];
+      }
+      const plannedPages = pages;
+      const planned = plannedPages.map((p) => p.slug);
+      setSitePlans((old) => ({
+        ...old,
+        [targetIndex]: { pages: plannedPages, failed: [] },
+      }));
+      setStatus(
+        `Building ${plannedPages.map((p) => p.title).join(", ")} in your chosen design…`,
+      );
+      const responses: Artifact[] = [];
+      const failed: string[] = [];
+      const errors: string[] = [];
+      await Promise.all(
+        targets.map(async (target) => {
+          try {
+            const { artifact } = await post<{ artifact: Artifact }>(
+              "/api/site-pages/build",
+              {
+                ...identity,
+                pages: plannedPages,
+                target,
+                ...(model ? { model } : {}),
+              },
+              controller.signal,
+            );
+            responses.push(artifact);
+            const merged = mergeSiteBuild(base, responses, planned);
+            setArtifacts((old) =>
+              old.map((a) => (a.index === targetIndex ? merged : a)),
+            );
+          } catch (error) {
+            if (controller.signal.aborted) throw error;
+            failed.push(target);
+            const title =
+              target === HOME_PAGE
+                ? "Home page links"
+                : (plannedPages.find((p) => p.slug === target)?.title ??
+                  target);
+            errors.push(
+              `${title}: ${error instanceof Error ? error.message : "failed"}`,
+            );
+          }
+        }),
+      );
+      setSitePlans((old) => ({
+        ...old,
+        [targetIndex]: { pages: plannedPages, failed },
+      }));
+      if (failed.length) {
+        setError(
+          `Some pages could not be built. Use "Retry missing pages". ${errors.join(" ")}`,
+        );
+        setStatus(
+          `Built ${targets.length - failed.length} of ${targets.length} parts of the site.`,
+        );
+      } else
+        setStatus(
+          `Full site ready: Home, ${plannedPages.map((p) => p.title).join(", ")}.`,
+        );
+    } catch (error) {
+      if (controller.signal.aborted)
+        setStatus("Page building stopped. Finished pages are saved.");
+      else {
+        setError(
+          error instanceof Error ? error.message : "Could not build the site.",
+        );
         setStatus("");
       }
     } finally {
@@ -635,6 +802,48 @@ export function Studio() {
     </label>
   );
   const current = artifacts.find((a) => a.index === selected);
+  const currentPage = current?.pages?.find(
+    (p) => p.slug === selectedPages[selected],
+  );
+  const builtSlugs = (current?.pages ?? []).map((p) => p.slug);
+  const shownHtml = current
+    ? hideImageCaptions(
+        servedPageLinks(
+          (currentPage ?? current).html,
+          current.path ?? "",
+          builtSlugs,
+        ),
+      )
+    : "";
+  const shownPath =
+    current?.path && currentPage
+      ? `${current.path}/${currentPage.slug}`
+      : current?.path;
+  const pendingRetry = sitePlans[selected]?.failed.length ?? 0;
+  function downloadSite(artifact: Artifact) {
+    const name = fileName(artifact.name);
+    if (!artifact.pages?.length)
+      return download(
+        hideImageCaptions(artifact.html),
+        `${name}.html`,
+        "text/html",
+      );
+    const slugs = artifact.pages.map((p) => p.slug);
+    download(
+      zipFiles([
+        {
+          name: "index.html",
+          content: hideImageCaptions(downloadedPageLinks(artifact.html, slugs)),
+        },
+        ...artifact.pages.map((p) => ({
+          name: `${p.slug}.html`,
+          content: hideImageCaptions(downloadedPageLinks(p.html, slugs)),
+        })),
+      ]),
+      `${name}.zip`,
+      "application/zip",
+    );
+  }
   const source =
     discovery &&
     normalizeUrl(discovery.inputUrl) === normalizeUrl(knowledge.websiteUrl)
@@ -1469,22 +1678,18 @@ export function Studio() {
                   {current && (
                     <button
                       className="secondary-button"
-                      onClick={() =>
-                        download(
-                          current.html,
-                          `${current.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "website"}.html`,
-                          "text/html",
-                        )
-                      }
+                      onClick={() => downloadSite(current)}
                     >
                       <ArrowDownToLine size={14} />
-                      Download HTML
+                      {current.pages?.length
+                        ? "Download site (.zip)"
+                        : "Download HTML"}
                     </button>
                   )}
-                  {current?.path && (
+                  {shownPath && (
                     <a
                       className="secondary-button"
-                      href={current.path}
+                      href={shownPath}
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -1493,12 +1698,70 @@ export function Studio() {
                     </a>
                   )}
                 </div>
-                {current?.path && (
+                {shownPath && (
                   <div className="site-address">
                     <span>Website link</span>
-                    <a href={current.path} target="_blank" rel="noreferrer">
-                      {current.path}
+                    <a href={shownPath} target="_blank" rel="noreferrer">
+                      {shownPath}
                     </a>
+                  </div>
+                )}
+                {current?.path && (
+                  <div className="site-pages">
+                    {!!current.pages?.length && (
+                      <div
+                        className="page-tabs"
+                        role="tablist"
+                        aria-label="Website pages"
+                      >
+                        {[
+                          { slug: HOME_PAGE, title: "Home" },
+                          ...current.pages,
+                        ].map((page) => {
+                          const active =
+                            (currentPage?.slug ?? HOME_PAGE) === page.slug;
+                          return (
+                            <button
+                              key={page.slug}
+                              role="tab"
+                              aria-selected={active}
+                              className={active ? "active" : ""}
+                              onClick={() =>
+                                setSelectedPages((old) => ({
+                                  ...old,
+                                  [selected]: page.slug,
+                                }))
+                              }
+                            >
+                              {page.title}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <div className="site-pages-actions">
+                      {pendingRetry > 0 && (
+                        <button
+                          className="secondary-button"
+                          disabled={busy}
+                          onClick={() => void buildSite(true)}
+                        >
+                          <RefreshCw size={14} />
+                          Retry missing pages
+                        </button>
+                      )}
+                      <button
+                        className="secondary-button"
+                        disabled={busy}
+                        onClick={() => void buildSite()}
+                        title="Create About, Menu/Services, Contact and other pages from your business knowledge and website, in this design"
+                      >
+                        <FileStack size={14} />
+                        {current.pages?.length
+                          ? "Rebuild pages"
+                          : "Build full site"}
+                      </button>
+                    </div>
                   </div>
                 )}
                 <div className={`preview-stage ${device}`}>
@@ -1512,7 +1775,7 @@ export function Studio() {
                   {current ? (
                     <iframe
                       title={`${current.name} website preview`}
-                      srcDoc={current.html}
+                      srcDoc={shownHtml}
                       sandbox=""
                       referrerPolicy="no-referrer"
                     />
@@ -1548,9 +1811,14 @@ export function Studio() {
                   onSubmit={(event) => void refine(event)}
                 >
                   <div className="panel-title">
-                    <h2>Refine version {selected + 1}</h2>
+                    <h2>
+                      Refine version {selected + 1}
+                      {currentPage ? ` — ${currentPage.title} page` : ""}
+                    </h2>
                     <span className="help-text">
-                      Changes apply to this version
+                      {current.pages?.length
+                        ? "Changes apply to the page shown above"
+                        : "Changes apply to this version"}
                     </span>
                   </div>
                   <label className="field">
@@ -1587,13 +1855,14 @@ export function Studio() {
                       Apply changes
                     </button>
                   </div>
-                  {!!current.edits?.length && (
+                  {!!(currentPage ?? current).edits?.length && (
                     <details className="change-history">
                       <summary>
-                        Accepted changes ({current.edits.length})
+                        Accepted changes (
+                        {(currentPage ?? current).edits!.length})
                       </summary>
                       <ol>
-                        {current.edits.map((edit, i) => (
+                        {(currentPage ?? current).edits!.map((edit, i) => (
                           <li key={`${edit.createdAt}-${i}`}>
                             <p>{edit.prompt}</p>
                             <time dateTime={edit.createdAt}>

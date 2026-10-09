@@ -9,7 +9,12 @@ import { isPublicIp, parsePublicUrl, safeResource } from "../lib/network";
 import { extractPage } from "../lib/extract";
 import { discoverWebsite, crawlable } from "../lib/crawler";
 import { eligibleWebsiteModels } from "../lib/openrouter";
-import { validateWebsite, PREVIEW_CSP } from "../lib/validation";
+import { load } from "cheerio";
+import {
+  validateWebsite,
+  PREVIEW_CSP,
+  stripImageCaptions,
+} from "../lib/validation";
 import { knowledgePacket } from "../lib/prompts";
 import { brief, website, model } from "./fixtures";
 
@@ -232,6 +237,19 @@ test("website validator drops Google Fonts preconnect hints instead of rejecting
       ),
     /Google Fonts/,
   );
+});
+test("image captions are removed but linked photo credits stay", () => {
+  const html = website().replace(
+    "</main>",
+    '<div class="visual"><figure><img src="https://images.pexels.com/photos/1/a.jpeg" alt="Tea"></figure><span class="photo-note">LEAF → WATER → A LITTLE PAUSE</span></div><figure><img src="https://images.pexels.com/photos/1/a.jpeg" alt="Tea"><figcaption>Catalogue specimen No. 01</figcaption></figure><figure><img src="https://images.pexels.com/photos/1/a.jpeg" alt="Tea"><figcaption>Photo by <a href="https://www.pexels.com/@ana">Ana</a></figcaption></figure></main>',
+  );
+  const $ = load(html);
+  stripImageCaptions($);
+  const out = $.html();
+  assert.ok(!out.includes("A LITTLE PAUSE"));
+  assert.ok(!out.includes("specimen"));
+  assert.ok(out.includes("Photo by"));
+  assert.ok(out.includes("Speak with our team"));
 });
 test("website validator rejects executable content, invented contacts, lost services and dead anchors", () => {
   for (const changed of [

@@ -116,6 +116,17 @@ export type DesignPlan = {
   media?: MediaBundle[];
   sourceSnapshotId?: string;
 };
+export type SitePage = {
+  slug: string;
+  title: string;
+  purpose: string;
+  html: string;
+  model: string;
+  createdAt: string;
+  warnings: string[];
+  edits?: { prompt: string; createdAt: string }[];
+};
+export type SitePagePlan = { slug: string; title: string; purpose: string };
 export type Artifact = {
   id: string;
   index: number;
@@ -129,6 +140,10 @@ export type Artifact = {
   direction?: Direction;
   photos?: PhotoAsset[];
   edits?: { prompt: string; createdAt: string }[];
+  /** Stable across edits of one design; changes when the version is regenerated. */
+  designId?: string;
+  /** Extra pages built from this version's home page ("Build full site"). */
+  pages?: SitePage[];
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;

@@ -8,7 +8,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import type { Artifact, Discovery, Knowledge } from "./types";
+import type { Artifact, Discovery, Knowledge, SitePage } from "./types";
+import { PAGE_SLUG } from "./site-pages";
 import { knowledgePacket } from "./prompts";
 import { knowledgeSchema } from "./types";
 import { discoverySchema } from "./input";
@@ -59,17 +60,8 @@ function filePath(slug: string, version: string) {
   if (!file.startsWith(root + path.sep)) return null;
   return file;
 }
-export async function saveGeneratedSite(
-  knowledge: Knowledge,
-  artifact: Artifact,
-  discovery: Discovery | null = null,
-  expectedRevision?: string,
-): Promise<Artifact> {
-  const slug = businessSlug(knowledge.businessName, knowledge.description);
-  const sitePath = websitePath(slug, artifact.index);
-  const file = filePath(slug, String(artifact.index + 1))!;
-  const saved = { ...artifact, path: sitePath };
-  const temporary = `${file}.${randomUUID()}.tmp`;
+// Serializes writes per stored version within this process.
+async function locked<T>(file: string, task: () => Promise<T>) {
   const pending = writes.get(file) ?? Promise.resolve();
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -79,21 +71,17 @@ export async function saveGeneratedSite(
   writes.set(file, queued);
   await pending;
   try {
-    if (
-      expectedRevision &&
-      (await readGeneratedSite(slug, String(artifact.index + 1)))?.id !==
-        expectedRevision
-    )
-      throw new SiteRevisionConflict();
+    return await task();
+  } finally {
+    release();
+    if (writes.get(file) === queued) writes.delete(file);
+  }
+}
+async function writeRecord(file: string, record: object) {
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
     await mkdir(path.dirname(file), { recursive: true });
-    const payload = JSON.stringify({
-      version: 1,
-      slug,
-      businessName: knowledge.businessName,
-      artifact: saved,
-      knowledgeJson: knowledgePacket(knowledge, discovery),
-      generationContext: { knowledge, discovery },
-    });
+    const payload = JSON.stringify(record);
     if (Buffer.byteLength(payload) > MAX_SOURCE_BYTES)
       throw new Error("Stored website exceeds the size limit.");
     await writeFile(temporary, payload, {
@@ -102,23 +90,96 @@ export async function saveGeneratedSite(
       mode: 0o600,
     });
     await rename(temporary, file);
-  } catch (error) {
-    if (error instanceof SiteRevisionConflict) throw error;
+  } catch {
     throw new Error(
       "Could not save the generated website. Configure a writable generated-site storage directory and retry.",
     );
   } finally {
     await unlink(temporary).catch(() => {});
-    release();
-    if (writes.get(file) === queued) writes.delete(file);
   }
-  return saved;
+}
+export async function saveGeneratedSite(
+  knowledge: Knowledge,
+  artifact: Artifact,
+  discovery: Discovery | null = null,
+  expectedRevision?: string,
+  // Home-page edits keep the version's built pages; a regenerated design replaces them.
+  // A slug list keeps only those pages (a rebuild with a new page plan).
+  options: { keepPages?: boolean | string[] } = {},
+): Promise<Artifact> {
+  const slug = businessSlug(knowledge.businessName, knowledge.description);
+  const sitePath = websitePath(slug, artifact.index);
+  const version = String(artifact.index + 1);
+  const file = filePath(slug, version)!;
+  return locked(file, async () => {
+    const current = await readGeneratedSite(slug, version).catch(() => null);
+    if (expectedRevision && current?.id !== expectedRevision)
+      throw new SiteRevisionConflict();
+    const { pages: incomingPages, ...rest } = artifact;
+    const keep = options.keepPages;
+    const pages = !keep
+      ? incomingPages
+      : current?.pages?.filter((p) => keep === true || keep.includes(p.slug));
+    const saved: Artifact = {
+      ...rest,
+      ...(pages?.length ? { pages } : {}),
+      path: sitePath,
+    };
+    await writeRecord(file, {
+      version: 1,
+      slug,
+      businessName: knowledge.businessName,
+      artifact: saved,
+      knowledgeJson: knowledgePacket(knowledge, discovery),
+      generationContext: { knowledge, discovery },
+    });
+    return saved;
+  });
+}
+/** Adds or replaces one inner page of a saved version, keeping everything else. */
+export async function saveSitePage(
+  slug: string,
+  version: string,
+  page: SitePage,
+  expected: { designId: string; pageCreatedAt?: string },
+  // During a "Build full site" run, pages outside the new plan are dropped.
+  keepOnly?: string[],
+): Promise<Artifact> {
+  const file = filePath(slug, version);
+  if (!file || !PAGE_SLUG.test(page.slug))
+    throw new Error("Invalid website address.");
+  return locked(file, async () => {
+    const record = await readRawRecord(slug, version);
+    if (!record) throw new Error("This saved website could not be found.");
+    const artifact: Artifact = record.artifact;
+    const existing = artifact.pages?.find((p) => p.slug === page.slug);
+    if (
+      (artifact.designId ?? artifact.id) !== expected.designId ||
+      (expected.pageCreatedAt !== undefined &&
+        existing?.createdAt !== expected.pageCreatedAt)
+    )
+      throw new SiteRevisionConflict();
+    const pages = [
+      ...(artifact.pages ?? []).filter(
+        (p) => p.slug !== page.slug && (!keepOnly || keepOnly.includes(p.slug)),
+      ),
+      page,
+    ];
+    const saved = { ...artifact, pages };
+    await writeRecord(file, { ...record, artifact: saved });
+    return saved;
+  });
 }
 export async function readGeneratedSite(
   slug: string,
   version: string,
 ): Promise<Artifact | null> {
   return (await readGeneratedSiteRecord(slug, version))?.artifact ?? null;
+}
+async function readRawRecord(slug: string, version: string) {
+  const parsed = await readGeneratedSiteRecord(slug, version);
+  if (!parsed) return null;
+  return JSON.parse(await readFile(filePath(slug, version)!, "utf8"));
 }
 export async function readGeneratedSiteRecord(
   slug: string,

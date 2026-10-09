@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { directionSchema, knowledgeSchema } from "./types";
 import { MAX_CRAWL_PAGES, MAX_CRAWL_URLS } from "./crawl-limits";
+import { HOME_PAGE, MAX_EXTRA_PAGES, PAGE_SLUG } from "./site-pages";
 // Browser persistence is untrusted. Bound and validate imported discoveries/artifacts.
 const pageSchema = z.object({
   url: z.string().max(2048),
@@ -78,10 +79,35 @@ export const generationInput = planInput.extend({
     .max(8)
     .default([]),
 });
-export const refinementInput = z.object({
+const siteVersionInput = z.object({
   business: z.string().min(1).max(100),
   version: z.enum(["1", "2", "3"]),
   revision: z.string().min(1).max(100),
+});
+const pageSlug = z.string().regex(PAGE_SLUG);
+export const refinementInput = siteVersionInput.extend({
   prompt: z.string().trim().min(3, "Describe the change you want.").max(6000),
+  model: z.string().max(200).optional(),
+  /** Inner page to edit; omitted for the home page. */
+  page: pageSlug.optional(),
+});
+export const sitePagesPlanInput = siteVersionInput;
+export const sitePageBuildInput = siteVersionInput.extend({
+  pages: z
+    .array(
+      z.object({
+        slug: pageSlug.refine((slug) => slug !== HOME_PAGE),
+        title: z.string().trim().min(2).max(40),
+        purpose: z.string().trim().min(10).max(600),
+      }),
+    )
+    .min(1)
+    .max(MAX_EXTRA_PAGES)
+    .refine(
+      (pages) => new Set(pages.map((p) => p.slug)).size === pages.length,
+      "Page slugs must be unique.",
+    ),
+  /** One planned page slug, or "home" to link the new pages from the home page. */
+  target: pageSlug,
   model: z.string().max(200).optional(),
 });

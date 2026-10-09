@@ -23,6 +23,7 @@ Production use requires `STUDIO_ACCESS_TOKEN`; enter this separate studio access
 3. Generate three websites. AI reads [the website-building skill](ai/capabilities/website-building/SKILL.md), entered knowledge and captured website evidence, proposes three distinct directions and image-search briefs, then independently writes original HTML/CSS for each one. The skill defines design quality and factual/accessibility rules; it supplies no layout, template HTML, CSS theme or static fallback. The studio interface itself has ordinary application CSS.
 4. Compare desktop/mobile previews, regenerate individual versions, and download complete HTML documents. Each accepted design also gets a standalone URL: `/service/{business-slug}/1`, `/2`, or `/3`. Use **Open website** beside Download HTML. Draft knowledge, website discovery, plans, prompt drafts and completed designs survive refresh on the same device through IndexedDB.
 5. Select a version and use **Describe your changes → Apply changes** to refine its design. AI receives the saved HTML, original skill/knowledge, approved photos and accepted edit history. The validated result updates that version's existing URL, with a new revision for its voice/chat widget. The other two versions stay intact. Failed edits retain the accepted site and typed prompt. Accepted history (last 20 requests) and unsent prompts survive refresh. Change business facts through Business knowledge and regenerate; design edits use the saved facts. Regeneration starts a fresh design and edit history. Designs saved before editable snapshots were introduced need one regeneration to enable editing.
+6. Select a version and click **Build full site** to turn it into a multi-page website. AI chooses 1–4 extra pages from the business knowledge and crawled website (only where there is real content), builds each one in that version's design, and adds them to the home page navigation; pages build in parallel. Switch pages with the tabs above the preview; **Describe your changes** then edits only the page shown. **Retry missing pages** rebuilds any page that failed, **Rebuild pages** re-plans the set, and **Download site (.zip)** saves `index.html` plus one file per page. Regenerating a version replaces its design and removes its built pages.
 
 ## Pexels images
 
@@ -39,6 +40,8 @@ http://localhost:3000/service/northline-heating/1
 http://localhost:3000/service/northline-heating/2
 http://localhost:3000/service/northline-heating/3
 ```
+
+After **Build full site**, each extra page has its own address under the version, for example `http://localhost:3000/service/northline-heating/2/about`. Links between pages are generated as `page:<slug>` and rewritten to these addresses when served (to `<page>.html` in the downloaded ZIP); links to a page that failed to build fall back to the home page.
 
 Links use the running app's host and port. Names become lowercase URL slugs with spaces/punctuation converted to hyphens. Non-Latin names are supported as encoded path segments. Business name is required for new generation. Legacy unnamed slugs remain readable. Same slug/version points to its latest successfully generated or refined design; only that version is replaced. Distinct businesses need distinct slugs. Older browser-only designs receive URLs when regenerated.
 

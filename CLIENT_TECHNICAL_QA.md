@@ -54,7 +54,7 @@ Yes, once that version has been generated and saved. The Node server reads its s
 
 ## Do the websites have multiple pages, lead forms or bookings?
 
-They are complete responsive single-document websites with section navigation and real contact links when supported by evidence. They do not implement booking, payments, form submission or publishing backends. Those require separate integration. Source/Pexels images and fonts may remain external; downloading HTML does not download every external asset.
+Each of the three designs starts as one complete responsive home page. After choosing a design, **Build full site** expands it into a multi-page website: the AI picks 1–4 extra pages (for example About/Our Story, Menu or Services, Visit/Contact) only where the business knowledge and crawled website have real content, builds each page in the chosen design, and links them from the home page navigation. Pages get their own links (for example `/service/ti-tea-post/3/menu`), can be edited individually from the studio's page tabs, and download together as a ZIP. On 2026-10-09 a live Gemini run expanded a real tea-house version into Home, Our Story, Menu & Teas and Afternoon Tea in about two minutes. Photos are shown without captions or labels; only required photo credits appear. They do not implement booking, payments, form submission or publishing backends. Those require separate integration. Source/Pexels images and fonts may remain external; downloading HTML does not download every external asset.
 
 ## What has been tested?
 

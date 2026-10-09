@@ -2,18 +2,48 @@ import { load } from "cheerio";
 import * as csstree from "css-tree";
 import { parsePublicUrl } from "./network";
 import type { Discovery, Knowledge, PhotoAsset } from "./types";
+import { HOME_PAGE } from "./site-pages";
 
 export const PREVIEW_CSP =
   "default-src 'none'; script-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src https: data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 const normalized = (text: string) =>
   text.toLowerCase().replace(/\s+/g, " ").trim();
+// Owners do not want captions/labels on photos (e.g. "Specimen No. 01", "Leaf -> water"):
+// drop link-free <figcaption>s and short link-free text sitting alone beside an image.
+// Photographer/Pexels credits always contain links and are kept. Mirrored for the
+// studio preview by `hideImageCaptions` in site-pages.ts.
+export function stripImageCaptions($: ReturnType<typeof load>) {
+  $("figcaption")
+    .filter((_, el) => !$(el).find("a[href]").length)
+    .remove();
+  $("figure, img").each((_, image) => {
+    const siblings = $(image).parent().children();
+    if (siblings.length !== 2) return;
+    const other = siblings.not(image);
+    const text = other.text().replace(/\s+/g, " ").trim();
+    if (
+      text &&
+      text.length <= 90 &&
+      !other.is("h1,h2,h3,h4,h5,h6,a,button,nav,header,footer,main,section") &&
+      !other.find("a,img,figure,picture,h1,h2,h3,h4,h5,h6,button").length
+    )
+      other.remove();
+  });
+}
 export function validateWebsite(
   raw: string,
   knowledge: Knowledge,
   previousHtml: string[] = [],
   discovery: Discovery | null = null,
   photos: PhotoAsset[] = [],
+  options: {
+    /** Other pages of this site that `page:<slug>` links may target. */
+    pageSlugs?: string[];
+    /** Inner page: contacts/services stay fact-checked but need not all appear. */
+    subpage?: boolean;
+  } = {},
 ) {
+  const linkablePages = new Set([HOME_PAGE, ...(options.pageSlugs ?? [])]);
   const html = raw
     .trim()
     .replace(/^```(?:html)?\s*/i, "")
@@ -27,6 +57,7 @@ export function validateWebsite(
       "Return a complete, bounded HTML document with a doctype and closing html tag.",
     );
   const $ = load(html);
+  stripImageCaptions($);
   $("meta[http-equiv]").each((_, element) => {
     if (
       ($(element).attr("http-equiv") ?? "").toLowerCase() === "x-ua-compatible"
@@ -174,6 +205,12 @@ export function validateWebsite(
         continue;
       }
       if (name === "href" && /^(tel:|mailto:)/.test(value)) continue;
+      if (name === "href" && /^page:/i.test(value)) {
+        const target = /^page:([a-z0-9-]+)(?:#[\w-]*)?$/i.exec(value);
+        if (!target || !linkablePages.has(target[1].toLowerCase()))
+          invalid = `Link only to this site's pages: ${[...linkablePages].map((slug) => `page:${slug}`).join(", ")}.`;
+        continue;
+      }
       if (
         name === "src" &&
         /^data:image\/(png|jpeg|webp|gif);base64,/.test(value)
@@ -257,21 +294,23 @@ export function validateWebsite(
     );
   const text = normalized($("body").text());
   if (
-    text.length < 400 ||
+    text.length < (options.subpage ? 200 : 400) ||
     /lorem ipsum|\bTODO\b|your (business|company) name/i.test(text)
   )
     throw new Error(
       "Provide complete business-specific copy without placeholders.",
     );
-  for (const service of knowledge.services.filter((s) => s.name))
-    if (!text.includes(normalized(service.name)))
-      throw new Error(`Include the supplied service: ${service.name}`);
+  if (!options.subpage)
+    for (const service of knowledge.services.filter((s) => s.name))
+      if (!text.includes(normalized(service.name)))
+        throw new Error(`Include the supplied service: ${service.name}`);
   if (
     knowledge.businessName &&
     !text.includes(normalized(knowledge.businessName))
   )
     throw new Error("Include the exact supplied business name.");
   if (
+    !options.subpage &&
     knowledge.email &&
     !$("a[href^='mailto:']")
       .toArray()
@@ -283,6 +322,7 @@ export function validateWebsite(
   )
     throw new Error("Include the owner's exact email as a mailto link.");
   if (
+    !options.subpage &&
     knowledge.phone &&
     !$("a[href^='tel:']")
       .toArray()

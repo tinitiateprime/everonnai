@@ -6,10 +6,11 @@ import {
   readJson,
 } from "@/lib/api";
 import { refinementInput } from "@/lib/input";
-import { makeWebsite } from "@/lib/generator";
+import { makeSitePage, makeWebsite } from "@/lib/generator";
 import {
   readGeneratedSiteRecord,
   saveGeneratedSite,
+  saveSitePage,
   SiteRevisionConflict,
 } from "@/lib/site-store";
 
@@ -41,6 +42,33 @@ export async function POST(request: Request) {
         400,
       );
     const { knowledge, discovery } = record.generationContext;
+    if (data.page) {
+      const pages = record.artifact.pages ?? [];
+      const page = pages.find((p) => p.slug === data.page);
+      if (!page)
+        return jsonResponse(
+          { error: "This page no longer exists. Reload the latest site." },
+          409,
+        );
+      const edited = await makeSitePage(
+        key,
+        knowledge,
+        discovery,
+        record.artifact,
+        pages.map(({ slug, title, purpose }) => ({ slug, title, purpose })),
+        page,
+        request.signal,
+        data.model,
+        { page, prompt: data.prompt },
+      );
+      request.signal.throwIfAborted();
+      return jsonResponse({
+        artifact: await saveSitePage(data.business, data.version, edited, {
+          designId: record.artifact.designId ?? record.artifact.id,
+          pageCreatedAt: page.createdAt,
+        }),
+      });
+    }
     const siblingRecords = await Promise.all(
       ["1", "2", "3"]
         .filter((v) => v !== data.version)
@@ -65,6 +93,7 @@ export async function POST(request: Request) {
         artifact,
         discovery,
         data.revision,
+        { keepPages: true },
       ),
     });
   } catch (error) {

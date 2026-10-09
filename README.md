@@ -1,71 +1,53 @@
-# EverOnnAI
+# EverOnn Website Studio
 
-EverOnnAI is a multi-tenant platform for service businesses: AI-generated websites, customer chat and voice, service requests, Calendar booking, and owner-managed business knowledge.
+A fresh, single-page website creation studio on the `website-as-a-service` branch. It does not import the original EverOnn dashboard, database, provider integrations or AI skill system.
 
 ## Run locally
 
-```bash
-npm install
+Use Node 22 or newer.
+
+```sh
+npm ci
+npm run browser:install
 npm run dev
 ```
 
-For a new checkout, create `.env.local` using `.env.example`. Configure Gemini for generation and text conversations, Pexels for photography, ElevenLabs for live chat/voice, and Google OAuth for Calendar/Gmail. Keep credentials on the server.
+Open http://localhost:3000. Enter an OpenRouter key in **Connection**. The key stays in browser memory, is sent only to this app's API for generation, and is never saved in drafts or committed. Alternatively, copy `.env.example` to `.env.local` and configure `OPENROUTER_API_KEY`. A server-owned key requires `STUDIO_ACCESS_TOKEN` in production; enter that token in Connection. The token is also kept only in session memory.
 
-- Marketing: `http://localhost:3000`
-- Sign in or register: `http://localhost:3000/login`
-- Business dashboard: `http://localhost:3000/dashboard`
-- Customer project repositories: `http://localhost:3000/workspace`
-- Private previews: generated links in Website Studio
-- Published websites: `/sites/[slug]`
+## Your workflow
 
-The initial platform-owner setup requires `EVERONN_AUTH_SETUP_TOKEN`. Later customer registration creates an isolated workspace. Select HVAC in **Knowledge → Industry intelligence** to use its domain skill; other businesses use general instructions until another domain pack is implemented.
+1. Add a description. Business name, business type, industry intelligence, website link, phone, email, location, service area, hours, service names/details and additional knowledge are all optional. Services can be added or removed.
+2. A provided website link automatically starts discovery after typing pauses. Review extracted contacts and each page's evidence. Read again to refresh it. Failed discovery can be retried or explicitly skipped.
+3. Generate three websites. AI first proposes three distinct directions, then independently writes original HTML/CSS for each one. No `SKILL.md`, preset website theme, template HTML, CSS framework or static generation fallback is used. The studio interface itself has ordinary application CSS.
+4. Compare desktop/mobile previews, regenerate individual versions, and download complete HTML documents. Draft knowledge, website discovery, plans and completed designs survive refresh on the same device through IndexedDB.
 
-## Website generation
+Each generated website is a single, responsive document with in-page navigation. Public source pages supply evidence; they are not recreated as separate routes. Downloads use inline original CSS and native HTML interactions. Source images and optional Google Fonts remain externally hosted; the download is not an offline asset bundle. Contact links work when known. Forms, booking, payments, publishing and backend services are outside this app's scope.
 
-Gemini plans grounded business content and writes original CSS/HTML for three design directions. Website Studio uses short JSON requests: main content/brand, one service content object at a time, photography, each original stylesheet, individual pages, then final validation and private-draft save. Each AI request has a 20-second budget and saved retry/repair state. Temporary provider failures receive at most one additional model round after a saved short cooldown. Known Gemini 3 Flash models use supported low reasoning effort for these bounded units, and known Flash Lite models use minimal effort. All verified facts and selected Markdown instructions remain in context; page prompts omit unrelated service detail copy. Accepted content and pages survive refreshes and server restarts. Resume saved build continues them. The platform validates safe, grounded output and connects booking/chat/voice controls. No template replaces failed generation.
+## How website discovery works
 
-New generations are private drafts. Publishing switches an approved live snapshot and keeps three earlier versions for rollback. Existing publications retain their compatibility renderer until replaced. Test fixtures under `tests/fixtures/` are used only by checks; production generation requires Gemini.
+The server resolves the public URL, checks `robots.txt`, reads up to six sitemap files (including sitemap indexes), and follows same-origin HTML links. It prioritizes contact, services, about, pricing and location pages over archives. Chromium renders JavaScript-driven content when installed, with network requests passed through the same public-address guard. It extracts page titles, descriptions, headings, body text, telephone/email links, JSON-LD, source image URLs, CSS colors, font names and browser-computed design cues. The homepage's first four stylesheets also supply design evidence. Every page retains its source URL for review.
 
-## Customer project repositories
+Discovery is bounded to 40 successful pages, 120 attempted page URLs, 180 seconds and bounded resources. Authentication, robots restrictions, non-HTML files, subdomains/off-site pages, query/filter pages and unreachable pages can prevent full coverage. Coverage and skipped pages are shown; the app cannot guarantee access to every page of an arbitrary site. Raw text is limited to 12,000 characters per page, and AI context uses a 100,000-character prose budget spread across all captured pages, preserving contact and metadata separately. Chromium is optional: without it, HTML discovery works and explicitly warns about missing JavaScript content.
 
-**Project workspace** in each business dashboard connects the customer's own GitHub documentation. Owners/managers can connect public or private repositories; team members can browse and sync only their workspace's connections. The viewer includes filename/path search, Markdown tasks/code, Mermaid diagrams/source, raster images and mobile/light/dark views. Documents are read-only here; edit in GitHub and use Sync.
+Entered facts override conflicting website evidence. The generator is told to omit unknown facts, preserve offered services, use supplied image URLs, and avoid invented contacts/testimonials/claims. Validation enforces owner-entered contacts, supported contact links, service names, useful anchors, valid responsive CSS, complete HTML and no executable content. A browser check at 390px and 1440px rejects horizontal overflow and hidden main headings when Chromium is available. These checks cannot guarantee aesthetic excellence or verify every factual sentence; the user should review all three designs.
 
-For private repositories, supply a fine-grained token with Contents read permission. The server encrypts it using the existing `CREDENTIAL_ENCRYPTION_KEY`; no source-folder credentials are imported. PostgreSQL deployments need migration `202610060004_project_repositories.sql`, included in `npm run db:migrate -- --apply`. It was applied and verified on the configured shared PostgreSQL database on 2026-10-06; live verification probes were rolled back. Deploy the updated application code to enable this feature on the hosted site. Local/Netlify storage adapters remain available for their configured runtimes.
+## OpenRouter
 
-## AI instructions and checks
+The app retrieves the [live model catalogue](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties), filters suitable zero-input/zero-output-price text models, and ranks them using coding signals, context size and structured-output support. It excludes safety-only and embedding models. Automatic selection starts each version with a different available model when possible; you can override with any listed free model. `OPENROUTER_MODELS` can prioritize comma-separated IDs that still qualify in the live catalogue. No paid fallback occurs: provider routing also caps input/output price at zero. The heuristic ranking is not a quality benchmark.
 
-The server explicitly loads the relevant versioned SYSTEM/GUARDRAILS, PLUGINS/MEMORY policies and service/capability SKILL files. SOURCES supplies verified general reference notes and provenance as data; it does not fetch pages or establish company facts. Action availability is task-specific and follows actual Google scopes; the model receives no new execution permission. Website owners/managers can save or clear scoped design choices with revision checks.
+Generation uses [OpenRouter chat completions](https://openrouter.ai/docs/api/reference/overview). Plans use JSON Schema output when the chosen model supports it and are always checked locally. Failed HTML validation gets one repair attempt per model, with at most three free model candidates and a 210-second operation budget. Rate limits, missing keys, malformed output and partial failures are explicit. Accepted designs are preserved; retry generates only the requested or missing version. [Free-model rate limits](https://openrouter.ai/docs/api/reference/limits) depend on the account and provider.
 
-EVALS files contain executable case definitions and stay outside customer prompts. `npm run ai:eval` runs the deterministic gate; `npm run ai:eval -- --live` adds two small real Gemini checks with fictional data and isolated metering. Gemini billing must be active for real checks. Full assistant memory, document retrieval and larger audio/model evaluation datasets remain future work.
+## Checks
 
-## Validation
-
-```bash
-npm run lint
-npm test
-npm run ai:eval
-npm run build
-npm run smoke
+```sh
+npm run check
+npm run test:browser
 ```
 
-After a production build, `smoke` starts a disposable local server and checks HVAC website generation, owner revisions, mobile navigation, callback submission, publishing/rollback, visitor safety, and tenant isolation with a local provider fixture. It needs Chrome, defaults to its standard Windows path, and accepts `SMOKE_CHROME_PATH`. It uses temporary stores and makes no paid provider calls. Screenshots are optional: `npm run smoke:hvac -- --screenshots`.
+Browser checks start the production build on port 3047, or use `STUDIO_TEST_URL`. They mock AI/discovery responses to verify the client workflow and also exercise real credential/private-address error paths. Unit tests mock provider requests to verify free-model enforcement and output repair. A real generation and visual-quality review requires a user-supplied API key; passing mocked checks is not proof of live model output quality.
 
-On 2026-10-06, lint, 133 tests, the 16 deterministic AI evaluations and the production build passed. After the user replaced the key, all 18 evaluation cases passed with the working gemini-3.5-flash-lite fallback selected for that test process. The deployed visitor assistant returned HTTP 200 through the same fallback while the configured newer models returned temporary high-demand errors. Real fictional HVAC generation produced three seven-route designs and passed 42 desktop/mobile rendering checks without overflow or broken images. HVAC/customer-repository browser regressions also passed. Full deployed-generation, model/audio, visual and client acceptance remain separate.
+## Hosting
 
-Additional focused checks are `smoke:booking`, `smoke:usage`, `smoke:auth-db`, and `smoke:project` (customer repositories, token/scope protection and browser rendering). Useful regression tests stay in `tests/`; ordinary checks do not write screenshots into the project.
+Deploy as a Node.js Next.js app, not a static export. Use `npm run build` and `npm start`. Discovery and generation routes allow up to 240 seconds; the hosting platform must permit that duration and streamed discovery responses. Provision Chromium with `npm run browser:install` or configure `CHROMIUM_EXECUTABLE_PATH`. There is no database or account system. Drafts belong to this browser/device. Rate limiting is an in-process guard, not a distributed quota service. Never expose a server key publicly without a configured studio token. This repository push does not deploy a live website.
 
-The optional `npm run verify:website:live -- --live` makes paid Gemini/Pexels calls for a fictional HVAC business and writes review artifacts under ignored `artifacts/hvac-live/`. `--review-existing` reviews the saved `website.json` without new generation calls. Neither mode changes customer workspaces, publications, or email.
-
-On 2026-10-07, the catalogue-sized generation fix passed 147 tests, 16 deterministic AI evaluations, lint and the production build. The dashboard browser regression recovered an empty gateway response and resumed after reload. A real fictional thirteen-service carpentry build retained accepted units through provider failures and explicit resumes, completed three seventeen-route designs and passed 102 desktop/mobile rendering checks without overflow or broken images. `npm run verify:website:live -- --live --saved-steps --large-catalogue` starts this isolated review; `--live --resume-saved --large-catalogue` continues it. The smaller HVAC review remains available without `--large-catalogue`. These checks do not certify the deployed full workflow, premium design or full client acceptance.
-
-## Persistence and deployment
-
-Configured Supabase PostgreSQL stores workspace, account, and provider records through private relational tables. A writable single-instance local setup can use JSON files; Netlify has its configured Blob adapter. Provider credentials are stored separately and encrypted. Database setup and deployment requirements are documented in the maintained guides.
-
-Interactive generation advances while Website Studio is open; closing it pauses between steps, and the saved build can be resumed. No post-response task or streaming support is required. An unattended worker/general queue, further domain packs, automatic visual evaluation, subscriptions, MFA and password recovery remain future work. Standalone generation/review tools retain their separate configured provider timeouts. Live provider permissions and the complete deployed generation flow require their own verification.
-
-- [Code and implementation guide](CODE_PROFILE.md)
-- [Data flow](PROJECT_DATA_FLOW.md)
-- [Client technical Q&A](CLIENT_TECHNICAL_QA.md)
-- [Usage operations](USAGE_OPERATIONS.md)
-- [Migration provenance](docs/agentic-that-integration.md)
+Architecture: [CODE_PROFILE.md](CODE_PROFILE.md), [PROJECT_DATA_FLOW.md](PROJECT_DATA_FLOW.md), [CLIENT_TECHNICAL_QA.md](CLIENT_TECHNICAL_QA.md).

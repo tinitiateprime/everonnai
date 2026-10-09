@@ -1,23 +1,19 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { AppChrome } from "@/components/app-chrome";
-
 export const metadata: Metadata = {
-  title: "The AI Front Desk for Small Business",
+  title: "EverOnn — Website Studio",
   description:
-    "EverOnn brings your business website, phone, chat, booking, and customer follow-up together under your brand.",
-  applicationName: "EverOnn.Ai",
+    "Turn business knowledge into three original AI-designed websites.",
+  icons: { icon: "/icon.svg" },
 };
-
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en">
-      <body>
-        <a className="skip-link" href="#main">
-          Skip to content
-        </a>
-        <AppChrome>{children}</AppChrome>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

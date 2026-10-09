@@ -21,9 +21,23 @@ Production use requires `STUDIO_ACCESS_TOKEN`; enter this separate studio access
 1. Add a description. Business name, business type, industry intelligence, website link, phone, email, location, service area, hours, service names/details and additional knowledge are all optional. Services can be added or removed.
 2. A provided website link automatically starts discovery after typing pauses. Review extracted contacts and each page's evidence. Read again to refresh it. Failed discovery can be retried or explicitly skipped.
 3. Generate three websites. AI first proposes three distinct directions, then independently writes original HTML/CSS for each one. No `SKILL.md`, preset website theme, template HTML, CSS framework or static generation fallback is used. The studio interface itself has ordinary application CSS.
-4. Compare desktop/mobile previews, regenerate individual versions, and download complete HTML documents. Draft knowledge, website discovery, plans and completed designs survive refresh on the same device through IndexedDB.
+4. Compare desktop/mobile previews, regenerate individual versions, and download complete HTML documents. Each accepted design also gets a standalone URL: `/service/{business-slug}/1`, `/2`, or `/3`. Use **Open website** beside Download HTML. Draft knowledge, website discovery, plans and completed designs survive refresh on the same device through IndexedDB.
 
-Each generated website is a single, responsive document with in-page navigation. Public source pages supply evidence; they are not recreated as separate routes. Downloads use inline original CSS and native HTML interactions. Source images and optional Google Fonts remain externally hosted; the download is not an offline asset bundle. Contact links work when known. Forms, booking, payments, publishing and backend services are outside this app's scope.
+## Generated website URLs
+
+A business named `Northline Heating` gets these addresses when the studio runs on port 3000:
+
+```text
+http://localhost:3000/service/northline-heating/1
+http://localhost:3000/service/northline-heating/2
+http://localhost:3000/service/northline-heating/3
+```
+
+Links use the running app's host and port. Names become lowercase URL slugs with spaces/punctuation converted to hyphens. Non-Latin names are supported as encoded path segments. Business name remains optional: a missing name uses `business-{description-hash}`. Same slug/version points to its latest successfully generated design; regeneration replaces that version only. Distinct businesses need distinct slugs. Older browser-only designs receive URLs when regenerated.
+
+Accepted HTML artifacts are saved atomically on the Node server under ignored `data/generated-sites/{slug}/{version}.json`, or `GENERATED_SITES_DIR`. The GET route serves the exact generated HTML/CSS as a standalone page without the studio interface. Links survive refresh and server restarts and work in another browser that can reach this server. They do not need the original browser's IndexedDB. Unknown businesses and missing/invalid versions return 404. These are publicly readable generated-site links on this app; generation remains protected. A restrictive CSP keeps scripts disabled and gives generated documents an opaque origin, preventing access to studio browser storage.
+
+Each generated website is a single, responsive document with in-page navigation. Public source pages supply evidence; they are not recreated as separate routes. Downloads use inline original CSS and native HTML interactions. Source images and optional Google Fonts remain externally hosted; the download is not an offline asset bundle. Contact links work when known. Forms, booking, payments and deployment to another hosting provider remain outside this app's scope.
 
 ## How website discovery works
 
@@ -48,10 +62,10 @@ npm run check
 npm run test:browser
 ```
 
-Browser checks start the production build on port 3047, or use `STUDIO_TEST_URL`. They mock AI/discovery responses to verify the client workflow and also exercise real credential/private-address error paths. They verify the absence of a browser API-key field/header. Unit tests verify environment-only key selection, studio access control, preferred-model order, live-eligibility filtering, reasoning compatibility and output repair. A real generation and visual-quality review requires a valid key configured in the server environment; passing mocked checks is not proof of live model output quality.
+Browser checks start the production build on port 3047, or use `STUDIO_TEST_URL`. They mock AI/discovery responses to verify the client workflow and also exercise real credential/private-address error paths. They verify the absence of a browser API-key field/header. The self-started test server uses an isolated temporary site directory and verifies all three real generated-site routes, refresh, access from another browser context, document isolation and 404 behavior. Unit tests verify atomic site storage, safe slugs, version replacement, corrupted-file handling, API-to-storage integration, environment-only keys, access control, free-model selection and output repair. A real generation and visual-quality review requires a valid key configured in the server environment; passing mocked checks is not proof of live model output quality.
 
 ## Hosting
 
-Deploy as a Node.js Next.js app, not a static export. Use `npm run build` and `npm start`. Discovery and generation routes allow up to 240 seconds; the hosting platform must permit that duration and streamed discovery responses. Provision Chromium with `npm run browser:install` or configure `CHROMIUM_EXECUTABLE_PATH`. There is no database or account system. Drafts belong to this browser/device. Rate limiting is an in-process guard, not a distributed quota service. Never expose a server key publicly without a configured studio token. This repository push does not deploy a live website.
+Deploy as a Node.js Next.js app, not a static export. Use `npm run build` and `npm start`. Discovery and generation routes allow up to 240 seconds; the hosting platform must permit that duration and streamed discovery responses. Provision Chromium with `npm run browser:install` or configure `CHROMIUM_EXECUTABLE_PATH`. Generated-site URLs require a writable persistent volume for `GENERATED_SITES_DIR`; read-only or ephemeral serverless filesystems do not provide durable links. Multi-instance hosts must share this directory. There is no database or account system. Knowledge drafts belong to this browser/device, while linked generated HTML is stored on the server. Rate limiting is an in-process guard, not a distributed quota service. Never expose a server key publicly without a configured studio token. This repository push does not deploy a live website.
 
 Architecture: [CODE_PROFILE.md](CODE_PROFILE.md), [PROJECT_DATA_FLOW.md](PROJECT_DATA_FLOW.md), [CLIENT_TECHNICAL_QA.md](CLIENT_TECHNICAL_QA.md).

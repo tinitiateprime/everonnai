@@ -21,6 +21,8 @@ flowchart TD
   Validate --> Inspect[Optional desktop and mobile browser review]
   Inspect -->|Failed checks, bounded AI repair| Router
   Inspect -->|Accepted HTML artifact| Draft
+  Inspect -->|Atomic artifact save| SiteStore[Server generated-site files]
+  SiteStore --> SiteURL[GET /service/business-slug/version]
   Draft --> Preview[Isolated sandbox preview and HTML download]
 ```
 
@@ -33,3 +35,7 @@ The plan is entirely AI-created and locally schema-validated. Each independent g
 Evidence scope: same-origin public HTML pages reachable through links/sitemaps; 40 successful pages, 120 attempts and 180 seconds maximum. Query/filter pages, restricted content and unrelated origins are excluded. Body text and AI context are bounded; contacts and metadata are retained separately. Coverage, truncation, skipped URLs and missing rendering are surfaced. The new site is a single static document combining useful source knowledge, not a clone of all source routes.
 
 Preview iframes have an empty sandbox permission list and a restrictive CSP, disabling scripts, forms, frames and network data requests. Images/Google Fonts can load as permitted presentation assets. Downloads include the same policy. No generated code executes in the studio's origin.
+
+After validation, `POST /api/generate` saves the artifact before returning it with a `path`: `/service/{business-slug}/{index+1}`. The business name supplies the slug; missing names use `business-{description-hash}`. File storage defaults to ignored `data/generated-sites` or the configured `GENERATED_SITES_DIR`. A temporary-file/rename write replaces only the successful corresponding business/version file. Failed generation or saving keeps the prior file. Same slug/version always serves its latest successful artifact.
+
+The studio shows the path and an Open website link. `GET /service/[business]/[version]` serves stored HTML/CSS directly, without the studio's layout, browser draft access or an AI call. It accepts versions 1–3 and returns 404 for missing/invalid addresses. Links work after refresh and from another browser that can reach the running app. These generated outputs are publicly readable on this server; generation access remains guarded. Response CSP disables scripts and sets an opaque document origin, isolating output from studio IndexedDB/local storage. Hosting must provide a persistent writable directory, shared across instances. This does not deploy the app to an external host.

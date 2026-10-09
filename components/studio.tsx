@@ -1224,7 +1224,26 @@ export function Studio() {
                       Download HTML
                     </button>
                   )}
+                  {current?.path && (
+                    <a
+                      className="secondary-button"
+                      href={current.path}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <ExternalLink size={14} />
+                      Open website
+                    </a>
+                  )}
                 </div>
+                {current?.path && (
+                  <div className="site-address">
+                    <span>Website link</span>
+                    <a href={current.path} target="_blank" rel="noreferrer">
+                      {current.path}
+                    </a>
+                  </div>
+                )}
                 <div className={`preview-stage ${device}`}>
                   {current ? (
                     <iframe

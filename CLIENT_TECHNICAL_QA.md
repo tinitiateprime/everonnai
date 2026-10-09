@@ -26,7 +26,15 @@ The administrator sets `OPENROUTER_API_KEY` in the ignored `.env.local` file or 
 
 ## What if generation fails?
 
-Each accepted design saves separately on the customer's device. A failed version displays an error and can be retried. Invalid HTML gets one AI repair per candidate model, with at most three free model candidates and a bounded operation duration. Missing keys, exhausted quota, provider errors and unfinished output are reported; they do not produce a fake completed website.
+Each accepted design saves separately on the server and in the customer's browser draft. A failed version displays an error and can be retried. Invalid HTML gets one AI repair per candidate model, with at most three free model candidates and a bounded operation duration. Missing keys, exhausted quota, provider errors, storage failures and unfinished output are reported; they do not produce a fake completed website. The previous successful file at the same business/version URL is preserved if regeneration or saving fails.
+
+## What URLs do the generated websites use?
+
+`/service/{business-slug}/1`, `/2`, and `/3`. For example, Northline Heating becomes `/service/northline-heating/1`. Names are normalized for URL paths; a missing name uses a description-hash slug, so business name remains optional. The links use whichever host/port runs the app. Open website appears beside Download HTML. Each route opens the original generated HTML as a full standalone website. Regenerating a version updates that same URL. Older browser-only designs receive URLs when regenerated.
+
+## Can the link be refreshed or opened in another browser?
+
+Yes, once that version has been generated and saved. The Node server reads its stored artifact; it does not need the original browser's IndexedDB or call AI again. Anyone who can reach this server can read that generated-site URL. Generated output is isolated from studio storage and credentials. Production must provide a persistent writable directory through `GENERATED_SITES_DIR`; ephemeral/read-only hosting cannot retain these files reliably. Distinct businesses need distinct slugs. Unknown businesses and missing/invalid versions return 404.
 
 ## Do the websites have multiple pages, lead forms or bookings?
 
@@ -34,7 +42,7 @@ They are complete responsive single-document websites with section navigation an
 
 ## What has been tested?
 
-Unit checks cover required/optional fields, URL/address safety, contact and design extraction, sitemap/robots behavior, free-model eligibility, artifact checks, provider repair and errors. Browser checks cover the client workflow, previews, download, persistence, key exclusion and mobile layout using mocked AI responses, plus real API error paths. Live public-site discovery can be tested without a key. Live AI generation and visual-quality confirmation require a customer-supplied key; mocked responses are not real model output.
+Unit checks cover required/optional fields, URL/address safety, contact/design extraction, sitemap/robots behavior, free models, artifact checks, provider repair, generated-site paths, atomic storage, independent version updates, corrupt-file handling and API-to-storage integration. Browser checks cover the client workflow, previews, downloads, persistence, key exclusion and mobile layout using mocked AI responses. The self-started server also checks all three real website URLs, refresh, another browser context, document isolation, 404 behavior and API errors. Live public-site discovery can be tested without a key. Live AI generation and visual-quality confirmation require a configured server key; mocked responses are not real model output.
 
 ## Does this change the original EverOnn project?
 

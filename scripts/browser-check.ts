@@ -1,18 +1,26 @@
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
+import { mkdtempSync } from "node:fs";
 import { spawn } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
 import { chromium } from "playwright";
 import { website } from "../tests/fixtures";
 import { extractPage } from "../lib/extract";
 import type { Discovery } from "../lib/types";
+import { saveGeneratedSite } from "../lib/site-store";
 
 const base = process.env.STUDIO_TEST_URL ?? "http://localhost:3047";
+const testDirectory = process.env.STUDIO_TEST_URL
+  ? null
+  : mkdtempSync(path.join(os.tmpdir(), "everonn-site-browser-"));
+if (testDirectory) process.env.GENERATED_SITES_DIR = testDirectory;
 const server = process.env.STUDIO_TEST_URL
   ? null
   : spawn(
       process.execPath,
       ["node_modules/next/dist/bin/next", "start", "-p", "3047"],
-      { windowsHide: true, stdio: "pipe" },
+      { windowsHide: true, stdio: "pipe", env: process.env },
     );
 let logs = "";
 server?.stdout.on("data", (data) => (logs += data));
@@ -111,20 +119,20 @@ async function main() {
         });
         return;
       }
-      await route.fulfill({
-        json: {
-          artifact: {
-            id: `test-${body.index}-${Date.now()}`,
-            index: body.index,
-            name: body.direction.name,
-            rationale: body.direction.concept,
-            html: website(),
-            model: "test/coder:free",
-            createdAt: new Date().toISOString(),
-            warnings: [],
-          },
-        },
-      });
+      const artifact = {
+        id: `test-${body.index}-${Date.now()}`,
+        index: body.index,
+        name: body.direction.name,
+        rationale: body.direction.concept,
+        html: website(),
+        model: "test/coder:free",
+        createdAt: new Date().toISOString(),
+        warnings: [],
+      };
+      const saved = testDirectory
+        ? await saveGeneratedSite(body.knowledge, artifact)
+        : { ...artifact, path: `/service/northline-heating/${body.index + 1}` };
+      await route.fulfill({ json: { artifact: saved } });
     });
     await page.goto(base);
     await page.getByText("Saved on this device", { exact: true }).waitFor();
@@ -135,6 +143,9 @@ async function main() {
       .fill(
         "A community heating and cooling company with thoughtful service for homeowners.",
       );
+    await page
+      .getByRole("textbox", { name: "Business name" })
+      .fill("Northline Heating");
     await page
       .getByRole("button", { name: "Add a service", exact: true })
       .click();
@@ -185,6 +196,51 @@ async function main() {
       "Mechanical precision website preview",
     );
     assert.equal(await page.locator("iframe").getAttribute("sandbox"), "");
+    assert.equal(
+      await page
+        .getByRole("link", { name: "Open website", exact: true })
+        .getAttribute("href"),
+      "/service/northline-heating/2",
+    );
+    if (testDirectory) {
+      const directContext = await browser.newContext();
+      const directPage = await directContext.newPage();
+      for (const version of [1, 2, 3]) {
+        const response = await directPage.goto(
+          `${base}/service/northline-heating/${version}`,
+        );
+        assert.equal(response?.status(), 200);
+        await directPage
+          .getByRole("heading", {
+            name: "Northline: comfort at home",
+            exact: true,
+          })
+          .waitFor();
+        const refreshed = await directPage.reload();
+        assert.equal(refreshed?.status(), 200);
+        assert.ok(
+          await directPage.evaluate(() => {
+            try {
+              localStorage.getItem("studio-data");
+              return false;
+            } catch {
+              return true;
+            }
+          }),
+        );
+      }
+      assert.equal(
+        (
+          await directPage.goto(`${base}/service/northline-heating/4`)
+        )?.status(),
+        404,
+      );
+      assert.equal(
+        (await directPage.goto(`${base}/service/missing-business/1`))?.status(),
+        404,
+      );
+      await directContext.close();
+    }
     await page
       .getByRole("button", { name: "Mobile preview", exact: true })
       .click();
@@ -290,7 +346,7 @@ async function main() {
     assert.equal(routeChecks.status, 400);
     assert.deepEqual(errors, []);
     console.log(
-      "Browser checks passed: environment-only credentials, no browser key field or header, optional form, automatic discovery, three variants, new-plan creation, partial failure/retry, preview switching, download, device save, mobile layout and real API error paths. Generation responses were mocked; no live AI quality claim is made.",
+      "Browser checks passed: business/1-3 website URLs, direct refresh and independent browser access, isolated generated documents, environment-only credentials, optional form, discovery, three variants, partial failure/retry, preview switching, downloads, device save, mobile layout and API errors. AI responses were mocked.",
     );
   } finally {
     await browser.close();
@@ -301,6 +357,16 @@ main()
     console.error(error);
     process.exitCode = 1;
   })
-  .finally(() => {
+  .finally(async () => {
     server?.kill();
+    if (testDirectory) {
+      assert.equal(
+        path.dirname(path.resolve(testDirectory)),
+        path.resolve(os.tmpdir()),
+      );
+      assert.ok(
+        path.basename(testDirectory).startsWith("everonn-site-browser-"),
+      );
+      await rm(testDirectory, { recursive: true, force: true });
+    }
   });

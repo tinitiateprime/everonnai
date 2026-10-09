@@ -81,6 +81,7 @@ export type Artifact = {
   name: string;
   rationale: string;
   html: string;
+  path?: string;
   model: string;
   createdAt: string;
   warnings: string[];

@@ -14,6 +14,26 @@
   background: var(--bg);
   font-synthesis: none;
 }
+.site-address {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #e3e8dd;
+  background: #fff;
+  font-size: 10px;
+  line-height: 1.8;
+  color: #859377;
+  flex-wrap: wrap;
+}
+.site-address a {
+  color: #547943;
+  overflow-wrap: anywhere;
+  text-underline-offset: 3px;
+}
+.preview-toolbar a.secondary-button {
+  text-decoration: none;
+}
 * {
   box-sizing: border-box;
 }

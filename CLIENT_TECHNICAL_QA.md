@@ -1,6 +1,46 @@
 # Website Studio client technical Q&A
 
+## Can I enter a URL and get a website inventory and improvement report?
+
+The project workspace now has a website intelligence panel that can crawl the project URL, freeze captured evidence and produce a private report. You can also refresh/select an existing frozen snapshot. The report lists captured pages, source features/forms/integrations, media references, CSS/design tokens, selected UX/SEO/accessibility findings and prioritized improvements with cited evidence and acceptance criteria. Page details include source business-data candidates and desktop/tablet/mobile replay screenshots. JSON download and saved report history are available.
+
+This is the initial implemented assessment scope, not a guarantee of understanding every private backend, interactive state or original design component. Unread pages, scope exclusions, resource/parser limits and missing browser checks remain explicit. Original forms/booking/checkout are not submitted. A report marked complete within scope means the required assessment finished; it does not certify the source site or the production product. Browser screenshots replay frozen HTML with later permitted resources, so original-live behavior can differ. Automated accessibility checks do not certify compliance, and improvements do not guarantee rankings or sales.
+
+The 16-page frozen-source report UI and actual browser/SQL evidence passed fixture-based regression checks. Live intelligence AI advice and the new-URL single-button path still need dedicated validation. Optional model recommendations are evidence-linked proposals, separate from observed findings and approved facts/blueprints. See [the current handoff](docs/engineering/CURRENT-WORK-HANDOFF.md) for what is implemented, tested and still pending. PostgreSQL/OIDC/S3 service setup remains deferred until the final stage.
+
+## Can I review a generated website and see evidence for the claims?
+
+Yes. In the project workspace, select a compiled build under **Website review and comparison**. Inspect its preview, open the evidence report or download it as JSON. A person with review permission can record an exact-build approval or request changes after reviewing brand/layout, content/facts, mobile/keyboard behavior, working features and differences between alternatives. Reviews are immutable and survive reload. Approval of a preview does not authorize publication.
+
+Reports show required/exported pages, explicit exclusions, source coverage, test evidence and the actual reviewer decision. They distinguish observations, measured artifact bytes, human design judgments and unassessed business outcomes. They make no unsupported speed, SEO or sales improvement claim. Fixture runs are labeled. Failed candidates remain blocked and cannot inherit a previous build's approval.
+
+New builds are checked at desktop, tablet and mobile widths, with exact displayed business details, page-specific titles, complete route reachability, redirects, keyboard journeys and enquiry validation/duplicate prevention. These checks do not establish comprehensive accessibility compliance or production deployment readiness. Source images, richer widgets, email/booking and public publication remain additional work; text/page/archive limits are disclosed before blueprint approval.
+
+## What is the agreed next engineering direction?
+
+The [engineering specification](docs/engineering/README.md) defines the platform direction. `/projects` implements ownership/storage, frozen discovery, an initial public-site intelligence report and [approved facts, immutable blueprints and three complete Next.js builds](docs/engineering/07-facts-blueprints-and-website-builds.md), including exact-build checks, private previews and a real enquiry inbox. Deeper audit coverage, background workers and authorized public publication/rollback remain future stages. PostgreSQL/OIDC/S3 setup is intentionally deferred. The answers below describe the existing studio unless they explicitly refer to the project workspace.
+
+## How can I use the new project workspace locally?
+
+Run `npm run platform:dev`, open `http://localhost:3000/projects`, choose Open local workspace, and create a workspace/project. Missing local database directories are created automatically, fixing the reported sign-in failure. Data persists in local PGlite/private files. Scan/freeze source evidence, extract/review facts, approve the page blueprint, then generate three complete alternatives. Compilation and verification progress are saved; reload offers resume. Existing studio designs are not automatically imported. External PostgreSQL/OIDC/S3 setup is reserved for the final infrastructure stage.
+
+## Can I scan and preserve a website inside the project workspace?
+
+Yes. Create a project with its public source URL, start a scan, review captured/pending/skipped pages, and pause or resume it. The workspace runs bounded batches while open; reloading offers resume from server-side progress. Full normalized text and accepted response bodies are archived privately, with per-page capture timestamps and hashes. Account pages, files, external origins and query/filter URLs are outside scope; network/robots/rendering limits remain explicit. Images are references rather than archived files.
+
+Freeze a source snapshot after its batch stops. Incomplete coverage needs an explicit acknowledgment. The snapshot fixes URL membership and accepted captures to that scan revision; continuing or refreshing discovery cannot alter it. Authorized viewers can review full captured text. Discovery alone does not establish completion; fact approval, blueprint approval, actual compilation and exact-build verification follow separately.
+
+## What does “verified” mean for a project website now?
+
+Every approved rendered route is exported, its complete approved source text is preserved, internal links resolve, unknown routes return 404, desktop/mobile pages fit and show the source content, and the trusted enquiry form saves a real validated enquiry to the project inbox. Browser execution is required; unavailable checks block completion. Three alternatives use the same immutable approved inputs and have separate build seals. A new candidate leaves older previews intact. Visual quality remains a human judgment; no sales/performance improvement is claimed without measurements.
+
+## Do the generated forms work, and can I download the websites?
+
+Yes, private previews save editor-authorized enquiries to the project inbox. They explicitly disclose that email delivery and public deployment need later configuration; they do not simulate booking or email success. Test enquiries are kept separate. You can download complete Next.js source and compiled output ZIPs. These retain their fixed private-preview base path and gateway contract; independent public hosting requires later deployment bindings and authorization.
+
 ## What does the customer fill in?
+
+The remaining questions describe the original studio at `/` and its `/service` HTML generator. The separate `/projects` pipeline above uses approved snapshots/facts, a trusted Next.js scaffold, private previews and its project inbox.
 
 One knowledge page. Business name, business type and description are required. Industry intelligence, website link, phone, email, location, service area, hours, service names/details and additional knowledge are optional. The app does not demand a complete profile before generating.
 

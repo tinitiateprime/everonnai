@@ -1312,6 +1312,17 @@ h1 {
   }
 }
 @media (max-width: 480px) {
+  .topbar {
+    height: auto;
+    min-height: 68px;
+    padding-block: 12px;
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+  .top-actions {
+    gap: 12px;
+    flex-wrap: wrap;
+  }
   .brand-product {
     display: none;
   }

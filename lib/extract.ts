@@ -17,7 +17,11 @@ export function designCues(css: string) {
     ).slice(0, 15),
   };
 }
-export function extractPage(html: string, url: string): SourcePage {
+export function extractPage(
+  html: string,
+  url: string,
+  options: { fullText?: boolean } = {},
+): SourcePage {
   const $ = load(html);
   const absolute = (value?: string) => {
     try {
@@ -111,8 +115,8 @@ export function extractPage(html: string, url: string): SourcePage {
     url,
     title,
     description,
-    text: fullText.slice(0, 12000),
-    truncated: fullText.length > 12000,
+    text: options.fullText ? fullText : fullText.slice(0, 12000),
+    truncated: !options.fullText && fullText.length > 12000,
     headings,
     links,
     phones: unique(phones)

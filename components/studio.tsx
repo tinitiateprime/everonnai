@@ -887,6 +887,7 @@ export function Studio() {
           <span className="brand-product">Website Studio</span>
         </a>
         <div className="top-actions">
+          <a className="icon-button" href="/projects">Your projects</a>
           <span className="save-status">
             <span />
             {ready ? saving : "Opening your draft…"}

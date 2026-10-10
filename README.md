@@ -1,6 +1,24 @@
 # EverOnn Website Studio
 
-A fresh, single-page website creation studio on the `website-as-a-service` branch. It does not import the original EverOnn dashboard, database, provider integrations or AI skill system.
+A website creation studio and local Website as a Service workflow on the `website-as-a-service` branch. The original studio remains separate from the project-owned application pipeline.
+
+## Planned production platform
+
+The [engineering specification](docs/engineering/README.md) defines the platform direction. `/projects` includes ownership, discovery/snapshots, [an initial evidence-backed website inventory/audit report](docs/engineering/09-site-intelligence-implementation.md), [approved facts, immutable blueprints and three complete compiled/verified Next.js alternatives](docs/engineering/07-facts-blueprints-and-website-builds.md), plus [exact-build human reviews and comparison reports](docs/engineering/08-build-review-and-comparison.md). Public publication, comparable performance audits and unattended workers remain planned. PostgreSQL/OIDC/S3 setup is deferred to the final infrastructure stage. Existing studio behavior is documented below.
+
+For continuation from the current checkpoint, read [CURRENT-WORK-HANDOFF.md](docs/engineering/CURRENT-WORK-HANDOFF.md). It distinguishes implemented behavior, fixture/live validation and unfinished work, including deeper interaction/design understanding and live intelligence-advice validation.
+
+## Run the project workspace locally
+
+```sh
+npm run platform:dev
+```
+
+Open `http://localhost:3000/projects` to use the explicit local development account, create workspaces/projects and save private source documents. Data persists under ignored `data/platform/`; all three alternatives begin without website builds. The command binds to loopback and does not rewrite `.env.local`. Production uses configured PostgreSQL/OIDC/S3 adapters; local login/storage are disabled in production. See the implementation record for migrations, environment variables, limitations and checks.
+
+Create a project with its source URL and use website intelligence to collect/freeze evidence and prepare the initial inventory/audit report, or inspect an existing frozen snapshot. Scope and incomplete areas remain disclosed. Then extract/review business facts, approve an explicit outcome for every source page and generate three complete websites. The report-to-approved-blueprint bridge is still pending; review those requirements explicitly. Full source text and approved content are preserved; immutable revisions fix the inputs. Each Next.js project compiles and passes required route/content/browser/form checks before it is marked verified. Private previews, source/output downloads and a real enquiry inbox are available. New builds preserve older previews. Local startup creates missing database directories automatically.
+
+Run `npm test` for the full suite including site intelligence, `npm run test:platform` for the three earlier platform test files, `npm run test:platform:browser` for the workspace/report/build workflow with labeled fixture source/design evidence, and `npm run verify:discovery:live -- https://example.com` for a separate real guarded crawl in temporary storage. These checks make no AI generation calls. Fixture browser runs execute actual SQL, private storage, Chromium/Axe, Next.js compilation and enquiry functionality; they do not validate live intelligence AI advice.
 
 ## Run locally
 

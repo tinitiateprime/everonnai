@@ -75,7 +75,7 @@ async function main() {
           .then(JSON.parse)
           .catch(() => null)
       : null;
-    const plan = savedPlan ?? (await makePlan(key, knowledge, null));
+    const plan: Awaited<ReturnType<typeof makePlan>> = savedPlan ?? (await makePlan(key, knowledge, null));
     await writeFile("artifacts/live-plan.json", JSON.stringify(plan));
     console.log(
       JSON.stringify({

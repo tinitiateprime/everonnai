@@ -87,14 +87,19 @@ function crc32(data: Uint8Array) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 /** Minimal uncompressed (stored) ZIP archive, enough for a handful of HTML files. */
-export function zipFiles(files: { name: string; content: string }[]) {
+export function zipFiles(
+  files: { name: string; content: string | Uint8Array }[],
+) {
   const encoder = new TextEncoder();
   const local: Uint8Array[] = [];
   const central: Uint8Array[] = [];
   let offset = 0;
   for (const file of files) {
     const name = encoder.encode(file.name);
-    const data = encoder.encode(file.content);
+    const data =
+      typeof file.content === "string"
+        ? encoder.encode(file.content)
+        : file.content;
     const crc = crc32(data);
     const header = new DataView(new ArrayBuffer(30));
     header.setUint32(0, 0x04034b50, true);

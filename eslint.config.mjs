@@ -2,7 +2,15 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import hooks from "eslint-plugin-react-hooks";
 export default tseslint.config(
-  { ignores: [".next/**", "artifacts/**", "next-env.d.ts", "test-results/**"] },
+  {
+    ignores: [
+      ".next/**",
+      ".next-platform-check/**",
+      "artifacts/**",
+      "next-env.d.ts",
+      "test-results/**",
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

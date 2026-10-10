@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { mkdtempSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
@@ -198,9 +198,7 @@ async function main() {
     await page
       .getByRole("button", { name: "Generate three websites", exact: true })
       .click();
-    await page
-      .getByText("All three designs are ready.", { exact: true })
-      .waitFor();
+    await page.getByText(/^All three designs are ready\./).waitFor();
     assert.deepEqual(generationCalls, [0, 1, 2]);
     assert.equal(planCalls, 1);
     await page.getByRole("button", { name: /Mechanical precision/ }).click();
@@ -596,9 +594,7 @@ async function main() {
     await page
       .getByRole("button", { name: "Retry this version", exact: true })
       .click();
-    await page
-      .getByText("All three designs are ready.", { exact: true })
-      .waitFor();
+    await page.getByText(/^All three designs are ready\./).waitFor();
     assert.equal(planCalls, 2);
     assert.deepEqual(generationCalls, [0, 1, 2, 0, 1, 2, 1]);
     await pause(600);
@@ -754,9 +750,7 @@ async function main() {
     await page
       .getByRole("button", { name: "Generate three websites", exact: true })
       .click();
-    await page
-      .getByText("All three designs are ready.", { exact: true })
-      .waitFor();
+    await page.getByText(/^All three designs are ready\./).waitFor();
     assert.equal(frozenGenerations, 3);
     // Actual routes: reject local crawling and reject a generation request without credentials.
     await page.unroute("**/api/discover");
@@ -795,7 +789,23 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    server?.kill();
+    if (server?.pid && server.exitCode === null) {
+      if (process.platform === "win32")
+        await new Promise<void>((resolve) =>
+          execFile(
+            "taskkill",
+            ["/pid", String(server.pid), "/T", "/F"],
+            { windowsHide: true },
+            () => resolve(),
+          ),
+        );
+      else {
+        server.kill("SIGTERM");
+        await new Promise<void>((resolve) =>
+          server.once("exit", () => resolve()),
+        );
+      }
+    }
     if (testDirectory) {
       assert.equal(
         path.dirname(path.resolve(testDirectory)),

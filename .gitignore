@@ -1,5 +1,6 @@
 node_modules/
 .next/
+.next-platform-check/
 .env*
 !.env.example
 *.tsbuildinfo
@@ -10,3 +11,4 @@ data/generated-sites/
 data/crawls/
 # Per-business booking settings, activity and encrypted Google tokens.
 data/integrations/
+data/platform/

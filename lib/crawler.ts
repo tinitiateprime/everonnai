@@ -4,13 +4,26 @@ import robotsParser from "robots-parser";
 import { chromium, type Browser } from "playwright";
 import { safeResource, parsePublicUrl } from "./network";
 import { designCues, extractPage, unique } from "./extract";
-import type { CrawlState, Discovery } from "./types";
+import type { CrawlState, Discovery, SourcePage } from "./types";
 import { crawlSettings, MAX_CRAWL_PAGES, MAX_CRAWL_URLS } from "./crawl-limits";
 
 const AGENT = "EverOnnWebsiteStudio";
 const FRONTIER_WARNING =
   "The 12,000-URL discovery frontier limit was reached; some source URLs were omitted.";
 export const MAX_PAGES = 500;
+export interface PageEvidence {
+  requestedUrl: string;
+  raw: Uint8Array;
+  renderedHtml?: string;
+  fullPage: SourcePage;
+  summary: SourcePage;
+  status: number;
+  captureStartedAt: string;
+  capturedAt: string;
+  renderedAt?: string;
+}
+// Persistence failures must never become ordinary skipped website pages.
+export class CrawlPersistenceError extends Error {}
 export function crawlable(value: string, origin: string) {
   try {
     const url = parsePublicUrl(value);
@@ -125,6 +138,7 @@ export async function discoverWebsite(
     batchMs?: number;
     concurrency?: number;
     onCheckpoint?: (state: CrawlState) => Promise<void>;
+    onCapture?: (evidence: PageEvidence) => Promise<void>;
   } = {},
 ): Promise<Discovery> {
   const settings = crawlSettings();
@@ -162,9 +176,11 @@ export async function discoverWebsite(
       ? `Continuing from ${prior.result.pages.length} saved pages…`
       : "Reading the website and discovering its pages…",
   );
+  const initialStartedAt = new Date().toISOString();
   const initial = prior
     ? undefined
     : await fetchResource(starting.href, { signal });
+  const initialCapturedAt = new Date().toISOString();
   if (
     initial &&
     (initial.status >= 400 ||
@@ -356,10 +372,14 @@ export async function discoverWebsite(
       `Reading page ${result.pages.length + 1} (limit ${pageLimit}): ${new URL(url).pathname}`,
     );
     try {
+      const captureStartedAt =
+        url === root && initial ? initialStartedAt : new Date().toISOString();
       const resource =
         url === root && initial
           ? initial
           : await fetchResource(url, { signal, origin });
+      const capturedAt =
+        url === root && initial ? initialCapturedAt : new Date().toISOString();
       if (
         resource.status >= 400 ||
         !String(resource.headers["content-type"]).includes("html")
@@ -371,6 +391,9 @@ export async function discoverWebsite(
         return;
       }
       let page = extractPage(resource.body.toString(), resource.url);
+      let evidenceHtml = resource.body.toString();
+      let renderedHtml: string | undefined;
+      let renderedAt: string | undefined;
       // Render the first page for design cues; static pages already expose their content.
       const needsRender =
         !result.pages.length ||
@@ -384,6 +407,11 @@ export async function discoverWebsite(
         if (browser) {
           try {
             const rendered = await render(browser, resource.url, signal);
+            if (Buffer.byteLength(rendered.html) > 3_000_000)
+              throw new Error("Rendered HTML exceeds capture limit");
+            evidenceHtml = rendered.html;
+            renderedHtml = rendered.html;
+            renderedAt = new Date().toISOString();
             page = extractPage(rendered.html, resource.url);
             page.design.colors = unique([
               ...rendered.colors,
@@ -427,9 +455,39 @@ export async function discoverWebsite(
         );
         page.design.css = css.slice(0, 10000);
       }
+      if (dependencies.onCapture) {
+        try {
+          const fullPage = extractPage(evidenceHtml, resource.url, {
+            fullText: true,
+          });
+          fullPage.design = page.design;
+          await dependencies.onCapture({
+            requestedUrl: url,
+            raw: resource.body,
+            renderedHtml,
+            fullPage,
+            summary: page,
+            status: resource.status,
+            captureStartedAt,
+            capturedAt,
+            renderedAt,
+          });
+        } catch (error) {
+          throw new CrawlPersistenceError(
+            error instanceof Error
+              ? error.message
+              : "Source evidence could not be saved",
+          );
+        }
+      }
       result.pages.push(page);
       for (const link of page.links) enqueue(link);
     } catch (error) {
+      if (error instanceof CrawlPersistenceError) {
+        seen.delete(url);
+        if (!queue.includes(url)) queue.unshift(url);
+        throw error;
+      }
       if (signal.aborted) {
         seen.delete(url);
         if (!queue.includes(url)) queue.unshift(url);
@@ -442,6 +500,7 @@ export async function discoverWebsite(
     }
   };
   try {
+    if (dependencies.onCapture && !prior) await checkpoint();
     while (
       queue.length &&
       result.pages.length < target &&
@@ -457,7 +516,14 @@ export async function discoverWebsite(
           pageLimit * 3 - seen.size,
         ),
       );
-      await Promise.all(wave.filter((url) => !seen.has(url)).map(readPage));
+      const outcomes = await Promise.allSettled(
+        wave.filter((url) => !seen.has(url)).map(readPage),
+      );
+      const failure = outcomes.find((outcome) => outcome.status === "rejected");
+      if (failure?.status === "rejected") {
+        await checkpoint();
+        throw failure.reason;
+      }
       if (
         (!savedCount && result.pages.length) ||
         result.pages.length - savedCount >= 10

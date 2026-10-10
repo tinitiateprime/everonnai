@@ -25,6 +25,12 @@ import {
   intelligenceDetail,
   pageAssessment,
   screenshotResponse,
+  addAdviceCorrection,
+  withdrawAdviceCorrection,
+  adviceState,
+  createAdviceRevision,
+  adviceRevisionDetail,
+  MAX_ADVICE_REVISIONS_PER_RUN,
 } from "../lib/intelligence/service";
 import { inspectHtml } from "../lib/intelligence/extract";
 import { platformRequest } from "../lib/platform/http";
@@ -54,7 +60,7 @@ test("public-site intelligence persists all page assessments and produces an evi
     assert.ok(path.basename(dir).startsWith("everonn-intelligence-test-"));
     await rm(dir, { recursive: true, force: true });
   });
-  assert.equal(await migrateDatabase(db), 5);
+  assert.equal(await migrateDatabase(db), 6);
   const owner = await createSession(db, {
       issuer: "urn:intelligence",
       subject: "owner",
@@ -416,6 +422,192 @@ test("public-site intelligence persists all page assessments and produces an evi
     (await intelligenceDetail(db, owner.user, project.id, run.id)).reportSha256,
     run.reportSha256,
   );
+
+  // Growth-advice memory: append-only owner corrections and immutable revisions.
+  await assert.rejects(
+    addAdviceCorrection(db, owner.user, project.id, { body: "x" }),
+    /Describe the correction/,
+  );
+  const kept = await addAdviceCorrection(db, owner.user, project.id, {
+      body: "We do not offer delivery; focus on weekday table bookings.",
+      runId: run.id,
+    }),
+    dropped = await addAdviceCorrection(db, owner.user, project.id, {
+      body: "Events are our main business.",
+    });
+  await assert.rejects(
+    projectTransaction(db, owner.user, project.id, true, (client) =>
+      client.query(
+        "UPDATE everonn_platform.advice_corrections SET body='rewritten' WHERE id=$1",
+        [kept.id],
+      ),
+    ),
+    /permission denied|withdrawn once|append-only/,
+  );
+  assert.ok(
+    (await withdrawAdviceCorrection(db, owner.user, project.id, dropped.id))
+      .withdrawnAt,
+  );
+  await assert.rejects(
+    withdrawAdviceCorrection(db, owner.user, project.id, dropped.id),
+    /already withdrawn/,
+  );
+  await assert.rejects(
+    addAdviceCorrection(db, other.user, project.id, { body: "Not mine" }),
+    /do not have access|unavailable/,
+  );
+  const adviceKey = { requestKey: randomUUID() },
+    revised = await createAdviceRevision(
+      db,
+      store,
+      owner.user,
+      project.id,
+      run.id,
+      adviceKey,
+    );
+  // Fixture runs never call a model, so the revision honestly records no advice.
+  assert.equal(revised.advice.status, "not_configured");
+  assert.equal(revised.revision.reportSha256, run.reportSha256);
+  assert.deepEqual(revised.revision.correctionIds, [kept.id]);
+  assert.equal(
+    (
+      await createAdviceRevision(
+        db,
+        store,
+        owner.user,
+        project.id,
+        run.id,
+        adviceKey,
+      )
+    ).revision.id,
+    revised.revision.id,
+  );
+  await assert.rejects(
+    createAdviceRevision(
+      db,
+      store,
+      owner.user,
+      project.id,
+      blocked.id,
+      adviceKey,
+    ),
+    /different report/,
+  );
+  assert.equal(
+    (
+      await adviceRevisionDetail(
+        db,
+        store,
+        owner.user,
+        project.id,
+        run.id,
+        revised.revision.id,
+      )
+    ).advice.status,
+    "not_configured",
+  );
+  await assert.rejects(
+    adviceState(db, other.user, otherProject.id, run.id),
+    /unavailable|do not have access/,
+  );
+  await assert.rejects(
+    projectTransaction(db, owner.user, project.id, true, (client) =>
+      client.query(
+        "UPDATE everonn_platform.advice_revisions SET status='available' WHERE id=$1",
+        [revised.revision.id],
+      ),
+    ),
+  );
+  for (let n = 1; n < MAX_ADVICE_REVISIONS_PER_RUN; n++)
+    await createAdviceRevision(db, store, owner.user, project.id, run.id, {
+      requestKey: randomUUID(),
+    });
+  await assert.rejects(
+    createAdviceRevision(db, store, owner.user, project.id, run.id, {
+      requestKey: randomUUID(),
+    }),
+    /advice revisions/,
+  );
+  const memory = await adviceState(db, owner.user, project.id, run.id);
+  assert.equal(memory.revisions.length, MAX_ADVICE_REVISIONS_PER_RUN);
+  assert.deepEqual(
+    memory.corrections
+      .filter((item) => !item.withdrawnAt)
+      .map((item) => item.id),
+    [kept.id],
+  );
+
+  // A batch that fails after its lease expired must not change the run's state.
+  const fenced = await startIntelligence(
+    db,
+    store,
+    owner.user,
+    project.id,
+    { snapshotId: snapshot.id, requestKey: randomUUID() },
+    runtime,
+  );
+  const stop = new AbortController();
+  let expired = false;
+  const expiringResource: typeof safeResource = async (value, options) => {
+    if (!expired) {
+      expired = true;
+      await projectTransaction(db, owner.user, project.id, true, (client) =>
+        client.query(
+          "UPDATE everonn_platform.intelligence_runs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1",
+          [fenced.id],
+        ),
+      );
+      stop.abort();
+    }
+    return resource(value, options);
+  };
+  await runIntelligenceBatch(
+    db,
+    store,
+    owner.user,
+    project.id,
+    fenced.id,
+    stop.signal,
+    { ...runtime, resource: expiringResource },
+  ).catch(() => undefined);
+  assert.ok(expired, "the batch reached its first resource request");
+  const stale = await intelligenceDetail(db, owner.user, project.id, fenced.id);
+  assert.equal(stale.status, "running");
+  assert.equal(stale.leaseActive, false);
+  assert.equal(stale.error, null);
+  // A fresh claim pauses the expired lease and continues from accepted progress.
+  let resumed = await runIntelligenceBatch(
+    db,
+    store,
+    owner.user,
+    project.id,
+    fenced.id,
+    undefined,
+    runtime,
+  );
+  assert.ok(resumed.leaseToken > stale.leaseToken);
+  while (resumed.stage < 2)
+    resumed = await runIntelligenceBatch(
+      db,
+      store,
+      owner.user,
+      project.id,
+      fenced.id,
+      undefined,
+      runtime,
+    );
+  const resumedReport = await intelligenceReport(
+    db,
+    store,
+    owner.user,
+    project.id,
+    fenced.id,
+  );
+  // No accepted work was lost to the stale batch: every page is browser-assessed,
+  // and the status matches the main run over the same (source-partial) snapshot.
+  assert.equal(resumed.processedPages, 3);
+  assert.equal(resumed.browserPages, 3);
+  assert.equal(resumedReport.report.status, report.status);
 });
 test("inventory parser retains scoped feature and semantic evidence without inventing backend success", () => {
   const data = inspectHtml(html("/"), origin + "/", randomUUID());

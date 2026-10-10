@@ -29,7 +29,11 @@ import {
   validateDesign,
   type DesignResult,
   type Design,
+  requireThemedDesign,
+  type DesignBrief,
 } from "./design";
+import { readSkill } from "../website-skill";
+import { designGuidance } from "../intelligence/service";
 import { generateSource, compileSite, type SiteContent } from "./compiler";
 import {
   verifySite,
@@ -212,9 +216,15 @@ export async function startBuild(
       : models[(alternative.slot - 1) % models.length].id,
     nextVersion,
     nodeVersion: process.versions.node,
-    instructionVersion: "original-css-family-v2",
+    instructionVersion: "context-theme-v3",
     featureVersion: "enquiry-1.0.0",
+    designSkillSha256: digest(
+      Buffer.from(await readSkill("website-designer", "Website designer")),
+    ),
   };
+  // Fix the owner's current improvement brief (growth-advice prompt + corrections)
+  // into the immutable build inputs; later advice or corrections need a new build.
+  const guidance = await designGuidance(db, store, actor, projectId);
   const inputs: Build["inputs"] = {
     snapshotId: snapshot.snapshot.id,
     snapshotSha256: snapshot.snapshot.manifestSha256,
@@ -224,6 +234,7 @@ export async function startBuild(
     blueprintSha256: blueprint.record.contentSha256,
     configSha256: digest(encode(generation)),
     generation,
+    guidance,
     mode:
       test || snapshot.snapshot.scope.evidenceMode === "fixture"
         ? "fixture"
@@ -330,6 +341,42 @@ async function readDesign(
     Buffer.from(object.bytes).toString(),
   ) as DesignResult;
   return { ...value, design: validateDesign(value.design) };
+}
+/** The accepted design's reasoning, context read and theme (no CSS) for display. */
+export async function buildDesignSummary(
+  db: PlatformDatabase,
+  store: ObjectStore,
+  actor: Actor,
+  projectId: string,
+  id: string,
+) {
+  const build = await projectTransaction(
+    db,
+    actor,
+    projectId,
+    false,
+    (client) => buildRow(client, id),
+  );
+  const { design, model, mode } = await readDesign(
+    db,
+    store,
+    actor,
+    projectId,
+    build,
+  );
+  return {
+    model,
+    mode,
+    name: design.name,
+    rationale: design.rationale,
+    context: design.context ?? null,
+    theme: design.theme ?? null,
+    navigation: design.navigation,
+    hero: design.hero,
+    content: design.content,
+    briefApplied: Boolean(build.inputs.guidance?.agentPrompt),
+    correctionsApplied: build.inputs.guidance?.corrections.length ?? 0,
+  };
 }
 async function siteContent(
   db: PlatformDatabase,
@@ -712,6 +759,23 @@ export async function runBuildStage(
             )
           ).rows[0].slot,
       );
+      const guidance = build.inputs.guidance;
+      const content = await siteContent(db, store, actor, projectId, build);
+      // Real page headings and excerpts let the designer read the business's context.
+      const brief: DesignBrief = {
+        pages: content.pages.slice(0, 60).map((page) => ({
+          path: page.path,
+          title: page.title,
+          family: page.family,
+          headings: page.headings.slice(0, 6),
+          excerpt: page.text.slice(0, 700),
+        })),
+        ...(guidance?.agentPrompt ? { agentPrompt: guidance.agentPrompt } : {}),
+        ...(guidance?.customerGaps
+          ? { customerGaps: guidance.customerGaps }
+          : {}),
+        corrections: guidance?.corrections.map((item) => item.body) ?? [],
+      };
       const result = await (runtime.design ?? createDesign)(
         blueprint.document,
         facts.document.facts,
@@ -719,8 +783,10 @@ export async function runBuildStage(
         peers,
         combined,
         build.inputs.generation.preferredModel,
+        brief,
       );
       result.design = validateDesign(result.design);
+      if (build.inputs.mode === "live") requireThemedDesign(result.design);
       if (
         peers.some(
           (peer) =>

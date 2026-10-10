@@ -12,6 +12,7 @@
     "test:platform:browser": "node --import tsx scripts/platform-browser-check.ts",
     "verify:discovery:live": "node --import tsx scripts/platform-discovery-live.ts",
     "verify:platform:live": "node --import tsx scripts/platform-website-live.ts",
+    "verify:advice:live": "node --import tsx scripts/intelligence-advice-live.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",

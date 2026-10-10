@@ -58,8 +58,8 @@ test("project foundation uses real SQL isolation, immutable private artifacts an
     assert.ok(path.basename(resolved).startsWith("everonn-platform-test-"));
     await rm(resolved, { recursive: true, force: true });
   });
-  assert.equal(await migrateDatabase(db), 5);
-  assert.equal(await migrateDatabase(db), 5);
+  assert.equal(await migrateDatabase(db), 6);
+  assert.equal(await migrateDatabase(db), 6);
   const first = await createSession(db, {
     issuer: "https://identity.example.com",
     subject: "alice",

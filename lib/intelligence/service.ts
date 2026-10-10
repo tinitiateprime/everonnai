@@ -29,9 +29,13 @@ import {
 import { aggregateReport, browserFindings } from "./aggregate";
 import { adviseReport } from "./adviser";
 import {
+  adviceCorrectionInput,
+  adviceRevisionInput,
   intelligenceInput,
   intelligenceVersion,
   type Advice,
+  type AdviceCorrection,
+  type AdviceRevision,
   type IntelligenceReport,
   type IntelligenceRun,
   type PageAssessment,
@@ -695,7 +699,19 @@ export async function runIntelligenceBatch(
         limitations: [],
       };
       let report = aggregateReport(run, snapshot, members, pages, empty);
-      const advice = await adviseReport(report, run.config, signal);
+      const corrections = await projectTransaction(
+        db,
+        actor,
+        projectId,
+        false,
+        (client) => activeCorrections(client),
+      );
+      const advice = await adviseReport(
+        report,
+        run.config,
+        signal,
+        corrections,
+      );
       signal.throwIfAborted();
       report = { ...report, advice };
       const object = await prepareObject(
@@ -747,7 +763,13 @@ export async function runIntelligenceBatch(
   } catch (error) {
     await projectTransaction(db, actor, projectId, true, async (client) => {
       const current = await row(client, id);
-      if (current.leaseToken === token && current.status === "running") {
+      // Fenced like accepted writes: an expired or superseded lease must not change
+      // operational state that a newer batch may now own.
+      if (
+        current.leaseToken === token &&
+        current.status === "running" &&
+        current.leaseActive
+      ) {
         await client.query(
           "UPDATE everonn_platform.intelligence_runs SET status=$2,lease_expires_at=NULL,error=$3 WHERE id=$1",
           [
@@ -813,4 +835,358 @@ export async function screenshotResponse(
       "Content-Security-Policy": "default-src 'none'",
     },
   });
+}
+
+// ---- Growth advice memory and revisions -------------------------------------------
+const correctionColumns = `id,run_id AS "runId",body,created_at::text AS "createdAt",withdrawn_at::text AS "withdrawnAt"`;
+const revisionColumns = `id,run_id AS "runId",request_key AS "requestKey",report_sha256 AS "reportSha256",correction_ids AS "correctionIds",status,model,object_id AS "objectId",object_sha256 AS "objectSha256",created_at::text AS "createdAt"`;
+/** Regeneration calls the configured provider; bound the spend per sealed report. */
+export const MAX_ADVICE_REVISIONS_PER_RUN = 20;
+async function activeCorrections(client: SqlClient) {
+  return (
+    await client.query<AdviceCorrection>(
+      `SELECT ${correctionColumns} FROM everonn_platform.advice_corrections WHERE withdrawn_at IS NULL ORDER BY created_at,id LIMIT 200`,
+    )
+  ).rows;
+}
+/** Owner corrections (all, including withdrawn) and advice revisions for a run. */
+export async function adviceState(
+  db: PlatformDatabase,
+  actor: Actor,
+  projectId: string,
+  runId: string,
+) {
+  return projectTransaction(db, actor, projectId, false, async (client) => {
+    await row(client, runId);
+    return {
+      corrections: (
+        await client.query<AdviceCorrection>(
+          `SELECT ${correctionColumns} FROM everonn_platform.advice_corrections ORDER BY created_at DESC,id DESC LIMIT 200`,
+        )
+      ).rows,
+      revisions: (
+        await client.query<AdviceRevision>(
+          `SELECT ${revisionColumns} FROM everonn_platform.advice_revisions WHERE run_id=$1 ORDER BY created_at DESC,id DESC`,
+          [runId],
+        )
+      ).rows,
+    };
+  });
+}
+export async function addAdviceCorrection(
+  db: PlatformDatabase,
+  actor: Actor,
+  projectId: string,
+  input: unknown,
+) {
+  const data = adviceCorrectionInput.parse(input);
+  return projectTransaction(
+    db,
+    actor,
+    projectId,
+    true,
+    async (client, project) => {
+      if (data.runId) await row(client, data.runId);
+      const id = randomUUID();
+      await client.query(
+        "INSERT INTO everonn_platform.advice_corrections(id,tenant_id,project_id,run_id,body,created_by) VALUES($1,$2,$3,$4,$5,$6)",
+        [
+          id,
+          project.tenantId,
+          projectId,
+          data.runId ?? null,
+          data.body,
+          actor.id,
+        ],
+      );
+      await audit(
+        client,
+        actor,
+        project.tenantId,
+        projectId,
+        "advice.corrected",
+        id,
+      );
+      return (
+        await client.query<AdviceCorrection>(
+          `SELECT ${correctionColumns} FROM everonn_platform.advice_corrections WHERE id=$1`,
+          [id],
+        )
+      ).rows[0];
+    },
+  );
+}
+export async function withdrawAdviceCorrection(
+  db: PlatformDatabase,
+  actor: Actor,
+  projectId: string,
+  id: string,
+) {
+  uuid.parse(id);
+  return projectTransaction(
+    db,
+    actor,
+    projectId,
+    true,
+    async (client, project) => {
+      const updated = await client.query<AdviceCorrection>(
+        `UPDATE everonn_platform.advice_corrections SET withdrawn_at=clock_timestamp(),withdrawn_by=$2 WHERE id=$1 AND withdrawn_at IS NULL RETURNING ${correctionColumns}`,
+        [id, actor.id],
+      );
+      if (!updated.rows[0])
+        throw new PlatformError(
+          "This correction is unavailable or was already withdrawn.",
+          404,
+        );
+      await audit(
+        client,
+        actor,
+        project.tenantId,
+        projectId,
+        "advice.correction_withdrawn",
+        id,
+      );
+      return updated.rows[0];
+    },
+  );
+}
+async function revisionAdvice(
+  db: PlatformDatabase,
+  store: ObjectStore,
+  actor: Actor,
+  projectId: string,
+  revision: AdviceRevision,
+) {
+  const artifact = await loadArtifact(
+    db,
+    store,
+    actor,
+    projectId,
+    revision.objectId,
+  );
+  if (artifact.record.sha256 !== revision.objectSha256)
+    throw new PlatformError("Advice revision integrity failed.", 503);
+  return JSON.parse(Buffer.from(artifact.bytes).toString()) as Advice;
+}
+export async function adviceRevisionDetail(
+  db: PlatformDatabase,
+  store: ObjectStore,
+  actor: Actor,
+  projectId: string,
+  runId: string,
+  revisionId: string,
+) {
+  uuid.parse(revisionId);
+  const revision = await projectTransaction(
+    db,
+    actor,
+    projectId,
+    false,
+    async (client) => {
+      await row(client, runId);
+      return (
+        await client.query<AdviceRevision>(
+          `SELECT ${revisionColumns} FROM everonn_platform.advice_revisions WHERE id=$1 AND run_id=$2`,
+          [revisionId, runId],
+        )
+      ).rows[0];
+    },
+  );
+  if (!revision)
+    throw new PlatformError("This advice revision is unavailable.", 404);
+  return {
+    revision,
+    advice: await revisionAdvice(db, store, actor, projectId, revision),
+  };
+}
+/**
+ * Regenerates growth advice for a sealed report using the owner's current corrections.
+ * The sealed report is not modified; the result is a new immutable revision.
+ */
+export async function createAdviceRevision(
+  db: PlatformDatabase,
+  store: ObjectStore,
+  actor: Actor,
+  projectId: string,
+  runId: string,
+  input: unknown,
+  signal?: AbortSignal,
+) {
+  const data = adviceRevisionInput.parse(input);
+  const existing = async (client: SqlClient) =>
+    (
+      await client.query<AdviceRevision>(
+        `SELECT ${revisionColumns} FROM everonn_platform.advice_revisions WHERE request_key=$1`,
+        [data.requestKey],
+      )
+    ).rows[0];
+  const replay = (revision: AdviceRevision) => {
+    if (revision.runId !== runId)
+      throw new PlatformError(
+        "This advice request key belongs to a different report.",
+        409,
+      );
+    return revision;
+  };
+  const prior = await projectTransaction(
+    db,
+    actor,
+    projectId,
+    true,
+    async (client) => {
+      const found = await existing(client);
+      if (found) return replay(found);
+      const count = (
+        await client.query<{ n: number }>(
+          "SELECT count(*)::int AS n FROM everonn_platform.advice_revisions WHERE run_id=$1",
+          [runId],
+        )
+      ).rows[0].n;
+      if (count >= MAX_ADVICE_REVISIONS_PER_RUN)
+        throw new PlatformError(
+          `This report already has ${MAX_ADVICE_REVISIONS_PER_RUN} advice revisions. Create a fresh report to continue.`,
+          409,
+        );
+      return null;
+    },
+  );
+  if (prior)
+    return {
+      revision: prior,
+      advice: await revisionAdvice(db, store, actor, projectId, prior),
+    };
+  // Verifies sealed-report identity and hash before any provider call.
+  const { run, report } = await intelligenceReport(
+    db,
+    store,
+    actor,
+    projectId,
+    runId,
+  );
+  const corrections = await projectTransaction(
+    db,
+    actor,
+    projectId,
+    false,
+    (client) => activeCorrections(client),
+  );
+  const advice = await adviseReport(report, run.config, signal, corrections);
+  signal?.throwIfAborted();
+  return projectTransaction(
+    db,
+    actor,
+    projectId,
+    true,
+    async (client, project) => {
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+        [`advice:${projectId}`],
+      );
+      const raced = await existing(client);
+      if (raced)
+        return {
+          revision: replay(raced),
+          advice: await revisionAdvice(db, store, actor, projectId, raced),
+        };
+      const object = await prepareObject(
+        store,
+        project,
+        encode(advice),
+        "website-growth-advice.json",
+      );
+      await registerObject(client, actor, project, object);
+      const id = randomUUID();
+      await client.query(
+        "INSERT INTO everonn_platform.advice_revisions(id,tenant_id,project_id,run_id,request_key,report_sha256,correction_ids,status,model,object_id,object_sha256,created_by) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11,$12)",
+        [
+          id,
+          project.tenantId,
+          projectId,
+          runId,
+          data.requestKey,
+          run.reportSha256,
+          JSON.stringify(corrections.map((item) => item.id)),
+          advice.status,
+          advice.model,
+          object.id,
+          object.sha256,
+          actor.id,
+        ],
+      );
+      await audit(
+        client,
+        actor,
+        project.tenantId,
+        projectId,
+        "advice.revised",
+        id,
+      );
+      return {
+        revision: (
+          await client.query<AdviceRevision>(
+            `SELECT ${revisionColumns} FROM everonn_platform.advice_revisions WHERE id=$1`,
+            [id],
+          )
+        ).rows[0],
+        advice,
+      };
+    },
+  );
+}
+/**
+ * The owner's current improvement brief for website design: the agent prompt from the
+ * newest growth advice (latest revision, else the sealed report's own advice) of the
+ * newest sealed intelligence report, plus active owner corrections. Null fields mean
+ * no growth advice exists yet; design then relies on facts and page evidence alone.
+ */
+export async function designGuidance(
+  db: PlatformDatabase,
+  store: ObjectStore,
+  actor: Actor,
+  projectId: string,
+) {
+  const { latest, revision, corrections } = await projectTransaction(
+    db,
+    actor,
+    projectId,
+    false,
+    async (client) => {
+      const latest = (
+        await client.query<IntelligenceRun>(
+          `SELECT ${columns} FROM everonn_platform.intelligence_runs WHERE status IN ('complete','partial') ORDER BY created_at DESC,id DESC LIMIT 1`,
+        )
+      ).rows[0];
+      return {
+        latest,
+        revision: latest
+          ? (
+              await client.query<AdviceRevision>(
+                `SELECT ${revisionColumns} FROM everonn_platform.advice_revisions WHERE run_id=$1 AND status='available' ORDER BY created_at DESC,id DESC LIMIT 1`,
+                [latest.id],
+              )
+            ).rows[0]
+          : undefined,
+        corrections: await activeCorrections(client),
+      };
+    },
+  );
+  let advice: Advice | null = null;
+  if (revision)
+    advice = await revisionAdvice(db, store, actor, projectId, revision);
+  else if (latest)
+    advice = (await intelligenceReport(db, store, actor, projectId, latest.id))
+      .report.advice;
+  const growth = advice?.status === "available" ? advice.growth : undefined;
+  return {
+    source: growth
+      ? {
+          runId: latest!.id,
+          reportSha256: latest!.reportSha256!,
+          adviceRevisionId: revision?.id ?? null,
+        }
+      : null,
+    agentPrompt: growth?.agentPrompt ?? null,
+    customerGaps: growth?.customerGaps ?? null,
+    corrections: corrections.map(({ id, body }) => ({ id, body })),
+  };
 }

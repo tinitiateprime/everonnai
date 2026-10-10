@@ -64,6 +64,7 @@ import {
   startBuild,
   runBuildStage,
   listBuilds,
+  buildDesignSummary,
   buildDetail,
   previewResponse,
   buildDownload,
@@ -83,6 +84,11 @@ import {
   intelligenceDetail,
   runIntelligenceBatch,
   intelligenceReport,
+  adviceState,
+  addAdviceCorrection,
+  withdrawAdviceCorrection,
+  createAdviceRevision,
+  adviceRevisionDetail,
   pageAssessment,
   screenshotResponse,
 } from "../intelligence/service";
@@ -234,6 +240,30 @@ export async function platformRequest(
       );
     if (segments[0] === "projects") {
       const projectId = segments[1];
+      // Owner corrections remembered by the growth-advisor agent for this project.
+      if (segments[2] === "advice-corrections" && request.method === "POST") {
+        if (segments.length === 3)
+          return json(
+            {
+              correction: await addAdviceCorrection(
+                db,
+                actor,
+                projectId,
+                await readJson(request, 8000),
+              ),
+            },
+            201,
+          );
+        if (segments.length === 5 && segments[4] === "withdraw")
+          return json({
+            correction: await withdrawAdviceCorrection(
+              db,
+              actor,
+              projectId,
+              segments[3],
+            ),
+          });
+      }
       if (segments[2] === "intelligence-runs") {
         const store = dependencies.store ?? getObjectStore();
         const fixture = browserFixtureRuntime();
@@ -306,6 +336,39 @@ export async function platformRequest(
             });
           return json(result);
         }
+        // Growth advice: memory-aware regenerations of a sealed report's advice.
+        if (segments.length === 5 && segments[4] === "advice") {
+          if (request.method === "GET")
+            return json(await adviceState(db, actor, projectId, segments[3]));
+          if (request.method === "POST")
+            return json(
+              await createAdviceRevision(
+                db,
+                store,
+                actor,
+                projectId,
+                segments[3],
+                await readJson(request, 4000),
+                request.signal,
+              ),
+              201,
+            );
+        }
+        if (
+          segments.length === 6 &&
+          segments[4] === "advice" &&
+          request.method === "GET"
+        )
+          return json(
+            await adviceRevisionDetail(
+              db,
+              store,
+              actor,
+              projectId,
+              segments[3],
+              segments[5],
+            ),
+          );
         if (
           segments.length === 6 &&
           segments[4] === "pages" &&
@@ -512,6 +575,20 @@ export async function platformRequest(
             );
           if (segments.length === 4 && request.method === "GET")
             return json(await buildDetail(db, actor, projectId, segments[3]));
+          if (
+            segments.length === 5 &&
+            segments[4] === "design" &&
+            request.method === "GET"
+          )
+            return json({
+              design: await buildDesignSummary(
+                db,
+                dependencies.store ?? getObjectStore(),
+                actor,
+                projectId,
+                segments[3],
+              ),
+            });
           if (
             segments.length === 5 &&
             segments[4] === "run" &&

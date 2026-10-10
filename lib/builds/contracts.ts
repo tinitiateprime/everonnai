@@ -51,8 +51,25 @@ export type Build = {
       nodeVersion: string;
       instructionVersion: string;
       featureVersion: string;
+      /** SHA-256 of the website-designer SKILL.md (context-theme builds onward). */
+      designSkillSha256?: string;
     };
     mode: "live" | "fixture";
+    /**
+     * Owner improvement brief fixed when the build started (context-theme builds
+     * onward): growth-advice agent prompt and gaps with their source report/revision,
+     * and the owner's active corrections.
+     */
+    guidance?: {
+      source: {
+        runId: string;
+        reportSha256: string;
+        adviceRevisionId: string | null;
+      } | null;
+      agentPrompt: string | null;
+      customerGaps: string | null;
+      corrections: { id: string; body: string }[];
+    };
   };
 };
 export type BuildManifest = {

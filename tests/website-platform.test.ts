@@ -69,7 +69,7 @@ test("local workspace creates missing parent directories and three complete veri
     assert.ok(path.basename(resolved).startsWith("everonn-website-pipeline-"));
     await rm(resolved, { recursive: true, force: true });
   });
-  assert.equal(await migrateDatabase(db), 5);
+  assert.equal(await migrateDatabase(db), 6);
   const { user } = await createSession(db, {
       issuer: "urn:pipeline:test",
       subject: "owner",

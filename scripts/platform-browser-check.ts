@@ -172,18 +172,35 @@ async function main() {
     assert.equal(partialSnapshot.coverage.complete, false);
     const partialCount = partialSnapshot.coverage.captured as number;
     const frozenHash = partialSnapshot.manifestSha256 as string;
-    await page
-      .getByRole("button", { name: "Read captured page", exact: true })
-      .first()
-      .click();
-    await page
-      .locator(".discovery-evidence pre")
-      .filter({ hasText: /FULL_EVIDENCE_END_/ })
-      .waitFor();
-    assert.ok(
-      (await page.locator(".discovery-evidence pre").innerText()).length >
-        12000,
+    // The workspace shows only page counts while crawling (no per-page list or
+    // captured-page viewer); full captured evidence stays available privately.
+    assert.equal(
+      await page.getByText(/(Scan|Snapshot) page inventory/).count(),
+      0,
     );
+    assert.equal(
+      await page.getByRole("button", { name: "Read captured page" }).count(),
+      0,
+    );
+    await page
+      .getByTestId("scan-progress")
+      .filter({ hasText: /pages captured/ })
+      .waitFor();
+    const inventory = await (
+      await context.request.get(
+        `${projectApi}/snapshots/${partialSnapshot.id}?offset=0`,
+      )
+    ).json();
+    const capturedPage = inventory.pages.find(
+      (item: { captureId?: string }) => item.captureId,
+    );
+    const capturedEvidence = await (
+      await context.request.get(
+        `${projectApi}/snapshots/${partialSnapshot.id}/pages/${capturedPage.captureId}`,
+      )
+    ).json();
+    assert.match(capturedEvidence.evidence.page.text, /FULL_EVIDENCE_END_/);
+    assert.ok(capturedEvidence.evidence.page.text.length > 12000);
     // Exercise the recovery display with expired lease metadata. Actual lease
     // reclamation/late-writer fencing is tested against SQL separately.
     await page.route(projectApi + "/discovery-runs", async (route) => {
@@ -308,6 +325,18 @@ async function main() {
         (item: { area: string }) => item.area === "seo",
       ),
     );
+    // Before the agent has generated a website, owners cannot correct it yet.
+    await page
+      .getByRole("heading", {
+        name: "How our agent can make your website better",
+      })
+      .waitFor();
+    assert.equal(await page.getByLabel("Correct the agent").count(), 0);
+    await page
+      .getByText(
+        /Once the agent has generated your website, you can correct it/,
+      )
+      .waitFor();
     await page.getByRole("tab", { name: "Findings", exact: true }).click();
     await page.getByLabel("Filter audit findings").fill("SEO");
     await page
@@ -415,6 +444,9 @@ async function main() {
         .count(),
       3,
     );
+    // With generated websites, the report's growth advice offers corrections.
+    await page.getByRole("tab", { name: "Overview", exact: true }).click();
+    await page.getByLabel("Correct the agent").waitFor({ timeout: 20_000 });
     const buildHistory = await (
       await context.request.get(projectApi + "/builds")
     ).json();

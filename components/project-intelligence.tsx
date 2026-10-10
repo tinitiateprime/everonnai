@@ -6,6 +6,7 @@ import type {
   PageAssessment,
 } from "@/lib/intelligence/contracts";
 import type { Scan, Snapshot } from "@/lib/discovery/contracts";
+import { GrowthAdvice } from "./growth-advice";
 async function api<T>(
   url: string,
   body?: unknown,
@@ -43,6 +44,7 @@ export function ProjectIntelligence({
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]),
     [snapshotId, setSnapshotId] = useState(""),
     [sourceScan, setSourceScan] = useState<Scan | null>(null);
+  const working = useRef(false);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [progress, setProgress] = useState(""),
@@ -102,6 +104,9 @@ export function ProjectIntelligence({
     return () => clearInterval(timer);
   }, [base, run]);
   async function action(work: () => Promise<void>) {
+    // Ignore a second click that arrives before `busy` has disabled the buttons.
+    if (working.current) return;
+    working.current = true;
     setBusy(true);
     setError("");
     try {
@@ -110,6 +115,7 @@ export function ProjectIntelligence({
       if (!(issue instanceof DOMException && issue.name === "AbortError"))
         setError(issue instanceof Error ? issue.message : "Inspection failed.");
     } finally {
+      working.current = false;
       continuing.current = false;
       controller.current = null;
       setBusy(false);
@@ -437,6 +443,15 @@ export function ProjectIntelligence({
           >
             {tab === "overview" && (
               <>
+                {run && (
+                  <GrowthAdvice
+                    key={run.id}
+                    projectId={projectId}
+                    runId={run.id}
+                    report={report}
+                    canEdit={canEdit}
+                  />
+                )}
                 <h4>What is on this website</h4>
                 <p>
                   {report.summary.pages} pages · {report.summary.features}{" "}

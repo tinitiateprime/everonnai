@@ -3,6 +3,15 @@ import type { Coverage, Snapshot } from "../discovery/contracts";
 export const intelligenceInput = z
   .object({ snapshotId: z.uuid(), requestKey: z.uuid() })
   .strict();
+/** Owner correction to remember for later growth advice on this project. */
+export const adviceCorrectionInput = z
+  .object({
+    body: z.string().trim().min(3, "Describe the correction.").max(2000),
+    runId: z.uuid().optional(),
+  })
+  .strict();
+/** Regenerate growth advice for a sealed report with the current corrections. */
+export const adviceRevisionInput = z.object({ requestKey: z.uuid() }).strict();
 export const intelligenceVersion = "site-intelligence-v1";
 export type Reference = {
   id: string;
@@ -254,7 +263,44 @@ export type Advice = {
     evidenceIds: string[];
     acceptance: string[];
   }[];
+  /**
+   * Plain-language growth advice from the site-growth-advisor skill. Optional so
+   * reports sealed before this field existed remain valid.
+   */
+  growth?: GrowthAdvice;
   limitations: string[];
+};
+export type GrowthAdvice = {
+  /** Free text: what the website lacks to attract customers. */
+  customerGaps: string;
+  /** Free text: how the EverOnn agent will enhance the website. */
+  enhancementPlan: string;
+  /** Plain prompt the agent will work from; owner-editable. */
+  agentPrompt: string;
+  evidenceIds: string[];
+  /** Owner corrections (advice memory) the model reported applying. */
+  appliedCorrectionIds: string[];
+};
+/** Owner correction remembered for later advice on this project. */
+export type AdviceCorrection = {
+  id: string;
+  runId: string | null;
+  body: string;
+  createdAt: string;
+  withdrawnAt: string | null;
+};
+/** Immutable advice regenerated from a sealed report with the current corrections. */
+export type AdviceRevision = {
+  id: string;
+  runId: string;
+  requestKey: string;
+  reportSha256: string;
+  correctionIds: string[];
+  status: Advice["status"];
+  model: string | null;
+  objectId: string;
+  objectSha256: string;
+  createdAt: string;
 };
 export type IntelligenceReport = {
   version: 1;

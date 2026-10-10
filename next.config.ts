@@ -16,7 +16,11 @@ const config: NextConfig = {
   ],
   poweredByHeader: false,
   outputFileTracingIncludes: {
-    "/api/platform/*": ["./db/migrations/*.sql"],
+    "/api/platform/*": [
+      "./db/migrations/*.sql",
+      "./ai/capabilities/site-growth-advisor/SKILL.md",
+      "./ai/capabilities/website-designer/SKILL.md",
+    ],
     "/api/plan": ["./ai/capabilities/website-building/SKILL.md"],
     "/api/generate": ["./ai/capabilities/website-building/SKILL.md"],
     "/api/refine": ["./ai/capabilities/website-building/SKILL.md"],

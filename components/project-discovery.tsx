@@ -1,12 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  Capture,
-  InventoryPage,
-  Scan,
-  Snapshot,
-} from "@/lib/discovery/contracts";
-import type { SourcePage } from "@/lib/types";
+import type { Scan, Snapshot } from "@/lib/discovery/contracts";
 
 async function request<T>(
   route: string,
@@ -45,21 +39,14 @@ export function ProjectDiscovery({
     [scan, setScan] = useState<Scan | null>(null);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]),
     [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [pages, setPages] = useState<InventoryPage[]>([]),
-    [total, setTotal] = useState(0),
-    [offset, setOffset] = useState(0);
-  const [evidence, setEvidence] = useState<{
-    capture: Capture;
-    evidence: { page: SourcePage };
-  } | null>(null);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [partial, setPartial] = useState(false);
+  const working = useRef(false);
   const automatic = useRef(false),
     active = useRef<AbortController | null>(null);
   const scanId = scan?.id,
-    scanStatus = scan?.status,
-    scanRevision = scan?.revision;
+    scanStatus = scan?.status;
   const refreshLists = useCallback(async () => {
     const [runs, history] = await Promise.all([
       request<{ scans: Scan[] }>(base + "/discovery-runs"),
@@ -101,31 +88,11 @@ export function ProjectDiscovery({
       clearInterval(timer);
     };
   }, [base, scanId, scanStatus]);
-  useEffect(() => {
-    let mounted = true;
-    const route = snapshot
-      ? `${base}/snapshots/${snapshot.id}`
-      : scanId
-        ? `${base}/discovery-runs/${scanId}/pages`
-        : null;
-    if (route)
-      void request<{ pages: InventoryPage[]; total: number }>(
-        `${route}?offset=${offset}`,
-      )
-        .then((result) => {
-          if (mounted) {
-            setPages(result.pages);
-            setTotal(result.total);
-          }
-        })
-        .catch((issue) => {
-          if (mounted) setError(issue.message);
-        });
-    return () => {
-      mounted = false;
-    };
-  }, [base, snapshot, scanId, scanRevision, offset]);
   async function action(work: () => Promise<void>) {
+    // `busy` only disables buttons after a re-render; ignore a second click (for
+    // example a double-click on Start new scan) that arrives before that.
+    if (working.current) return;
+    working.current = true;
     setError("");
     setBusy(true);
     try {
@@ -136,6 +103,7 @@ export function ProjectDiscovery({
           issue instanceof Error ? issue.message : "Discovery action failed.",
         );
     } finally {
+      working.current = false;
       setBusy(false);
     }
   }
@@ -145,8 +113,6 @@ export function ProjectDiscovery({
   ) {
     automatic.current = true;
     setSnapshot(null);
-    setEvidence(null);
-    setOffset(0);
     const controller = new AbortController();
     active.current = controller;
     try {
@@ -228,8 +194,6 @@ export function ProjectDiscovery({
                 scans.find((row) => row.id === event.target.value) ?? null;
               setScan(selected);
               setSnapshot(null);
-              setEvidence(null);
-              setOffset(0);
               setPartial(false);
             }}
           >
@@ -260,7 +224,7 @@ export function ProjectDiscovery({
             <p>
               {scan.coverage.complete
                 ? "All discovered pages in this scan's scope were captured."
-                : "The scan finished with gaps. Review skipped pages before continuing."}
+                : "The scan finished with gaps. Retry skipped pages, or continue; the report lists every coverage gap."}
             </p>
           )}
           {canEdit && (
@@ -341,8 +305,6 @@ export function ProjectDiscovery({
                       { allowIncomplete: partial },
                     );
                     setSnapshot(result.snapshot);
-                    setOffset(0);
-                    setEvidence(null);
                     await refreshLists();
                   })
                 }
@@ -365,8 +327,6 @@ export function ProjectDiscovery({
               setSnapshot(
                 snapshots.find((row) => row.id === event.target.value) ?? null,
               );
-              setEvidence(null);
-              setOffset(0);
             }}
           >
             <option value="">Current scan evidence</option>
@@ -403,83 +363,6 @@ export function ProjectDiscovery({
               ))}
             </ul>
           </details>
-        </div>
-      )}
-      {!!total && (
-        <>
-          <h4>
-            {snapshot ? "Snapshot page inventory" : "Scan page inventory"} (
-            {total})
-          </h4>
-          <ul className="discovery-pages">
-            {pages.map((page) => (
-              <li key={page.url}>
-                <div>
-                  <strong>{page.title || page.url}</strong>
-                  <p className="discovery-url">{page.url}</p>
-                  <p>
-                    {page.outcome}
-                    {page.reason ? ` — ${page.reason}` : ""}
-                    {page.capturedAt
-                      ? ` · ${new Date(page.capturedAt).toLocaleString()}`
-                      : ""}
-                  </p>
-                </div>
-                {snapshot && page.captureId && (
-                  <button
-                    disabled={busy}
-                    onClick={() =>
-                      void action(async () =>
-                        setEvidence(
-                          await request(
-                            `${base}/snapshots/${snapshot.id}/pages/${page.captureId}`,
-                          ),
-                        ),
-                      )
-                    }
-                  >
-                    Read captured page
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-          {total > 100 && (
-            <div className="discovery-actions">
-              <button
-                disabled={offset === 0}
-                onClick={() => setOffset(Math.max(0, offset - 100))}
-              >
-                Previous pages
-              </button>
-              <span>
-                {offset + 1}–{Math.min(total, offset + 100)} of {total}
-              </span>
-              <button
-                disabled={offset + 100 >= total}
-                onClick={() => setOffset(offset + 100)}
-              >
-                Next pages
-              </button>
-            </div>
-          )}
-        </>
-      )}
-      {evidence && (
-        <div className="discovery-evidence">
-          <h4>{evidence.evidence.page.title}</h4>
-          <p className="discovery-url">
-            Text SHA-256: {evidence.capture.textSha256}
-          </p>
-          <p>
-            Contacts:{" "}
-            {[
-              ...evidence.evidence.page.emails,
-              ...evidence.evidence.page.phones,
-            ].join(", ") || "None captured"}
-          </p>
-          <pre>{evidence.evidence.page.text}</pre>
-          <button onClick={() => setEvidence(null)}>Close captured page</button>
         </div>
       )}
     </div>

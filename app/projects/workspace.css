@@ -257,35 +257,6 @@
   flex-shrink: 0;
   margin-top: 5px;
 }
-.discovery-pages {
-  list-style: none;
-  padding: 0;
-}
-.discovery-pages li {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  border-bottom: 1px solid #d9e3df;
-  padding: 16px 0;
-}
-.discovery-pages li > div {
-  min-width: 0;
-  flex: 1 1 250px;
-}
-.discovery-pages p {
-  margin: 4px 0;
-}
-.discovery-evidence pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 450px;
-  overflow-y: auto;
-  background: #f2f7f4;
-  padding: 16px;
-  font: inherit;
-}
 @media (max-width: 700px) {
   .workspace-page {
     padding: 24px 16px;
@@ -300,4 +271,96 @@
   .workspace-alternatives {
     grid-template-columns: 1fr;
   }
+}
+
+/* Plain-language growth advice (site-growth-advisor). */
+.growth-advice {
+  border: 1px solid #d7e2cf;
+  background: #f7faf3;
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin: 0 0 20px;
+  display: grid;
+  gap: 10px;
+}
+.growth-advice h4 {
+  margin: 0;
+}
+.growth-advice h5 {
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+.growth-advice button {
+  justify-self: start;
+}
+.growth-summary {
+  font-weight: 600;
+  margin: 0;
+}
+.growth-text {
+  white-space: pre-wrap;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.growth-prompt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #fff;
+  border: 1px solid #d7e2cf;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.growth-meta {
+  font-size: 12px;
+  color: #5f6d57;
+  margin: 0;
+}
+.growth-correction {
+  display: grid;
+  gap: 8px;
+}
+.growth-correction textarea {
+  width: 100%;
+}
+.growth-memory {
+  display: grid;
+  gap: 8px;
+  padding-left: 18px;
+}
+.growth-memory p {
+  margin: 0;
+}
+
+/* Context-aware design summary per generated website. */
+.design-note {
+  margin: 8px 0;
+  font-size: 13px;
+}
+.design-note summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.design-note p {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+.design-swatches {
+  display: flex;
+  gap: 4px;
+  margin: 8px 0;
+}
+.design-swatches span {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid rgb(0 0 0 / 0.15);
+}
+.design-note-meta {
+  color: #5f6d57;
+  font-size: 12px;
 }

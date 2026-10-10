@@ -1,4 +1,5 @@
 "use client";
+import { BuildDesignNote } from "./build-design-note";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   Fact,
@@ -732,6 +733,13 @@ export function ProjectEngineering({
                     <p>Test fixture generation</p>
                   )}
                   {build.error && <p>{build.error}</p>}
+                  {build.designObjectId && (
+                    <BuildDesignNote
+                      key={build.designObjectId}
+                      base={base}
+                      buildId={build.id}
+                    />
+                  )}
                   {build.stage >= 2 && (
                     <p>
                       <a

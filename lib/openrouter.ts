@@ -114,9 +114,11 @@ export async function completion(
   messages: { role: string; content: string }[],
   signal?: AbortSignal,
   schema?: object,
+  // Structured responses default to 5,000 tokens; callers with long text fields raise it.
+  maxOutputTokens?: number,
 ) {
   const outputTokens = Math.min(
-    schema ? 5000 : 12000,
+    maxOutputTokens ?? (schema ? 5000 : 12000),
     model.top_provider?.max_completion_tokens ?? 12000,
   );
   // Conservative context guard: never silently drop the owner's knowledge.
